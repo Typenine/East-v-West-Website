@@ -1,14 +1,26 @@
-// Shared prospect board data for TeamProspectDraftboard and TeamProspectDraftboardCompact
+// Shared 2027 prospect board data for TeamProspectDraftboard and TeamProspectDraftboardCompact.
+// This is an early, pre-2026-season Superflex watchlist. Rankings are intentionally broad
+// and should move as college results and 2027 NFL Draft information arrive.
+
+export const BOARD_VERSION = '2027-preseason-v1';
+export const BOARD_LABEL = '2027 Early Prospect Board';
+
+export type ProspectTrend = 'up' | 'steady' | 'down';
 
 export type BoardPlayer = {
   id: string;
   tier: number;
   name: string;
   pos: string;
+  /** NFL team. TBD until the 2027 NFL Draft. Kept for draft-room compatibility. */
   team: string;
   college: string;
+  /** Initial East v. West Superflex board rank, not an NFL Draft pick number. */
   pick: number;
   s: string[];
+  draftRange?: string;
+  eligibility?: string;
+  trend?: ProspectTrend;
   unlikely?: boolean;
   noFit?: boolean;
   target?: boolean;
@@ -16,120 +28,366 @@ export type BoardPlayer = {
 };
 
 export const INITIAL_PLAYERS: BoardPlayer[] = [
-  { id: 'love', tier: 1, name: 'Jeremiyah Love', pos: 'RB', team: 'ARI', college: 'Notre Dame', pick: 3, s: ['RUSH — 2023: 71-385-1TD (5.4) | 2024: 163-1125-17TD (6.9) | 2025: 199-1372-18TD (6.9)', 'REC  — 2023: 8-77-1TD | 2024: 28-237-2TD | 2025: 27-280-3TD', 'KR   — 2023: 2-42-0TD | 2024: 1-0-0TD', 'MISC — Doak Walker Award winner, unanimous All-American, 21 offensive TDs in 2025'] },
-  { id: 'mendoza', tier: 1, name: 'Fernando Mendoza', pos: 'QB', team: 'LV', college: 'Indiana', pick: 1, s: ['PASS — 2023 (Cal): 1,708 yds, 14 TD, 10 INT, 63.0% | 2024 (Cal): 3,004 yds, 16 TD, 6 INT, 68.7% | 2025 (IND): 3,535 yds, 41 TD, 6 INT, 72.0%', 'RUSH — 2023: 49-86-2TD | 2024: 87-105-2TD | 2025: 90-276-7TD', 'MISC — 2025 Heisman winner; led Indiana to the national title; school-record 41 passing TD'] },
-  { id: 'tate', tier: 1, name: 'Carnell Tate', pos: 'WR', team: 'TEN', college: 'Ohio State', pick: 4, s: ['REC  — 2023: 18-264-1TD (14.7) | 2024: 52-733-4TD (14.1) | 2025: 51-875-9TD (17.2)', 'RUSH — 2025: 2-16-0TD', 'MISC — Ohio State boundary/downfield WR, 2nd-team AA'] },
-  { id: 'tyson', tier: 1, name: 'Jordyn Tyson', pos: 'WR', team: 'NO', college: 'Arizona State', pick: 8, s: ['REC  — 2022 (Colorado): 22-470-5TD (21.4) | 2023 (ASU): 3 G, season-ending knee injury | 2024 (ASU): 75-1101-10TD (14.7) | 2025 (ASU): 61-711-8TD (11.7)', 'RUSH — 2024: 5-42-0TD | 2025: 2-4-1TD', 'PASS — 2025: 0-for-1', 'MISC — Led Big 12 in receptions 2024-25 (136); 1,812 rec yds over two ASU seasons'] },
-  { id: 'lemon', tier: 1, name: 'Makai Lemon', pos: 'WR', team: 'PHI', college: 'USC', pick: 20, s: ['REC  — 2023: 6-88-0TD (14.7) | 2024: 52-764-3TD (14.7) | 2025: 79-1156-11TD (14.6)', 'RUSH — 2025: 9-4-2TD', 'PR   — 2025: 6-71-0TD', 'KR   — 2024: 19-514-0TD | 2025: 8-144-0TD', 'PASS — 2025: 1-1, 24 yds, 1 TD', 'MISC — USC high-volume receiver, Biletnikoff Award winner, 1st-team AA 2025'] },
-  { id: 'price', tier: 2, name: 'Jadarian Price', pos: 'RB', team: 'SEA', college: 'Notre Dame', pick: 32, s: ['RUSH — 2023: 47-272-3TD (5.8) | 2024: 120-746-7TD (6.2) | 2025: 113-674-11TD (6.0)', 'REC  — 2023: 5-65-1TD | 2024: 4-10-0TD | 2025: 6-87-2TD', 'KR   — 2025: 12-450-2TD (37.5)', 'MISC — Missed 2022 with Achilles injury; returned to action in 2023'] },
-  { id: 'concepcion', tier: 2, name: 'KC Concepcion', pos: 'WR', team: 'CLE', college: 'Texas A&M', pick: 24, s: ['REC  — 2023 (NCST): 71-839-10TD | 2024 (NCST): 53-460-6TD (8.7) | 2025 (TAMU): 61-919-9TD (15.1)', 'RUSH — 2023: 41-320-0TD | 2024: 19-36-2TD | 2025: 10-75-1TD', 'PR   — 2024: 5-45-0TD | 2025: 25-456-2TD', 'MISC — NC State → Texas A&M, Paul Hornung/all-purpose profile, 12 total TDs in 2025'] },
-  { id: 'sadiq', tier: 2, name: 'Kenyon Sadiq', pos: 'TE', team: 'NYJ', college: 'Oregon', pick: 16, s: ['REC  — 2023: 5-24-1TD | 2024: 24-308-2TD (12.8) | 2025: 51-560-8TD (11.0)', 'RUSH — 2024: 5-24-0TD | 2025: 3-6-0TD', 'MISC — Oregon receiving TE, Big Ten TE of the Year (2025), 2nd-team AA, 8-TD breakout'] },
-  { id: 'simpson', tier: 2, name: 'Ty Simpson', pos: 'QB', team: 'LAR', college: 'Alabama', pick: 13, s: ['PASS — 2023: 11-20, 179 yds, 0 TD, 0 INT, 55.0% | 2024: 14-25, 167 yds, 0 TD, 0 INT, 56.0% | 2025: 305-473, 3567 yds, 28 TD, 5 INT, 64.5%', 'RUSH — 2023: 14-86-2TD | 2024: 8-44-1TD | 2025: 90-93-2TD', 'MISC — Alabama starter; 5-star recruit who sat behind Milroe for 2 years; Manning Award finalist; lost to Indiana in CFP quarterfinal'] },
-  { id: 'cooper', tier: 2, name: 'Omar Cooper Jr.', pos: 'WR', team: 'NYJ', college: 'Indiana', pick: 30, s: ['REC  — 2023: 18-267-2TD (14.8) | 2024: 28-594-7TD (21.2) | 2025: 69-937-13TD (13.6)', 'RUSH — 2024: 2-23-1TD | 2025: 3-74-1TD', 'MISC — Indiana lead receiver; led national championship team in targets/catches/yards'] },
-  { id: 'stowers', tier: 3, name: 'Eli Stowers', pos: 'TE', team: 'PHI', college: 'Vanderbilt', pick: 54, s: ['REC  — 2024: 49-638-5TD (13.0) | 2025: 62-769-4TD (12.4)', 'RUSH — 2024: 6-7-0TD | 2025: 2-2-0TD', 'MISC — Texas A&M → New Mexico State → Vanderbilt, Mackey Award profile, 1st-team AA'] },
-  { id: 'beck', tier: 3, name: 'Carson Beck', pos: 'QB', team: 'ARI', college: 'Miami', pick: 65, s: ['PASS — 2024 (Georgia): 290-448, 3485 yds, 28 TD, 12 INT, 64.7% | 2025 (Miami): 338-467, 3813 yds, 30 TD, 12 INT, 72.4%', 'RUSH — 2024: 55-71-1TD | 2025: 62-43-2TD', 'REC  — 2025: 1-14-1TD', 'MISC — Georgia → Miami transfer, pocket passer with minimal rushing value'] },
-  { id: 'fields', tier: 3, name: 'Malachi Fields', pos: 'WR', team: 'NYG', college: 'Notre Dame', pick: 74, s: ['REC  — 2023 (Virginia): 58-811-5TD (14.0) | 2024 (Virginia): 55-808-5TD (14.7) | 2025 (Notre Dame): 36-630-5TD (17.5)', 'MISC — Virginia → Notre Dame transfer, efficient vertical/contested-catch profile'] },
-  { id: 'branch', tier: 3, name: 'Zachariah Branch', pos: 'WR', team: 'ATL', college: 'Georgia', pick: 79, s: ['REC  — 2023 (USC): 31-320-2TD (10.3) | 2024 (USC): 47-503-1TD (10.7) | 2025 (Georgia): 81-811-6TD (10.0)', 'RUSH — 2023: 9-70-1TD | 2024: 2-17-0TD | 2025: 4-7-0TD', 'PR   — 2023: 16-332-1TD | 2024: 13-74-0TD | 2025: 15-180-0TD', 'KR   — 2023: 24-442-1TD | 2024: 5-105-0TD | 2025: 10-205-0TD', 'MISC — Georgia slot/return profile; 2025 receiving volume is real'] },
-  { id: 'lane', tier: 3, name: 'Ja\'Kobi Lane', pos: 'WR', team: 'BAL', college: 'USC', pick: 80, s: ['REC  — 2023: 7-93-2TD (13.3) | 2024: 43-525-12TD (12.2) | 2025: 49-745-4TD (15.2)', 'RUSH — No meaningful rushing production', 'MISC — USC outside/red-zone WR; 2024 TD spike remains the profile hook'] },
-  { id: 'hurst', tier: 3, name: 'Ted Hurst', pos: 'WR', team: 'TB', college: 'Georgia State', pick: 84, s: ['REC  — 2024 (Georgia State): 56-961-9TD (17.2) | 2025 (Georgia State): 71-1004-6TD (14.1)', 'RUSH — No meaningful rushing production', 'MISC — Georgia State WR producer, 15 receiving TDs over two GSU seasons'] },
-  { id: 'sarratt', tier: 3, name: 'Elijah Sarratt', pos: 'WR', team: 'BAL', college: 'Indiana', pick: 115, s: ['REC  — 2022 (Saint Francis): 42-700-13TD | 2023 (JMU): 82-1191-8TD (14.5) | 2024 (Indiana): 53-957-8TD (18.1) | 2025 (Indiana): 65-830-15TD (12.8)', 'RUSH — 2022: 7-47-0TD | 2023: 1 rushing TD', 'MISC — Saint Francis → JMU → Indiana, productive transfer path, 2nd-team All-Big Ten (2025)'] },
-  { id: 'singleton', tier: 3, name: 'Nicholas Singleton', pos: 'RB', team: 'TEN', college: 'Penn State', pick: 165, s: ['RUSH — 2022: 156-1061-12TD (6.8) | 2023: 171-752-8TD (4.4) | 2024: 172-1099-12TD (6.4) | 2025: 123-549-13TD (4.5)', 'REC  — 2022: 11-85-1TD | 2023: 26-308-2TD | 2024: 41-375-5TD | 2025: 24-219-1TD', 'MISC — Split backfield with Kaytron Allen, Penn State career record 45 rushing TDs'] },
-  { id: 'stribling', tier: 4, name: 'De\'Zhaun Stribling', pos: 'WR', team: 'SF', college: 'Ole Miss', pick: 33, s: ['REC  — 2023 (OKST): 14-198-1TD (14.1) | 2024 (OKST): 52-882-6TD (17.0) | 2025 (Ole Miss): 55-811-6TD (14.7)', 'RUSH — No meaningful rushing production', 'MISC — Washington State → Oklahoma State → Ole Miss transfer path'] },
-  { id: 'boston', tier: 4, name: 'Denzel Boston', pos: 'WR', team: 'CLE', college: 'Washington', pick: 39, s: ['REC  — 2023: 5-51-0TD | 2024: 63-834-9TD (13.2) | 2025: 62-881-11TD (14.2)', 'PR   — 2024: 12-80-0TD | 2025: 8-104-1TD', 'PASS — 2025: 2-2, 15 yds, 1 TD', 'MISC — 20 receiving TDs over 2024-25; 21 total TDs including 2025 punt-return TD'] },
-  { id: 'bernard', tier: 4, name: 'Germie Bernard', pos: 'WR', team: 'PIT', college: 'Alabama', pick: 47, s: ['REC  — 2023 (Washington): 34-419-2TD (12.3) | 2024 (Alabama): 50-794-2TD (15.9) | 2025 (Alabama): 64-862-7TD (13.5)', 'RUSH — 2023: 13-43-2TD | 2024: 4-37-1TD | 2025: 18-101-2TD', 'KR/PR — 2023: 10 KR-233-0TD, 3 PR-43-0TD | 2024-25: no meaningful return production', 'PASS — 2025: 2-2, 15 yds', 'MISC — Michigan State → Washington → Alabama; versatile WR with real 2025 rushing contribution'] },
-  { id: 'klare', tier: 4, name: 'Max Klare', pos: 'TE', team: 'LAR', college: 'Ohio State', pick: 61, s: ['REC  — 2024 (PUR): 51-685-4TD (13.4) | 2025 (OSU): 43-448-2TD (10.4)', 'MISC — Purdue → OSU, 1st-team All-Big Ten (2025), crowded OSU target share'] },
-  { id: 'roush', tier: 4, name: 'Sam Roush', pos: 'TE', team: 'CHI', college: 'Stanford', pick: 69, s: ['REC  — 2025: 49-545-2TD (11.1)', 'MISC — Stanford possession TE; led ACC tight ends in receiving yards'] },
-  { id: 'williams-antonio', tier: 4, name: 'Antonio Williams', pos: 'WR', team: 'WAS', college: 'Clemson', pick: 71, s: ['REC  — 2023: 22-224-2TD (10.2) | 2024: 75-904-11TD (12.1) | 2025: 55-604-4TD (11.0)', 'RUSH — 2023: 0-0-0TD | 2024: 7-101-1TD | 2025: 13-78-1TD', 'PR   — 2023: 3-14-0TD | 2024: 17-164-0TD | 2025: 4-44-0TD', 'PASS — 2025: 1-1, 75 yds, 1 TD', 'MISC — Clemson slot/return/gadget profile'] },
-  { id: 'delp', tier: 4, name: 'Oscar Delp', pos: 'TE', team: 'NO', college: 'Georgia', pick: 73, s: ['REC  — 2023: 24-284-3TD | 2024: 21-248-4TD | 2025: 20-261-1TD (13.1)', 'MISC — Georgia TE, 70-854-9TD career'] },
-  { id: 'douglas', tier: 4, name: 'Caleb Douglas', pos: 'WR', team: 'MIA', college: 'Texas Tech', pick: 75, s: ['REC  — 2023 (Florida): 11-133-1TD (12.1) | 2024 (Texas Tech): 60-877-6TD (14.6) | 2025 (Texas Tech): 54-846-7TD (15.7)', 'RUSH — No meaningful rushing production', 'MISC — Florida → Texas Tech transfer, back-to-back 800-yard seasons at Texas Tech'] },
-  { id: 'allar', tier: 4, name: 'Drew Allar', pos: 'QB', team: 'PIT', college: 'Penn State', pick: 76, s: ['PASS — 2024: 262-394, 3327 yds, 24 TD, 8 INT, 66.5% | 2025: 103-159, 1100 yds, 8 TD, 3 INT, 64.8% (6 games)', 'RUSH — 2024: 96-302-6TD | 2025: 36-172-1TD', 'REC  — 2025: 1-5-0TD', 'MISC — Penn State career 7,402 yds/61 TD; season-ending leg/ankle injury Oct. 2025'] },
-  { id: 'brazzell', tier: 4, name: 'Chris Brazzell II', pos: 'WR', team: 'CAR', college: 'Tennessee', pick: 83, s: ['REC  — 2023 (Tulane): 44-711-5TD (16.2) | 2024 (Tennessee): 29-333-2TD | 2025 (Tennessee): 62-1017-9TD (16.4)', 'RUSH — No 2025 rushing production listed', 'MISC — Tulane → Tennessee, major 2025 SEC breakout'] },
-  { id: 'raridon', tier: 4, name: 'Eli Raridon', pos: 'TE', team: 'NE', college: 'Notre Dame', pick: 95, s: ['REC  — 2022-24 (career): 16-141-3TD | 2025: 32-482-0TD (15.1)', 'MISC — ND inline TE, breakout 2025, only 16 career catches before senior year'] },
-  { id: 'coleman-jonah', tier: 4, name: 'Jonah Coleman', pos: 'RB', team: 'DEN', college: 'Washington', pick: 108, s: ['RUSH — 2022 (Arizona): 75-372-4TD | 2023 (Arizona): 128-871-5TD (6.8) | 2024 (Washington): 193-1053-10TD (5.5) | 2025 (Washington): 156-758-15TD (4.9)', 'REC  — 2023: 25-283-1TD | 2024: 23-177-0TD | 2025: 31-354-2TD', 'KR   — 2025: 3-57-0TD', 'MISC — Washington RB; 17 total TDs in 2025'] },
-  { id: 'klubnik', tier: 4, name: 'Cade Klubnik', pos: 'QB', team: 'NYJ', college: 'Clemson', pick: 110, s: ['PASS — 2025: 257-392, 2943 yds, 16 TD, 6 INT, 65.6%', 'RUSH — 2025: 83-94-4TD', 'MISC — Clemson starter, some mobility but limited rushing volume'] },
-  { id: 'lance', tier: 4, name: 'Bryce Lance', pos: 'WR', team: 'NO', college: 'NDSU', pick: 136, s: ['REC  — 2023: 1-7-0TD | 2024: 75-1071-17TD | 2025: 51-1079-8TD', 'RUSH — 2024: 1 rushing TD | 2025: 1 rushing TD', 'MISC — Trey Lance\'s brother, FCS All-American, back-to-back 1,000-yard seasons'] },
-  { id: 'boerkircher', tier: 5, name: 'Nate Boerkircher', pos: 'TE', team: 'JAX', college: 'Texas A&M', pick: 56, s: ['REC  — 2024 (Nebraska): 6-102-0TD | 2025 (Texas A&M): 19-198-3TD (10.4)', 'RUSH — 2025: 3-5-1TD', 'MISC — Blocking TE with short-yardage/gadget usage'] },
-  { id: 'klein', tier: 5, name: 'Marlin Klein', pos: 'TE', team: 'HOU', college: 'Michigan', pick: 59, s: ['REC  — 2025: 24-248-1TD (10.3)', 'MISC — German-born Michigan TE, honorable mention All-Big Ten, developmental/inline profile'] },
-  { id: 'kacmarek', tier: 5, name: 'Will Kacmarek', pos: 'TE', team: 'MIA', college: 'Ohio State', pick: 87, s: ['REC  — 2025: 15-168-2TD (11.2)', 'MISC — Ohio → Ohio State transfer, blocking/secondary TE with modest receiving contribution'] },
-  { id: 'thomas', tier: 5, name: 'Zavion Thomas', pos: 'WR', team: 'CHI', college: 'LSU', pick: 89, s: ['REC  — 2023 (Mississippi State): 40-503-1TD (12.6) | 2024 (LSU): 23-218-2TD | 2025 (LSU): 41-488-4TD (11.9)', 'RUSH — 2025: 19-99-1TD', 'PR   — 2024: 14-66-0TD | 2025: 17-153-0TD', 'KR   — 2024: 24-633-1TD | 2025: 1-22-0TD', 'PASS — 2025: 2-3, 33 yds', 'MISC — Mississippi State → LSU before 2024, utility/return option'] },
-  { id: 'black', tier: 5, name: 'Kaelon Black', pos: 'RB', team: 'SF', college: 'Indiana', pick: 90, s: ['RUSH — 2024: 251 yds, 2 TD | 2025: 186-1040-10TD (5.6)', 'REC  — 2025: 4-36-0TD', 'MISC — JMU → Indiana transfer; rushing workhorse in national title run'] },
-  { id: 'bell-chris', tier: 5, name: 'Chris Bell', pos: 'WR', team: 'MIA', college: 'Louisville', pick: 94, s: ['REC  — 2024: 43-737-4TD (17.1) | 2025: 72-917-6TD (12.7)', 'MISC — Louisville outside WR; first-team All-ACC 2025; injury ended his season after 11 games'] },
-  { id: 'thompson', tier: 5, name: 'Brenen Thompson', pos: 'WR', team: 'LAC', college: 'Mississippi State', pick: 105, s: ['REC  — 2023 (Oklahoma): 7-241-2TD | 2024 (Oklahoma): 19-230-2TD (12.1) | 2025 (Mississippi State): 57-1054-6TD (18.5)', 'RUSH — 2025: 4-14-1TD', 'PR   — 2025: 1-44-0TD', 'MISC — Texas → Oklahoma → Mississippi State, 7 total TDs in 2025'] },
-  { id: 'wetjen', tier: 5, name: 'Kaden Wetjen', pos: 'WR', team: 'PIT', college: 'Iowa', pick: 121, s: ['REC  — 2025: 20-151-1TD (7.6)', 'RUSH — 2025: 15-79-2TD', 'PR   — 2025: 21-563-3TD', 'KR   — 2025: 16-476-1TD', 'MISC — Iowa walk-on return specialist with rushing/gadget production'] },
-  { id: 'bell-skyler', tier: 5, name: 'Skyler Bell', pos: 'WR', team: 'BUF', college: 'UConn', pick: 125, s: ['REC  — 2024 (UConn): 50-860-5TD | 2025 (UConn): 101-1278-13TD (12.7)', 'RUSH — 2025: 2-(-2)-0TD', 'MISC — Wisconsin → UConn transfer; Biletnikoff finalist/All-American caliber 2025'] },
-  { id: 'hibner', tier: 5, name: 'Matthew Hibner', pos: 'TE', team: 'BAL', college: 'SMU', pick: 133, s: ['REC  — 2024 (SMU): 24-368-4TD (15.3) | 2025 (SMU): 31-436-4TD (14.1)', 'MISC — Michigan → SMU transfer, late-career receiving TE breakout'] },
-  { id: 'young', tier: 5, name: 'Colbie Young', pos: 'WR', team: 'CIN', college: 'Georgia', pick: 140, s: ['REC  — 2023 (Miami): 47-563-5TD | 2024 (Georgia): 11-149-2TD | 2025 (Georgia): 26-358-1TD', 'MISC — Miami → Georgia transfer; leg injury ended 2025 early. Career 116-1437-13TD including 2022'] },
-  { id: 'joly', tier: 5, name: 'Justin Joly', pos: 'TE', team: 'DEN', college: 'NC State', pick: 152, s: ['REC  — 2024 (NC State): 43-661-4TD (15.4) | 2025 (NC State): 49-489-7TD (10.0)', 'MISC — UConn → NC State transfer, 92-1150-11TD over two NC State seasons'] },
-  { id: 'bredeson', tier: 5, name: 'Max Bredeson', pos: 'FB', team: 'MIN', college: 'Michigan', pick: 159, s: ['RUSH — No rushing production', 'REC  — 2025: 2-11-0TD', 'MISC — Traditional fullback/H-back, lead blocker and special teams player'] },
-  { id: 'johnson-emmett', tier: 5, name: 'Emmett Johnson', pos: 'RB', team: 'KC', college: 'Nebraska', pick: 161, s: ['RUSH — 2024: 124-627-5TD (5.1) | 2025: 251-1451-12TD (5.8)', 'REC  — 2024: 12-67-0TD | 2025: 46-370-3TD', 'MISC — 1st-team AA 2025, 1,821 yards from scrimmage, elite national RB production'] },
-  { id: 'allen-kaytron', tier: 5, name: 'Kaytron Allen', pos: 'RB', team: 'WAS', college: 'Penn State', pick: 187, s: ['RUSH — 2022: 167-867-10TD (5.2) | 2023: 172-902-6TD (5.2) | 2024: 220-1108-8TD (5.0) | 2025: 210-1303-15TD (6.2)', 'REC  — 2024: 18-153-2TD | 2025: 18-68-0TD', 'MISC — Singleton\'s PSU backfield mate, Penn State\'s all-time rushing leader'] },
-  { id: 'claiborne', tier: 5, name: 'Demond Claiborne', pos: 'RB', team: 'MIN', college: 'Wake Forest', pick: 198, s: ['RUSH — 2024: 228-1049-11TD (4.6) | 2025: 179-907-10TD (5.1)', 'REC  — 2024: 23-254-2TD | 2025: 28-140-0TD', 'KR   — 2024: 11-277-1TD', 'MISC — Wake Forest workhorse, 21 rushing TDs and 24 total TDs over 2024-25'] },
-  { id: 'washington-mike', tier: 6, name: 'Mike Washington Jr.', pos: 'RB', team: 'LV', college: 'Arkansas', pick: 122, s: ['RUSH — 2025: 167-1070-8TD (6.4)', 'REC  — 2025: 28-226-1TD', 'MISC — Arkansas one-year starter, 1,000-yard rusher with useful receiving production'] },
-  { id: 'virgil', tier: 6, name: 'Reggie Virgil', pos: 'WR', team: 'ARI', college: 'Texas Tech', pick: 143, s: ['REC  — 2025: 57-705-6TD (12.4)', 'RUSH — 2025: 2-35-2TD', 'MISC — Texas Tech WR, vertical/size profile, 8 total TDs in 2025'] },
-  { id: 'koziol', tier: 6, name: 'Tanner Koziol', pos: 'TE', team: 'JAX', college: 'Houston', pick: 164, s: ['REC  — 2024 (Ball State): 94-839-8TD | 2025 (Houston): 74-727-6TD', 'MISC — Ball State → Houston transfer, high-volume receiving TE'] },
-  { id: 'law', tier: 6, name: 'Kendrick Law', pos: 'WR', team: 'DET', college: 'Kentucky', pick: 168, s: ['REC  — 2025: 53-540-3TD (10.2)', 'RUSH — 2025: 8-53-0TD', 'KR/PR — 2025: 9 KR-174-0TD | 3 PR-8-0TD', 'MISC — Alabama → Kentucky transfer, slot/gadget/return profile'] },
-  { id: 'nowakowski', tier: 6, name: 'Riley Nowakowski', pos: 'TE', team: 'PIT', college: 'Indiana', pick: 169, s: ['REC  — 2025: 32-387-2TD (12.1)', 'RUSH — 2025: 2-2-2TD', 'MISC — Wisconsin → Indiana transfer, FB/H-back/TE hybrid, second-team All-Big Ten media'] },
-  { id: 'royer', tier: 6, name: 'Joe Royer', pos: 'TE', team: 'CLE', college: 'Cincinnati', pick: 170, s: ['REC  — 2024 (Cincinnati): 50-521-3TD | 2025: 29-416-4TD (14.3)', 'MISC — Ohio State → Cincinnati transfer, 79-937-7TD over two Cincinnati seasons, receiving TE profile'] },
-  { id: 'cuevas', tier: 6, name: 'Josh Cuevas', pos: 'TE', team: 'BAL', college: 'Alabama', pick: 173, s: ['REC  — 2025: 37-411-4TD (11.1)', 'RUSH — 2025: 1-7-0TD', 'MISC — Washington → Alabama transfer, lead TE role, Mackey Award Watch List'] },
-  { id: 'randall', tier: 6, name: 'Adam Randall', pos: 'RB', team: 'BAL', college: 'Clemson', pick: 174, s: ['RUSH — 2025: 168-814-10TD (4.9)', 'REC  — 2025: 36-254-3TD', 'KR   — 2025: 9-213-0TD', 'MISC — Clemson power back, 13 total TDs, legit receiving usage'] },
-  { id: 'allen-cyrus', tier: 6, name: 'Cyrus Allen', pos: 'WR', team: 'KC', college: 'Cincinnati', pick: 176, s: ['REC  — 2025: 51-674-13TD (13.2)', 'RUSH — 2025: 7-20-0TD', 'MISC — Louisiana Tech → Texas A&M → Cincinnati, red-zone TD spike, 13 receiving TDs'] },
-  { id: 'coleman-kevin', tier: 6, name: 'Kevin Coleman Jr.', pos: 'WR', team: 'MIA', college: 'Missouri', pick: 177, s: ['REC  — 2025: 66-732-1TD (11.1)', 'RUSH — 2025: 9-76-0TD', 'PR   — 2025: 15-189-1TD', 'MISC — Missouri slot/return option, high-catch-rate receiver, SEC punt-return production'] },
-  { id: 'payton', tier: 6, name: 'Cole Payton', pos: 'QB', team: 'PHI', college: 'NDSU', pick: 178, s: ['PASS — 2025: 161-224, 2719 yds, 16 TD, 4 INT, 71.9%', 'RUSH — 2025: 136-777-13TD (5.7)', 'MISC — NDSU dual-threat, FCS first-team AA/Walter Payton finalist profile'] },
-  { id: 'traore', tier: 6, name: 'Seydou Traore', pos: 'TE', team: 'MIA', college: 'Mississippi State', pick: 180, s: ['REC  — 2025: 35-369-5TD (10.5)', 'MISC — Arkansas State → Mississippi State transfer, London-born TE, developmental receiving/blocking profile'] },
-  { id: 'green', tier: 6, name: 'Taylen Green', pos: 'QB', team: 'CLE', college: 'Arkansas', pick: 182, s: ['PASS — 2025: 2,714 yds, 19 TD, 11 INT, 60.7%', 'RUSH — 2025: 139-777-8TD (5.6)', 'MISC — Boise State → Arkansas, dual-threat, 6 games of 300+ pass yds in 2025'] },
-  { id: 'sharp', tier: 6, name: 'Bauer Sharp', pos: 'TE', team: 'TB', college: 'LSU', pick: 185, s: ['REC  — 2024 (Oklahoma): 42-324-2TD | 2025 (LSU): 24-252-2TD', 'MISC — Southeastern Louisiana → Oklahoma → LSU, converted QB, inline/move TE with blocking value'] },
-  { id: 'brown-barion', tier: 6, name: 'Barion Brown', pos: 'WR', team: 'NO', college: 'LSU', pick: 190, s: ['REC  — 2025 (LSU): 53-532-1TD (10.0)', 'RUSH — 2025: 3-33-0TD', 'KR   — 2025: 15-445-1TD | Career: 65-1910-6TD', 'MISC — Kentucky → LSU transfer, SEC career record 6 kickoff return TDs, elite return specialist'] },
-  { id: 'cameron', tier: 6, name: 'Josh Cameron', pos: 'WR', team: 'JAX', college: 'Baylor', pick: 191, s: ['REC  — 2025: 69-872-9TD (12.6)', 'RUSH — No meaningful rushing production', 'PR   — 2025: 18-141-0TD', 'MISC — UCF → Baylor transfer, high-volume slot/return producer'] },
-  { id: 'benson', tier: 6, name: 'Malik Benson', pos: 'WR', team: 'LV', college: 'Oregon', pick: 195, s: ['REC  — 2025: 43-719-6TD (16.7)', 'RUSH — 2025: 1-(-4)-0TD', 'PR   — 2025: 9-161-1TD', 'MISC — JUCO → Alabama → Oregon, vertical WR/return profile'] },
-  { id: 'daniels-cj', tier: 6, name: 'CJ Daniels', pos: 'WR', team: 'LAR', college: 'Miami', pick: 197, s: ['REC  — 2023 (Liberty): 55-1067-10TD | 2024 (LSU): 42-480-0TD | 2025 (Miami): 50-557-7TD (11.1)', 'RUSH — No meaningful rushing production', 'MISC — Liberty → LSU → Miami transfer, possession/contested-catch profile'] },
-  { id: 'henderson-emm', tier: 6, name: 'Emmanuel Henderson Jr.', pos: 'WR', team: 'SEA', college: 'Kansas', pick: 199, s: ['REC  — 2025: 45-766-5TD (17.0)', 'RUSH — 2025: 4-16-0TD', 'KR   — 2025: 18-455-1TD', 'MISC — Alabama → Kansas transfer, speed/return profile, 1,237 all-purpose yards'] },
-  { id: 'williams-cj', tier: 6, name: 'CJ Williams', pos: 'WR', team: 'JAX', college: 'Stanford', pick: 203, s: ['REC  — 2025: 59-749-6TD (12.7)', 'MISC — USC → Wisconsin → Stanford transfer, honorable mention All-ACC, Stanford\'s leading WR in 2025'] },
-  { id: 'bond', tier: 6, name: 'Lewis Bond', pos: 'WR', team: 'HOU', college: 'Boston College', pick: 204, s: ['REC  — 2025: 88-993-1TD (11.3)', 'RUSH — 2025: 4-3-0TD', 'MISC — Boston College high-volume possession receiver, BC all-time receptions leader'] },
-  { id: 'smith-anthony', tier: 6, name: 'Anthony Smith', pos: 'WR', team: 'DAL', college: 'East Carolina', pick: 218, s: ['REC  — 2025: 64-1053-7TD (16.5)', 'RUSH — 2025: 1-45-1TD', 'MISC — ECU deep threat, Military Bowl MVP, 1,053-yard senior season'] },
-  { id: 'kaliakmanis', tier: 6, name: 'Athan Kaliakmanis', pos: 'QB', team: 'WAS', college: 'Rutgers', pick: 223, s: ['PASS — 2025: 229-368, 3124 yds, 20 TD, 7 INT, 62.2%', 'RUSH — 2025: 96-(-26)-4TD', 'MISC — Minnesota → Rutgers transfer, best passing season of career, limited fantasy rushing value'] },
-  { id: 'heidenreich', tier: 6, name: 'Eli Heidenreich', pos: 'RB', team: 'PIT', college: 'Navy', pick: 230, s: ['RUSH — 2025: 77-499-3TD (6.5)', 'REC  — 2025: 51-941-6TD (18.5)', 'MISC — Navy utility weapon, slotback/receiver hybrid, 1,440 yards from scrimmage'] },
-  { id: 'mcgowan', tier: 6, name: 'Seth McGowan', pos: 'RB', team: 'IND', college: 'Kentucky', pick: 237, s: ['RUSH — 2025: 165-725-12TD (4.4)', 'REC  — 2025: 19-126-0TD', 'MISC — Former Oklahoma signee, JUCO → Kentucky, TD-heavy SEC back'] },
-  { id: 'miller-jam', tier: 6, name: 'Jam Miller', pos: 'RB', team: 'NE', college: 'Alabama', pick: 245, s: ['RUSH — 2025: 130-504-3TD (3.9)', 'REC  — 2025: 19-109-0TD', 'MISC — Alabama committee back, modest senior-year production'] },
-  { id: 'burks', tier: 6, name: 'Deion Burks', pos: 'WR', team: 'IND', college: 'Oklahoma', pick: 254, s: ['REC  — 2023 (Purdue): 47-629-7TD (13.4) | 2024 (Oklahoma): 31-245-3TD (7.9) | 2025 (Oklahoma): 57-620-4TD (10.9)', 'RUSH — 2023: 4-12-0TD | 2024: 5-32-0TD | 2025: 6-(-1)-0TD', 'MISC — Purdue → Oklahoma slot/underneath receiver with more volume than card shows'] },
-  { id: 'smack', tier: 7, name: 'Trey Smack', pos: 'K', team: 'GB', college: 'Florida', pick: 216, s: ['FG   — 2025: 18-22 (81.8%), long 56 | XP: 27-28', 'KO   — 2025: 46 touchbacks on 60 kickoffs (76.7%)', 'MISC — Lou Groza finalist, 53-64 career FG, 100-101 career XP, reliable long-range leg'] },
-  { id: 'endries', tier: 7, name: 'Jack Endries', pos: 'TE', team: 'CIN', college: 'Texas', pick: 221, s: ['REC  — 2025: 33-346-3TD (10.5)', 'MISC — Cal → Texas transfer, possession TE, moderate receiving role'] },
-  { id: 'kanak', tier: 7, name: 'Jaren Kanak', pos: 'TE', team: 'TEN', college: 'Oklahoma', pick: 225, s: ['REC  — 2025: 44-533-0TD (12.1)', 'MISC — Former LB convert, Oklahoma receiving TE, athletic developmental profile'] },
-  { id: 'morton', tier: 7, name: 'Behren Morton', pos: 'QB', team: 'NE', college: 'Texas Tech', pick: 234, s: ['PASS — 2025: 219-332, 2780 yds, 22 TD, 6 INT, 66.0%', 'RUSH — 2025: 43-(-113)-0TD', 'MISC — Texas Tech passer, efficient senior season, no fantasy rushing floor'] },
-  { id: 'ryan', tier: 7, name: 'Carsen Ryan', pos: 'TE', team: 'CLE', college: 'BYU', pick: 248, s: ['REC  — 2025: 45-620-3TD (13.8)', 'PR   — 2025: 1-14-0TD', 'MISC — UCLA → BYU transfer, productive receiving TE, not blocking-only'] },
-  { id: 'nussmeier', tier: 7, name: 'Garrett Nussmeier', pos: 'QB', team: 'KC', college: 'LSU', pick: 249, s: ['PASS — 2025: 194-288, 1927 yds, 12 TD, 5 INT, 67.4%', 'RUSH — 2025: 29-(-57)-1TD', 'MISC — LSU QB, 9-game 2025 season, limited rushing value'] },
-  { id: 'bentley', tier: 7, name: 'Dallen Bentley', pos: 'TE', team: 'DEN', college: 'Utah', pick: 256, s: ['REC  — 2025: 42-514-5TD (12.2)', 'MISC — Snow College → Utah; 12-game starter, top-10 national TE in receptions (2025)'] },
-  { id: 'def-ari', tier: 7, name: 'Arizona Cardinals Defense', pos: 'DEF', team: 'ARI', college: 'NFL Defense', pick: 260, s: ['2025 — Strong run defense with turnover upside.'] },
-  { id: 'def-atl', tier: 7, name: 'Atlanta Falcons Defense', pos: 'DEF', team: 'ATL', college: 'NFL Defense', pick: 261, s: ['2025 — Aggressive front seven with upside in sacks and takeaways.'] },
-  { id: 'def-bal', tier: 7, name: 'Baltimore Ravens Defense', pos: 'DEF', team: 'BAL', college: 'NFL Defense', pick: 262, s: ['2025 — Physical unit with big-play upside and strong red-zone coverage.'] },
-  { id: 'def-buf', tier: 7, name: 'Buffalo Bills Defense', pos: 'DEF', team: 'BUF', college: 'NFL Defense', pick: 263, s: ['2025 — Fast secondary and strong pressure package in obvious passing situations.'] },
-  { id: 'def-car', tier: 7, name: 'Carolina Panthers Defense', pos: 'DEF', team: 'CAR', college: 'NFL Defense', pick: 264, s: ['2025 — Improving unit with playmakers in the back end and on early downs.'] },
-  { id: 'def-chi', tier: 7, name: 'Chicago Bears Defense', pos: 'DEF', team: 'CHI', college: 'NFL Defense', pick: 265, s: ['2025 — Versatile front with upside to improve against the run.'] },
-  { id: 'def-cin', tier: 7, name: 'Cincinnati Bengals Defense', pos: 'DEF', team: 'CIN', college: 'NFL Defense', pick: 266, s: ['2025 — Opportunistic secondary plus disruptive edge play.'] },
-  { id: 'def-cle', tier: 7, name: 'Cleveland Browns Defense', pos: 'DEF', team: 'CLE', college: 'NFL Defense', pick: 267, s: ['2025 — Heavy front seven that excels at pressure and tackling.'] },
-  { id: 'def-dal', tier: 7, name: 'Dallas Cowboys Defense', pos: 'DEF', team: 'DAL', college: 'NFL Defense', pick: 268, s: ['2025 — Big-play defense with strong pass-rush upside and matchup flexibility.'] },
-  { id: 'def-den', tier: 7, name: 'Denver Broncos Defense', pos: 'DEF', team: 'DEN', college: 'NFL Defense', pick: 269, s: ['2025 — Fast unit with ability to create turnovers and defend the deep pass.'] },
-  { id: 'def-det', tier: 7, name: 'Detroit Lions Defense', pos: 'DEF', team: 'DET', college: 'NFL Defense', pick: 270, s: ['2025 — Physical group that can wreak havoc in short-yardage and red-zone situations.'] },
-  { id: 'def-gb', tier: 7, name: 'Green Bay Packers Defense', pos: 'DEF', team: 'GB', college: 'NFL Defense', pick: 271, s: ['2025 — Improved secondary paired with a disruptive edge rush.'] },
-  { id: 'def-hou', tier: 7, name: 'Houston Texans Defense', pos: 'DEF', team: 'HOU', college: 'NFL Defense', pick: 272, s: ['2025 — Young, ascending unit with high ceiling in turnovers and pressure.'] },
-  { id: 'def-ind', tier: 7, name: 'Indianapolis Colts Defense', pos: 'DEF', team: 'IND', college: 'NFL Defense', pick: 273, s: ['2025 — Strong linebacker play and consistent tackle production.'] },
-  { id: 'def-jax', tier: 7, name: 'Jacksonville Jaguars Defense', pos: 'DEF', team: 'JAX', college: 'NFL Defense', pick: 274, s: ['2025 — Explosive pass rush and stifling secondary in key moments.'] },
-  { id: 'def-kc', tier: 7, name: 'Kansas City Chiefs Defense', pos: 'DEF', team: 'KC', college: 'NFL Defense', pick: 275, s: ['2025 — Opportunistic unit with elite playmakers in coverage.'] },
-  { id: 'def-lv', tier: 7, name: 'Las Vegas Raiders Defense', pos: 'DEF', team: 'LV', college: 'NFL Defense', pick: 276, s: ['2025 — Fast group capable of creating turnovers and disguising coverages.'] },
-  { id: 'def-lac', tier: 7, name: 'Los Angeles Chargers Defense', pos: 'DEF', team: 'LAC', college: 'NFL Defense', pick: 277, s: ['2025 — Strong edge rush and improved secondary depth.'] },
-  { id: 'def-lar', tier: 7, name: 'Los Angeles Rams Defense', pos: 'DEF', team: 'LAR', college: 'NFL Defense', pick: 278, s: ['2025 — Physical front seven with upside in opponent pressure.'] },
-  { id: 'def-mia', tier: 7, name: 'Miami Dolphins Defense', pos: 'DEF', team: 'MIA', college: 'NFL Defense', pick: 279, s: ['2025 — Speed-first defense that thrives in turnovers and coverage.'] },
-  { id: 'def-min', tier: 7, name: 'Minnesota Vikings Defense', pos: 'DEF', team: 'MIN', college: 'NFL Defense', pick: 280, s: ['2025 — Strong run defense and effective blitz packages.'] },
-  { id: 'def-ne', tier: 7, name: 'New England Patriots Defense', pos: 'DEF', team: 'NE', college: 'NFL Defense', pick: 281, s: ['2025 — Disciplined group with strength in red-zone defense.'] },
-  { id: 'def-no', tier: 7, name: 'New Orleans Saints Defense', pos: 'DEF', team: 'NO', college: 'NFL Defense', pick: 282, s: ['2025 — Aggressive unit with multiple playmakers and turnover upside.'] },
-  { id: 'def-nyg', tier: 7, name: 'New York Giants Defense', pos: 'DEF', team: 'NYG', college: 'NFL Defense', pick: 283, s: ['2025 — Fast, disciplined defense improving against the pass.'] },
-  { id: 'def-nyj', tier: 7, name: 'New York Jets Defense', pos: 'DEF', team: 'NYJ', college: 'NFL Defense', pick: 284, s: ['2025 — High-pressure unit with strong edge rush and coverage depth.'] },
-  { id: 'def-phi', tier: 7, name: 'Philadelphia Eagles Defense', pos: 'DEF', team: 'PHI', college: 'NFL Defense', pick: 285, s: ['2025 — Elite front seven that excels at sacks and splash plays.'] },
-  { id: 'def-pit', tier: 7, name: 'Pittsburgh Steelers Defense', pos: 'DEF', team: 'PIT', college: 'NFL Defense', pick: 286, s: ['2025 — Physical unit with turnover upside and red-zone strength.'] },
-  { id: 'def-sea', tier: 7, name: 'Seattle Seahawks Defense', pos: 'DEF', team: 'SEA', college: 'NFL Defense', pick: 287, s: ['2025 — Disciplined secondary and opportunistic front.'] },
-  { id: 'def-sf', tier: 7, name: 'San Francisco 49ers Defense', pos: 'DEF', team: 'SF', college: 'NFL Defense', pick: 288, s: ['2025 — Loaded with playmakers and elite pass-rush talent.'] },
-  { id: 'def-tb', tier: 7, name: 'Tampa Bay Buccaneers Defense', pos: 'DEF', team: 'TB', college: 'NFL Defense', pick: 289, s: ['2025 — Turnover-prone unit with strong pressure numbers.'] },
-  { id: 'def-ten', tier: 7, name: 'Tennessee Titans Defense', pos: 'DEF', team: 'TEN', college: 'NFL Defense', pick: 290, s: ['2025 — Physical defense that can shut down the run and force mistakes.'] },
-  { id: 'def-was', tier: 7, name: 'Washington Commanders Defense', pos: 'DEF', team: 'WAS', college: 'NFL Defense', pick: 291, s: ['2025 — Aggressive front seven with strong turnover upside.'] },
+  {
+    id: 'jeremiah-smith', tier: 1, name: 'Jeremiah Smith', pos: 'WR', team: 'TBD', college: 'Ohio State', pick: 1,
+    draftRange: 'Top 5', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Rare size, speed, ball skills and production. The clear blue-chip receiver in the class.',
+      '2025 — PFF graded him among the best Power Four receivers of the past decade through two college seasons.',
+      '2026 WATCH — Maintaining elite efficiency and health is more important than chasing a bigger box score.',
+    ],
+  },
+  {
+    id: 'arch-manning', tier: 1, name: 'Arch Manning', pos: 'QB', team: 'TBD', college: 'Texas', pick: 2,
+    draftRange: 'Top 5', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Prototype NFL frame with real mobility and premium Superflex upside.',
+      '2025 — Finished the season much stronger after an uneven start, keeping the top-pick ceiling intact.',
+      '2026 WATCH — Needs a full season of consistent high-end quarterback play to justify the name-value price.',
+    ],
+  },
+  {
+    id: 'dante-moore', tier: 1, name: 'Dante Moore', pos: 'QB', team: 'TBD', college: 'Oregon', pick: 3,
+    draftRange: 'Top 10', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — High-end arm talent and creation ability with a realistic path to QB1 in the NFL class.',
+      '2025 — Led the FBS in PFF big-time throws after a major developmental jump at Oregon.',
+      '2026 WATCH — Decision-making consistency and another strong year could push him into top-five NFL capital.',
+    ],
+  },
+  {
+    id: 'cam-coleman', tier: 1, name: 'Cam Coleman', pos: 'WR', team: 'TBD', college: 'Texas', pick: 4,
+    draftRange: 'Round 1', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Big perimeter receiver with true WR1 traits and a strong early-declare profile.',
+      '2026 WATCH — New Texas environment should clarify whether he can turn traits into a dominant target share.',
+      'DRAFT — Current consensus has him as the best bet to be WR2 behind Jeremiah Smith.',
+    ],
+  },
+  {
+    id: 'julian-sayin', tier: 2, name: 'Julian Sayin', pos: 'QB', team: 'TBD', college: 'Ohio State', pick: 5,
+    draftRange: 'Round 1', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Accurate, efficient pocket passer with strong processing and elite supporting talent.',
+      '2025 — Completed 78.4% of his passes with 31 TD and 6 INT according to CBS preseason draft analysis.',
+      '2026 WATCH — Size and limited rushing remain the fantasy ceiling questions despite strong NFL projection.',
+    ],
+  },
+  {
+    id: 'darian-mensah', tier: 2, name: 'Darian Mensah', pos: 'QB', team: 'TBD', college: 'Miami', pick: 6,
+    draftRange: 'Round 1-2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Productive passer with NFL size who transferred from Duke into a loaded Miami offense.',
+      '2025 — Nearly 4,000 passing yards and 34 TD before the Miami transfer.',
+      '2026 WATCH — A title-caliber season against ACC competition could move him firmly into Round 1.',
+    ],
+  },
+  {
+    id: 'cj-carr', tier: 2, name: 'CJ Carr', pos: 'QB', team: 'TBD', college: 'Notre Dame', pick: 7,
+    draftRange: 'Round 1-2', eligibility: '2027 eligible; could return', trend: 'steady',
+    s: [
+      'PROFILE — Young, polished passer with quick processing and a strong developmental trajectory.',
+      '2026 WATCH — Redshirt-sophomore status makes declaration less certain than the older quarterbacks.',
+      'DRAFT — Current boards still see early-round upside if he repeats his 2025 success.',
+    ],
+  },
+  {
+    id: 'ahmad-hardy', tier: 2, name: 'Ahmad Hardy', pos: 'RB', team: 'TBD', college: 'Missouri', pick: 8,
+    draftRange: 'Day 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Explosive SEC runner with excellent contact balance and breakaway production.',
+      '2025 — Led the SEC in rushing yards and led college football with 25 runs of 15-plus yards per PFF.',
+      '2026 WATCH — Receiving usage is the biggest swing skill for his dynasty ceiling.',
+    ],
+  },
+  {
+    id: 'kewan-lacy', tier: 2, name: 'Kewan Lacy', pos: 'RB', team: 'TBD', college: 'Ole Miss', pick: 9,
+    draftRange: 'Day 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Well-built feature-back candidate with vision, competitiveness and pass-protection value.',
+      '2025 — Led college football in rushing first downs.',
+      '2026 WATCH — Cleaner receiving efficiency would strengthen his case as the most complete RB in the class.',
+    ],
+  },
+  {
+    id: 'ryan-coleman-williams', tier: 2, name: 'Ryan Coleman-Williams', pos: 'WR', team: 'TBD', college: 'Alabama', pick: 10,
+    draftRange: 'Round 1-2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Explosive Alabama primary receiver with early breakout pedigree and vertical ability.',
+      '2026 WATCH — Enters the year as Alabama’s featured wideout and a preseason Biletnikoff candidate.',
+      'DRAFT — Strong season could put him squarely in the first-round receiver conversation.',
+    ],
+  },
+  {
+    id: 'drew-mestemaker', tier: 2, name: 'Drew Mestemaker', pos: 'QB', team: 'TBD', college: 'Oklahoma State', pick: 11,
+    draftRange: 'Round 1-2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Former zero-star recruit with size, production and one of the class’s biggest breakout stories.',
+      '2025 — Led the nation in passing yards at North Texas before following his coach to Oklahoma State.',
+      '2026 WATCH — Power-conference translation is the central question.',
+    ],
+  },
+  {
+    id: 'nick-marsh', tier: 3, name: 'Nick Marsh', pos: 'WR', team: 'TBD', college: 'Indiana', pick: 12,
+    draftRange: 'Day 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Big outside receiver with X/Z versatility and a strong early production profile.',
+      '2025 — 59 receptions, 662 yards and 6 TD at Michigan State before transferring to Indiana.',
+      '2026 WATCH — Indiana gives him a major opportunity to turn volume into a true NFL WR1 résumé.',
+    ],
+  },
+  {
+    id: 'jadan-baugh', tier: 3, name: 'Jadan Baugh', pos: 'RB', team: 'TBD', college: 'Florida', pick: 13,
+    draftRange: 'Day 2', eligibility: '2027 eligible', trend: 'up',
+    s: [
+      'PROFILE — 230-pound back with NFL feature size and growing draft momentum.',
+      '2026 WATCH — A full healthy season with receiving involvement could make him the RB1 challenger.',
+      'DRAFT — Recent preseason boards have moved him sharply upward among 2027 running backs.',
+    ],
+  },
+  {
+    id: 'jamari-johnson', tier: 3, name: 'Jamari Johnson', pos: 'TE', team: 'TBD', college: 'Oregon', pick: 14,
+    draftRange: 'Round 1-2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Complete in-line tight end with receiving upside from Oregon’s productive TE pipeline.',
+      '2025 — Graded higher than 2026 first-rounder Kenyon Sadiq in PFF’s evaluation.',
+      '2026 WATCH — Expanded receiving volume could make him the clear TE1.',
+    ],
+  },
+  {
+    id: 'lanorris-sellers', tier: 3, name: 'LaNorris Sellers', pos: 'QB', team: 'TBD', college: 'South Carolina', pick: 15,
+    draftRange: 'Round 1-2', eligibility: '2027 eligible', trend: 'up',
+    s: [
+      'PROFILE — Massive dual-threat quarterback with the rushing ceiling fantasy managers want.',
+      '2026 WATCH — Passing consistency will decide whether he becomes a first-round NFL quarterback or a traits bet.',
+      'DRAFT — Recent preseason boards have moved him upward as the class gets re-evaluated.',
+    ],
+  },
+  {
+    id: 'isaac-brown', tier: 3, name: 'Isaac Brown', pos: 'RB', team: 'TBD', college: 'Louisville', pick: 16,
+    draftRange: 'Day 2', eligibility: '2027 eligible', trend: 'up',
+    s: [
+      'PROFILE — Electric space back with rare acceleration and change-of-direction ability.',
+      '2025 — Averaged 8.8 yards per carry with 11 runs of 20-plus yards according to CBS draft analysis.',
+      '2026 WATCH — Size and lead-back workload durability are the questions; explosive-play upside is not.',
+    ],
+  },
+  {
+    id: 'charlie-becker', tier: 3, name: 'Charlie Becker', pos: 'WR', team: 'TBD', college: 'Indiana', pick: 17,
+    draftRange: 'Round 1-2', eligibility: '2027 eligible', trend: 'up',
+    s: [
+      'PROFILE — Big-bodied receiver with rapidly rising NFL Draft buzz entering his junior season.',
+      '2026 WATCH — Needs to validate the scouting rise with a larger target share in Indiana’s new offense.',
+      'DRAFT — Recent boards have pushed him into the top group behind the elite names.',
+    ],
+  },
+  {
+    id: 'ryan-wingo', tier: 3, name: 'Ryan Wingo', pos: 'WR', team: 'TBD', college: 'Texas', pick: 18,
+    draftRange: 'Day 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Size/speed receiver with a strong recruiting pedigree and vertical playmaking traits.',
+      '2026 WATCH — Texas has a crowded skill group, so target earning matters more than raw athletic flashes.',
+      'DRAFT — Some summer evaluators have him near the top five at the position.',
+    ],
+  },
+  {
+    id: 'bryant-wesco', tier: 3, name: 'Bryant Wesco', pos: 'WR', team: 'TBD', college: 'Clemson', pick: 19,
+    draftRange: 'Day 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Long, explosive receiver with early-career production and downfield upside.',
+      '2026 WATCH — Needs to separate from Clemson’s other NFL-caliber pass catchers and command volume.',
+      'DRAFT — Consistently appears among the top 2027 devy receiver names.',
+    ],
+  },
+  {
+    id: 'jayden-maiava', tier: 3, name: 'Jayden Maiava', pos: 'QB', team: 'TBD', college: 'USC', pick: 20,
+    draftRange: 'Round 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Experienced Lincoln Riley quarterback with enough mobility to matter in fantasy.',
+      '2025 — 3,711 passing yards, 24 TD, 10 INT plus 6 rushing TD; USC lists him as a premier returning quarterback.',
+      '2026 WATCH — A cleaner interception profile could pull him into the Round 1 QB discussion.',
+    ],
+  },
+  {
+    id: 'mark-fletcher', tier: 3, name: 'Mark Fletcher Jr.', pos: 'RB', team: 'TBD', college: 'Miami', pick: 21,
+    draftRange: 'Day 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Big, physical runner with proven production and an NFL-ready workload profile.',
+      '2025 — Broke out for more than 1,100 rushing yards and played well during Miami’s playoff run.',
+      '2026 WATCH — More explosive runs and receiving work could move him toward the top of the RB class.',
+    ],
+  },
+  {
+    id: 'nate-frazier', tier: 4, name: 'Nate Frazier', pos: 'RB', team: 'TBD', college: 'Georgia', pick: 22,
+    draftRange: 'Day 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Physical Georgia runner with a respected work rate and NFL frame.',
+      '2026 WATCH — Still needs the signature high-volume season that would separate him from the crowded RB tier.',
+      'DRAFT — PFF lists him among the leading early backs in the class.',
+    ],
+  },
+  {
+    id: 'justice-haynes', tier: 4, name: 'Justice Haynes', pos: 'RB', team: 'TBD', college: 'Georgia Tech', pick: 23,
+    draftRange: 'Day 2-3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Former five-star back with burst, pedigree and multiple Power Four stops.',
+      '2025 — 857 rushing yards and 10 TD on 121 carries at Michigan before transferring to Georgia Tech.',
+      '2026 WATCH — Health and a complete season in a run-heavy offense could revive early-round buzz.',
+    ],
+  },
+  {
+    id: 'treydez-green', tier: 4, name: "Trey'Dez Green", pos: 'TE', team: 'TBD', college: 'LSU', pick: 24,
+    draftRange: 'Round 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — 6-foot-6 mismatch athlete with basketball background and major red-zone upside.',
+      '2026 WATCH — Route volume and blocking development will determine whether he becomes a true fantasy difference-maker.',
+      'DRAFT — Widely viewed as one of the top two tight ends entering the season.',
+    ],
+  },
+  {
+    id: 'sam-leavitt', tier: 4, name: 'Sam Leavitt', pos: 'QB', team: 'TBD', college: 'LSU', pick: 25,
+    draftRange: 'Round 2-3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Athletic quarterback with starting experience and useful fantasy rushing ability.',
+      '2026 WATCH — LSU gives him a major stage to rebuild draft momentum and prove higher-end passing traits.',
+      'DRAFT — Still appears on preseason quarterback boards despite a wide range of outcomes.',
+    ],
+  },
+  {
+    id: 'kj-duff', tier: 4, name: 'KJ Duff', pos: 'WR', team: 'TBD', college: 'Rutgers', pick: 26,
+    draftRange: 'Round 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Huge catch radius and contested-catch production in a 6-foot-6 frame.',
+      '2025 — Led the FBS with 22 contested catches according to PFF’s early receiver rankings.',
+      '2026 WATCH — Route polish and separation against top corners are the next tests.',
+    ],
+  },
+  {
+    id: 'tj-moore', tier: 4, name: 'TJ Moore', pos: 'WR', team: 'TBD', college: 'Clemson', pick: 27,
+    draftRange: 'Day 2-3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Athletic Clemson receiver with NFL traits and breakout upside.',
+      '2026 WATCH — Needs to turn flashes into a consistent target-earning season.',
+      'DRAFT — Regularly appears in the second wave of 2027 devy receivers.',
+    ],
+  },
+  {
+    id: 'mario-craver', tier: 4, name: 'Mario Craver', pos: 'WR', team: 'TBD', college: 'Texas A&M', pick: 28,
+    draftRange: 'Day 2-3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Speed-oriented receiver with vertical and after-catch upside.',
+      '2026 WATCH — Texas A&M role and route-volume growth will determine whether he climbs into the first-round fantasy tier.',
+      'DRAFT — Current devy consensus keeps him firmly on the 2027 watchlist.',
+    ],
+  },
+  {
+    id: 'eugene-wilson', tier: 4, name: 'Eugene Wilson III', pos: 'WR', team: 'TBD', college: 'LSU', pick: 29,
+    draftRange: 'Day 2-3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Dynamic slot/space receiver with proven SEC-level talent.',
+      '2026 WATCH — New LSU setting needs to produce a healthy, high-volume season after an uneven path.',
+      'DRAFT — Athletic profile keeps him relevant even with a wider range of outcomes.',
+    ],
+  },
+  {
+    id: 'lj-martin', tier: 4, name: 'LJ Martin', pos: 'RB', team: 'TBD', college: 'BYU', pick: 30,
+    draftRange: 'Day 2-3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Big, productive runner with strong contact efficiency and a feature-back frame.',
+      '2025 — 1,299 rushing yards and 56 forced missed tackles in PFF’s evaluation.',
+      '2026 WATCH — Receiving role and long-speed testing will shape his fantasy ceiling.',
+    ],
+  },
+  {
+    id: 'terrance-carter', tier: 4, name: 'Terrance Carter Jr.', pos: 'TE', team: 'TBD', college: 'Texas Tech', pick: 31,
+    draftRange: 'Round 2-3', eligibility: '2027 eligible', trend: 'up',
+    s: [
+      'PROFILE — Move-tight-end playmaker with unusual tackle-breaking production.',
+      '2025 — Returned as the class leader at TE in receiving yards and missed tackles forced per PFF.',
+      '2026 WATCH — Continued production could push him much higher in fantasy-specific rankings.',
+    ],
+  },
+  {
+    id: 'duce-robinson', tier: 4, name: 'Duce Robinson', pos: 'WR', team: 'TBD', college: 'Florida State', pick: 32,
+    draftRange: 'Round 2', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Massive outside receiver with legitimate downfield production and multi-sport athletic background.',
+      '2025 — 56 catches, 1,081 yards and 6 TD; first-team All-ACC at Florida State.',
+      '2026 WATCH — Route versatility and separation are the keys to converting size into NFL target volume.',
+    ],
+  },
+  {
+    id: 'cj-bailey', tier: 4, name: 'CJ Bailey', pos: 'QB', team: 'TBD', college: 'NC State', pick: 33,
+    draftRange: 'Round 3+', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Tall, experienced passer with enough tools to enter the QB riser conversation.',
+      '2026 WATCH — NC State replaced most of its receiving production, making his supporting cast a real evaluation variable.',
+      'DRAFT — Current boards place him behind the crowded top QB tier but still within the draftable watch group.',
+    ],
+  },
+  {
+    id: 'jayce-brown', tier: 5, name: 'Jayce Brown', pos: 'WR', team: 'TBD', college: 'LSU', pick: 34,
+    draftRange: 'Day 2-3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Productive receiver entering a high-visibility LSU offense.',
+      '2026 WATCH — Needs to carve out a consistent role in a deep pass-catching room.',
+      'DRAFT — Appears in the deeper 2027 devy receiver consensus.',
+    ],
+  },
+  {
+    id: 'cooper-barkate', tier: 5, name: 'Cooper Barkate', pos: 'WR', team: 'TBD', college: 'Miami', pick: 35,
+    draftRange: 'Day 2-3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Experienced target earner joining one of the nation’s most talented offenses.',
+      '2026 WATCH — Miami’s target competition will tell us whether his production translates at a higher level.',
+      'DRAFT — A strong season with Darian Mensah would create a fast rise.',
+    ],
+  },
+  {
+    id: 'nyck-harbor', tier: 5, name: 'Nyck Harbor', pos: 'WR', team: 'TBD', college: 'South Carolina', pick: 36,
+    draftRange: 'Day 2-3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — One of college football’s rarest size/speed athletes.',
+      '2026 WATCH — Fantasy value depends on becoming a refined, high-volume receiver rather than just an athletic projection.',
+      'DRAFT — Trait ceiling remains enormous even though production has lagged the physical tools.',
+    ],
+  },
+  {
+    id: 'darius-taylor', tier: 5, name: 'Darius Taylor', pos: 'RB', team: 'TBD', college: 'Minnesota', pick: 37,
+    draftRange: 'Day 3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Productive Big Ten back with useful receiving ability and workload experience.',
+      '2026 WATCH — Health, efficiency and athletic testing will determine whether he can climb into Day 2.',
+      'DRAFT — Strong depth option in a class without a locked elite RB prospect.',
+    ],
+  },
+  {
+    id: 'fluff-bothwell', tier: 5, name: 'Fluff Bothwell', pos: 'RB', team: 'TBD', college: 'Mississippi State', pick: 38,
+    draftRange: 'Day 3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Powerful 230-pound runner with an SEC opportunity to make a major jump.',
+      '2026 WATCH — A breakout against SEC defenses would quickly move him into the Day 2 fantasy conversation.',
+      'DRAFT — Current preseason boards list him in the deeper running-back tier.',
+    ],
+  },
+  {
+    id: 'peter-clarke', tier: 5, name: 'Peter Clarke', pos: 'TE', team: 'TBD', college: 'Temple', pick: 39,
+    draftRange: 'Day 3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Massive 6-foot-6 receiving tight end with a highly productive 2025 season.',
+      '2025 — Posted a 90.5 PFF overall grade, the best among FBS tight ends in PFF’s early class review.',
+      '2026 WATCH — Competition level and athletic testing will decide how much of the production translates.',
+    ],
+  },
+  {
+    id: 'hollywood-smothers', tier: 5, name: 'Hollywood Smothers', pos: 'RB', team: 'TBD', college: 'Texas', pick: 40,
+    draftRange: 'Day 3', eligibility: '2027 eligible', trend: 'steady',
+    s: [
+      'PROFILE — Explosive runner in a high-end Texas offense with a chance to force his way up the board.',
+      '2026 WATCH — Backfield competition is the immediate issue; efficiency and receiving usage can overcome it.',
+      'DRAFT — Received top-10 positional consideration from summer evaluators.',
+    ],
+  },
 ];
 
 export const BOARD_API_URL = '/api/team-prospect-draftboard';
@@ -143,5 +401,4 @@ export function sortByPick<T extends { pick?: number }>(items: T[]) {
   return [...items].sort((a, b) => parsePick(a.pick) - parsePick(b.pick));
 }
 
-const sortedPlayers = sortByPick(INITIAL_PLAYERS.map((p) => ({ ...p })));
-export const DEFAULT_PLAYERS = sortedPlayers.filter((p, idx) => idx < 114 || p.pos === 'DEF');
+export const DEFAULT_PLAYERS = sortByPick(INITIAL_PLAYERS.map((p) => ({ ...p })));
