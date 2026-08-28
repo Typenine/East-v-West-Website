@@ -36,6 +36,7 @@ import {
   handleGetSeasonArchiveResearch,
   handleGetResearchBackendStatus,
 } from '@/lib/mcp/research-backend';
+import { handleGetHallOfFame, handleGetLeagueMilestones } from '@/lib/mcp/history-handlers';
 
 export type ToolInput = Record<string, unknown>;
 export type DispatchResult = { structuredContent: unknown; markdown: string | null; _meta?: Record<string, unknown> };
@@ -110,6 +111,8 @@ export async function dispatchTool(name: string, input: ToolInput): Promise<Disp
     case 'get_season_archive': return { structuredContent: await handleGetSeasonArchiveResearch(input), markdown: null };
     case 'get_week_gamebook': return { structuredContent: await handleGetWeekGamebookV2(input), markdown: null };
     case 'get_league_awards': return { structuredContent: await handleGetLeagueAwardsResearch(input), markdown: null };
+    case 'get_league_milestones': return { structuredContent: await handleGetLeagueMilestones(input), markdown: null };
+    case 'get_hall_of_fame': return { structuredContent: await handleGetHallOfFame(input), markdown: null };
     case 'query_stats': return { structuredContent: await handleQueryStatsResearch(input), markdown: null };
     case 'resolve_entity': return { structuredContent: await handleResolveEntity(input), markdown: null };
     case 'get_player_ownership_timeline': return { structuredContent: await handleGetPlayerOwnershipTimeline(input), markdown: null };

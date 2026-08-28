@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 const identity = {
   name: 'east-v-west-mcp',
-  version: '3.1.0',
+  version: '3.2.0',
   description: 'Authenticated read-only MCP server for East v. West dynasty fantasy league.',
 };
 
