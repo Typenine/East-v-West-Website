@@ -12,6 +12,15 @@ export interface UploadedPdfContinuity {
 
 type Speaker = 'mason' | 'westy';
 
+type StructuredPick = {
+  text: string;
+  probe: string;
+  team?: string;
+  playerName?: string;
+};
+
+type StructuredSeasonPicks = Record<Speaker, StructuredPick[]> & { playerNames: string[] };
+
 const MAX_PAGES = 80;
 const MAX_HOST_CHARS = 120_000;
 const PDF_TIMEOUT_MS = 90_000;
@@ -157,6 +166,145 @@ function explicitPredictionPlayerNames(rawText: string): string[] {
   return out;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const TEAM_PATTERN = [...TEAM_NAMES]
+  .sort((a, b) => b.length - a.length)
+  .map(escapeRegExp)
+  .join('|');
+
+function canonicalTeam(value: string | undefined): string | null {
+  if (!value) return null;
+  const normalized = normalizeLine(value).toLowerCase();
+  return TEAM_NAMES.find(team => team.toLowerCase() === normalized) ?? null;
+}
+
+function cleanPredictionPlayer(value: string | undefined): string | null {
+  if (!value) return null;
+  const normalized = normalizeLine(value.replace(/’/g, "'"));
+  if (normalized.length < 4 || normalized.length > 70 || /\d|https?:/i.test(normalized)) return null;
+  const words = normalized.split(' ');
+  if (words.length < 2 || words.length > 4) return null;
+  if (!words.every(word => /^[A-Za-z][A-Za-z.'-]*$/.test(word))) return null;
+  if (TEAM_NAMES.some(team => team.toLowerCase() === normalized.toLowerCase())) return null;
+  return normalized;
+}
+
+function officialSeasonPickParagraphs(rawText: string): Partial<Record<Speaker, string>> {
+  const compact = rawText.replace(/\r/g, ' ').replace(/\s+/g, ' ').trim();
+  const markerIndex = compact.toLowerCase().lastIndexOf('official season picks');
+  if (markerIndex < 0) return {};
+
+  const tail = compact.slice(markerIndex, markerIndex + 14_000);
+  const masonMarker = /\bMASON REED\b/i.exec(tail);
+  if (!masonMarker) return {};
+
+  const masonBodyStart = masonMarker.index + masonMarker[0].length;
+  const afterMason = tail.slice(masonBodyStart);
+  const westyMarker = /\bWESTY\b/i.exec(afterMason);
+  if (!westyMarker) return {};
+
+  const mason = normalizeLine(afterMason.slice(0, westyMarker.index));
+  const westyBodyStart = westyMarker.index + westyMarker[0].length;
+  const afterWesty = afterMason.slice(westyBodyStart);
+  const nextMason = /\bMASON REED\b/i.exec(afterWesty);
+  const westy = normalizeLine(afterWesty.slice(0, nextMason?.index ?? 3_500));
+
+  return { mason, westy };
+}
+
+function structuredPicksFromParagraph(paragraph: string): StructuredPick[] {
+  if (!paragraph) return [];
+  const picks: StructuredPick[] = [];
+  let championshipTeam: string | null = null;
+  let championshipOpponent: string | null = null;
+
+  const matchup = paragraph.match(new RegExp(`\\b(${TEAM_PATTERN})\\s+over\\s+(${TEAM_PATTERN})(?:\\s+in\\s+the\\s+final)?\\b`, 'i'));
+  if (matchup) {
+    championshipTeam = canonicalTeam(matchup[1]);
+    championshipOpponent = canonicalTeam(matchup[2]);
+    if (championshipTeam && championshipOpponent) {
+      const saysFinal = /\bin\s+the\s+final\b/i.test(matchup[0]);
+      picks.push({
+        text: `${championshipTeam} over ${championshipOpponent}${saysFinal ? ' in the final' : ''}.`,
+        probe: `${championshipTeam} over ${championshipOpponent}`.toLowerCase(),
+        team: championshipTeam,
+      });
+    }
+  }
+
+  if (!championshipTeam) {
+    const champion = paragraph.match(new RegExp(`\\b(?:CHAMPION(?:SHIP)?(?:\\s+PICK)?|TITLE\\s+PICK)\\s*[:\\-–—]?\\s*(${TEAM_PATTERN})\\b`, 'i'));
+    championshipTeam = canonicalTeam(champion?.[1]);
+  }
+  if (!championshipOpponent) {
+    const opponent = paragraph.match(new RegExp(`\\b(?:CHAMPIONSHIP\\s+(?:OPPONENT|FINALIST)|RUNNER[- ]UP)\\s*[:\\-–—]?\\s*(${TEAM_PATTERN})\\b`, 'i'));
+    championshipOpponent = canonicalTeam(opponent?.[1]);
+  }
+  if (!matchup && championshipTeam && championshipOpponent) {
+    picks.push({
+      text: `${championshipTeam} over ${championshipOpponent} in the final.`,
+      probe: `${championshipTeam} over ${championshipOpponent}`.toLowerCase(),
+      team: championshipTeam,
+    });
+  }
+
+  const definingPlayer =
+    paragraph.match(/\b([A-Z][A-Za-z'’.-]{1,24}(?:\s+[A-Z][A-Za-z'’.-]{1,24}){1,3})\s+is\s+my\s+defining\s+championship\s+player\b/)?.[1]
+    ?? paragraph.match(/\bmy\s+defining\s+championship\s+player\s+is\s+([A-Z][A-Za-z'’.-]{1,24}(?:\s+[A-Z][A-Za-z'’.-]{1,24}){1,3})\b/i)?.[1]
+    ?? paragraph.match(/\bDEFINING\s+CHAMPIONSHIP\s+PLAYER\s*[:\-–—]\s*([A-Z][A-Za-z'’.-]{1,24}(?:\s+[A-Z][A-Za-z'’.-]{1,24}){1,3})\b/i)?.[1];
+  const playerName = cleanPredictionPlayer(definingPlayer);
+  if (playerName) {
+    picks.push({
+      text: `${playerName} is my defining championship player.`,
+      probe: `${playerName} is my defining championship player`.toLowerCase(),
+      team: championshipTeam ?? undefined,
+      playerName,
+    });
+  }
+
+  const highestScoringMatch =
+    paragraph.match(new RegExp(`\\bmy\\s+highest[- ]scoring(?:\\s+regular[- ]season)?\\s+team\\s+is\\s+(${TEAM_PATTERN})\\b`, 'i'))
+    ?? paragraph.match(new RegExp(`\\bI\\s+(?:also\\s+)?choose\\s+(${TEAM_PATTERN})\\s+to\\s+lead\\s+regular[- ]season\\s+points\\b`, 'i'))
+    ?? paragraph.match(new RegExp(`\\bHIGHEST[- ]SCORING(?:\\s+REGULAR[- ]SEASON)?\\s+TEAM\\s*[:\\-–—]?\\s*(${TEAM_PATTERN})\\b`, 'i'));
+  const highestScoringTeam = canonicalTeam(highestScoringMatch?.[1]);
+  if (highestScoringTeam) {
+    picks.push({
+      text: `My highest-scoring regular-season team is ${highestScoringTeam}.`,
+      probe: `highest-scoring regular-season team is ${highestScoringTeam}`.toLowerCase(),
+      team: highestScoringTeam,
+    });
+  }
+
+  return picks;
+}
+
+function extractStructuredSeasonPicks(rawText: string): StructuredSeasonPicks {
+  const paragraphs = officialSeasonPickParagraphs(rawText);
+  const mason = structuredPicksFromParagraph(paragraphs.mason ?? '');
+  const westy = structuredPicksFromParagraph(paragraphs.westy ?? '');
+  const playerNames = [...new Set([...mason, ...westy].map(pick => pick.playerName).filter((value): value is string => Boolean(value)))];
+  return { mason, westy, playerNames };
+}
+
+function mergeStructuredPicks(hostText: string, picks: StructuredPick[]): string {
+  let merged = hostText;
+  let searchable = normalizeLine(hostText).toLowerCase();
+  for (const pick of picks) {
+    if (searchable.includes(pick.probe)) continue;
+    const markers = [
+      pick.team ? `[[TEAM:${pick.team}]]` : '',
+      '[[SECTION:OFFICIAL SEASON PICKS]]',
+    ].filter(Boolean).join(' ');
+    const addition = `${markers} ${pick.text}`;
+    merged = `${merged}\n\n${addition}`;
+    searchable = `${searchable} ${normalizeLine(addition).toLowerCase()}`;
+  }
+  return normalizeHostText(merged);
+}
+
 function splitBySpeaker(rawText: string, title: string): { masonText: string; westyText: string; masonTurns: number; westyTurns: number } {
   const turns: Record<Speaker, string[]> = { mason: [], westy: [] };
   let active: Speaker | null = null;
@@ -273,20 +421,24 @@ export async function extractUploadedPdfContinuity(bytes: Uint8Array, title: str
       return null;
     }
     const split = splitBySpeaker(rawText, title);
-    if (split.masonText.length < 80 || split.westyText.length < 80) {
-      console.warn(`[UploadedPdfContinuity] "${title}" local attribution incomplete: Mason ${split.masonText.length} chars/${split.masonTurns} turns, Westy ${split.westyText.length} chars/${split.westyTurns} turns.`);
+    const structured = extractStructuredSeasonPicks(rawText);
+    const masonText = mergeStructuredPicks(split.masonText, structured.mason);
+    const westyText = mergeStructuredPicks(split.westyText, structured.westy);
+    if (masonText.length < 80 || westyText.length < 80) {
+      console.warn(`[UploadedPdfContinuity] "${title}" local attribution incomplete: Mason ${masonText.length} chars/${split.masonTurns} turns, Westy ${westyText.length} chars/${split.westyTurns} turns.`);
       return null;
     }
     return {
-      masonText: split.masonText,
-      westyText: split.westyText,
-      playerNames: explicitPredictionPlayerNames(rawText),
+      masonText,
+      westyText,
+      playerNames: [...new Set([...explicitPredictionPlayerNames(rawText), ...structured.playerNames])],
       confidence: 1,
       notes: [
         `Parsed ${pdf.numPages} PDF pages locally.`,
         `Attributed ${split.masonTurns} Mason turns and ${split.westyTurns} Westy turns from visible speaker labels.`,
-        'Preserved incomplete speaker turns across page furniture, team headers and labeled season-pick rows so sentences are not cut off.',
-        'Player discovery is restricted to explicit prediction labels; canonical league player names are supplied downstream.',
+        `Recovered ${structured.mason.length + structured.westy.length} structured official-season-pick fields directly from the PDF text layer.`,
+        'Structured championship, defining-player and highest-scoring-team picks are added as canonical receipts when layout order breaks the conversational text.',
+        'Player discovery is restricted to explicit prediction language; canonical league player names are supplied downstream.',
         'No LLM or external AI API was used.',
       ],
       model: 'local-unpdf-v4',
