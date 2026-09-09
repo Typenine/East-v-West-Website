@@ -162,10 +162,10 @@ async function recoverContinuity(
   forcePdfRefresh = false,
 ): Promise<RecoveredContinuity> {
   const pdfKey = uploadedPdfKey(sections);
-  const refreshUploadedPdf = Boolean(pdfKey) && (forcePdfRefresh || uploadedPdfExtractionModel(sections) !== 'local-unpdf-v3');
+  const refreshUploadedPdf = Boolean(pdfKey) && (forcePdfRefresh || uploadedPdfExtractionModel(sections) !== 'local-unpdf-v4');
   let entertainerText = refreshUploadedPdf ? '' : unique(collectBotText(sections, 'entertainer')).join('\n');
   let analystText = refreshUploadedPdf ? '' : unique(collectBotText(sections, 'analyst')).join('\n');
-  let playerNames = unique(collectPlayerNames(sections));
+  let playerNames = refreshUploadedPdf ? [] : unique(collectPlayerNames(sections));
 
   if (entertainerText.trim() || analystText.trim()) {
     return { entertainerText, analystText, playerNames, recoveredFromPdf: false };

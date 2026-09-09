@@ -209,14 +209,17 @@ function splitBySpeaker(rawText: string, title: string): { masonText: string; we
 
     const team = teamContextFromLine(line);
     if (team) {
-      flush();
+      const preserveIncompleteTurn = Boolean(active && current.length > 0 && currentLooksIncomplete());
       contextTeam = team;
+      if (preserveIncompleteTurn) continue;
+      flush();
       if (active && isSpeakerContextLine(line)) continue;
       active = null;
       continue;
     }
 
     if (active && isSpeakerContextLine(line)) {
+      if (current.length > 0 && currentLooksIncomplete()) continue;
       flush();
       continue;
     }
@@ -282,11 +285,11 @@ export async function extractUploadedPdfContinuity(bytes: Uint8Array, title: str
       notes: [
         `Parsed ${pdf.numPages} PDF pages locally.`,
         `Attributed ${split.masonTurns} Mason turns and ${split.westyTurns} Westy turns from visible speaker labels.`,
-        'Preserved incomplete speaker turns across page furniture and labeled season-pick rows so sentences are not cut off.',
+        'Preserved incomplete speaker turns across page furniture, team headers and labeled season-pick rows so sentences are not cut off.',
         'Player discovery is restricted to explicit prediction labels; canonical league player names are supplied downstream.',
         'No LLM or external AI API was used.',
       ],
-      model: 'local-unpdf-v3',
+      model: 'local-unpdf-v4',
     };
   } catch (error) {
     console.warn(`[UploadedPdfContinuity] Local PDF extraction failed for "${title}":`, error instanceof Error ? error.message : String(error));
