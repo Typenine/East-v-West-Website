@@ -75,6 +75,10 @@ function teamContextFromLine(line: string): string | null {
   return null;
 }
 
+function isSpeakerContextLine(line: string): boolean {
+  return /^(?:CHAMPION(?:SHIP)?(?:\s+PICK)?|TITLE\s+PICK|PROJECTED\s+FINISH|DEFINING(?:\s+CHAMPIONSHIP)?\s+PLAYER|HIGHEST[- ]SCORING(?:\s+REGULAR[- ]SEASON)?\s+TEAM|POINTS\s+LEADER)\b\s*:?.*$/i.test(line);
+}
+
 function isSourceOrSidebarLine(line: string): boolean {
   if (/https?:\/\/|www\./i.test(line)) return true;
   if (/^(?:Yahoo Sports|ESPN|NFL\.com|The Athletic|CBS Sports|NBC Sports|Pro Football Talk|FantasyPros|Sleeper)\s*:/i.test(line)) return true;
@@ -195,19 +199,25 @@ function splitBySpeaker(rawText: string, title: string): { masonText: string; we
       continue;
     }
 
-    const team = teamContextFromLine(line);
-    if (team) {
-      flush();
-      contextTeam = team;
-      active = null;
-      continue;
-    }
-
     const marker = speakerMarker(line);
     if (marker) {
       flush();
       active = marker.speaker;
       if (marker.remainder && !isNoiseLine(marker.remainder, title)) current.push(marker.remainder);
+      continue;
+    }
+
+    const team = teamContextFromLine(line);
+    if (team) {
+      flush();
+      contextTeam = team;
+      if (active && isSpeakerContextLine(line)) continue;
+      active = null;
+      continue;
+    }
+
+    if (active && isSpeakerContextLine(line)) {
+      flush();
       continue;
     }
 
@@ -272,7 +282,7 @@ export async function extractUploadedPdfContinuity(bytes: Uint8Array, title: str
       notes: [
         `Parsed ${pdf.numPages} PDF pages locally.`,
         `Attributed ${split.masonTurns} Mason turns and ${split.westyTurns} Westy turns from visible speaker labels.`,
-        'Preserved incomplete speaker turns across page furniture so sentences are not cut off at page breaks.',
+        'Preserved incomplete speaker turns across page furniture and labeled season-pick rows so sentences are not cut off.',
         'Player discovery is restricted to explicit prediction labels; canonical league player names are supplied downstream.',
         'No LLM or external AI API was used.',
       ],
