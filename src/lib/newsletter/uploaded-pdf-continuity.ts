@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { extractText, getDocumentProxy } from 'unpdf';
 
 export interface UploadedPdfContinuity {
   masonText: string;
@@ -9,181 +9,190 @@ export interface UploadedPdfContinuity {
   model: string;
 }
 
-function cleanJson(raw: string): string {
-  const trimmed = raw.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  if (fenced) return fenced[1].trim();
+type Speaker = 'mason' | 'westy';
 
-  // Claude normally follows the strict-JSON instruction, but do not lose an
-  // otherwise successful PDF read because it wrapped the JSON in one short
-  // explanatory sentence or an unmatched code fence.
-  const firstBrace = trimmed.indexOf('{');
-  const lastBrace = trimmed.lastIndexOf('}');
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return trimmed.slice(firstBrace, lastBrace + 1);
+const MAX_PAGES = 80;
+const MAX_HOST_CHARS = 120_000;
+const PDF_TIMEOUT_MS = 90_000;
+
+function normalizeLine(value: string): string {
+  return value
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
+
+function normalizeHostText(value: string): string {
+  return value
+    .replace(/\r/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, MAX_HOST_CHARS);
+}
+
+function isNoiseLine(line: string, title: string): boolean {
+  if (!line) return true;
+  const simplified = line.replace(/[.·•/|_-]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  const simpleTitle = title.replace(/[.·•/|_-]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+
+  if (/^\d{1,3}$/.test(line)) return true;
+  if (/^east\s+v\.?\s+west$/i.test(line)) return true;
+  if (/^newsletter$/i.test(line)) return true;
+  if (simpleTitle && simplified === simpleTitle) return true;
+  if (/^20\d{2}\s+(?:season\s+preview|offseason\s+moves|free\s+agency|pre-draft|post-draft)\s+\d{1,3}$/i.test(line)) return true;
+
+  if (line.length <= 72 && /^[A-Z0-9 "'&.,:/()\-]+$/.test(line) && !/[.!?]["']?$/.test(line)) {
+    return true;
   }
-  return trimmed;
+  return false;
 }
 
-function normalizeText(value: unknown, maxChars = 18_000): string {
-  if (typeof value !== 'string') return '';
-  return value.replace(/\r/g, '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, maxChars);
-}
+function speakerMarker(rawLine: string): { speaker: Speaker; remainder: string } | null {
+  const line = normalizeLine(rawLine);
+  if (!line) return null;
 
-function normalizeNames(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const item of value) {
-    if (typeof item !== 'string') continue;
-    const name = item.replace(/\s+/g, ' ').trim();
-    if (name.length < 4 || name.length > 70) continue;
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(name);
-    if (out.length >= 100) break;
+  const lower = line.toLowerCase();
+  if (lower.includes('mason reed') && (lower.includes('westy') || lower.includes('trent weston'))) {
+    return null;
   }
-  return out;
+
+  if (/^(?:MASON REED|MASON)$/i.test(line)) return { speaker: 'mason', remainder: '' };
+  let match = line.match(/^MASON REED\s*[:\-–—]\s*(.+)$/i)
+    ?? line.match(/^MASON\s*[:\-–—]\s*(.+)$/i)
+    ?? line.match(/^MASON REED\s+(.+)$/i);
+  if (match) return { speaker: 'mason', remainder: normalizeLine(match[1]) };
+
+  if (/^(?:WESTY|TRENT\s+["“”']?WESTY["“”']?\s+WESTON|TRENT WESTON)$/i.test(line)) {
+    return { speaker: 'westy', remainder: '' };
+  }
+  match = line.match(/^WESTY\s*[:\-–—]\s*(.+)$/i)
+    ?? line.match(/^WESTY\s+(.+)$/i)
+    ?? line.match(/^TRENT\s+["“”']?WESTY["“”']?\s+WESTON\s*[:\-–—]?\s*(.+)$/i);
+  if (match) return { speaker: 'westy', remainder: normalizeLine(match[1]) };
+
+  return null;
 }
 
-function parseContinuity(text: string, model: string): UploadedPdfContinuity | null {
-  const parsed = JSON.parse(cleanJson(text)) as Record<string, unknown>;
-  const masonText = normalizeText(parsed.masonText);
-  const westyText = normalizeText(parsed.westyText);
-  if (!masonText && !westyText) return null;
+function splitBySpeaker(rawText: string, title: string): {
+  masonText: string;
+  westyText: string;
+  masonTurns: number;
+  westyTurns: number;
+} {
+  const turns: Record<Speaker, string[]> = { mason: [], westy: [] };
+  let active: Speaker | null = null;
+  let current: string[] = [];
+
+  const flush = () => {
+    if (!active || current.length === 0) {
+      current = [];
+      return;
+    }
+    const text = normalizeLine(current.join(' '));
+    if (text.length >= 24) turns[active].push(text);
+    current = [];
+  };
+
+  for (const rawLine of rawText.replace(/\r/g, '').split('\n')) {
+    const line = normalizeLine(rawLine);
+    if (!line) continue;
+
+    const marker = speakerMarker(line);
+    if (marker) {
+      flush();
+      active = marker.speaker;
+      if (marker.remainder && !isNoiseLine(marker.remainder, title)) current.push(marker.remainder);
+      continue;
+    }
+
+    if (!active || isNoiseLine(line, title)) continue;
+    current.push(line);
+  }
+  flush();
 
   return {
-    masonText,
-    westyText,
-    playerNames: normalizeNames(parsed.playerNames),
-    confidence: typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.7,
-    notes: Array.isArray(parsed.notes)
-      ? parsed.notes.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean).slice(0, 8)
-      : [],
-    model,
+    masonText: normalizeHostText(turns.mason.join('\n\n')),
+    westyText: normalizeHostText(turns.westy.join('\n\n')),
+    masonTurns: turns.mason.length,
+    westyTurns: turns.westy.length,
   };
 }
 
-function modelCandidates(configuredModel: string): string[] {
-  // Sonnet 5 is the preferred model. Sonnet 4.6 remains a deliberately boring
-  // fallback for document extraction so a model-specific response quirk cannot
-  // make the newsletter archive lose continuity.
-  return [...new Set([configuredModel, 'claude-sonnet-4-6'])];
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`PDF text extraction timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**
- * Read a finished externally-authored newsletter PDF and recover the substantive
- * Mason/Westy positions so publish-time editorial memory can treat the uploaded
- * issue the same way as a newsletter generated inside the website.
+ * Extract Mason/Westy continuity locally from a text-based newsletter PDF.
  *
- * This is deliberately a memory extraction pass, not a rewrite. It produces a
- * compact attribution-preserving record of what each host actually argued.
+ * No LLM or paid API is involved. unpdf bundles a serverless PDF.js build, so
+ * the uploaded bytes are parsed inside the Vercel function. Attribution is
+ * deterministic from the publication's visible MASON REED / WESTY labels.
  */
 export async function extractUploadedPdfContinuity(
   bytes: Uint8Array,
   title: string,
 ): Promise<UploadedPdfContinuity | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey || bytes.length === 0) {
-    if (!apiKey) console.warn('[UploadedPdfContinuity] ANTHROPIC_API_KEY is not configured.');
+  if (bytes.length === 0) return null;
+
+  try {
+    const pdf = await withTimeout(
+      getDocumentProxy(bytes, { maxImageSize: 16_777_216 }),
+      PDF_TIMEOUT_MS,
+    );
+
+    if (pdf.numPages < 1 || pdf.numPages > MAX_PAGES) {
+      console.warn(`[UploadedPdfContinuity] "${title}" has ${pdf.numPages} pages; allowed range is 1-${MAX_PAGES}.`);
+      return null;
+    }
+
+    const extracted = await withTimeout(
+      extractText(pdf, { mergePages: true }),
+      PDF_TIMEOUT_MS,
+    );
+    const rawText = Array.isArray(extracted.text) ? extracted.text.join('\n') : extracted.text;
+    if (!rawText || rawText.trim().length < 100) {
+      console.warn(`[UploadedPdfContinuity] "${title}" contains no usable searchable text.`);
+      return null;
+    }
+
+    const split = splitBySpeaker(rawText, title);
+    if (split.masonText.length < 80 || split.westyText.length < 80) {
+      console.warn(
+        `[UploadedPdfContinuity] "${title}" local attribution incomplete: Mason ${split.masonText.length} chars/${split.masonTurns} turns, Westy ${split.westyText.length} chars/${split.westyTurns} turns.`,
+      );
+      return null;
+    }
+
+    return {
+      masonText: split.masonText,
+      westyText: split.westyText,
+      playerNames: [],
+      confidence: 1,
+      notes: [
+        `Parsed ${pdf.numPages} PDF pages locally.`,
+        `Attributed ${split.masonTurns} Mason turns and ${split.westyTurns} Westy turns from visible speaker labels.`,
+        'No LLM or external AI API was used.',
+      ],
+      model: 'local-unpdf',
+    };
+  } catch (error) {
+    console.warn(
+      `[UploadedPdfContinuity] Local PDF extraction failed for "${title}":`,
+      error instanceof Error ? error.message : String(error),
+    );
     return null;
   }
-
-  const configuredModel = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
-  const client = new Anthropic({ apiKey, timeout: 180_000, maxRetries: 3 });
-  const base64 = Buffer.from(bytes).toString('base64');
-
-  const prompt = `You are extracting continuity memory from a finished East v. West fantasy-football newsletter titled "${title}".
-
-The newsletter is authored by two recurring hosts:
-- Mason Reed: entertainer/narrative voice. He may be labeled Mason, Mason Reed, entertainer, staff columnist, or a red-side/byline voice.
-- Trent "Westy" Weston: analyst voice. He may be labeled Trent, Weston, Westy, analyst, senior analyst, or a blue-side/byline voice.
-
-Your job is NOT to summarize the whole publication neutrally. Recover what EACH HOST actually believes so future issues can remain consistent.
-
-For each host:
-- capture team evaluations, player evaluations, predictions, rankings, championship picks, strategy opinions, admissions of error, changed minds, and direct disagreements;
-- preserve concrete claims and reasoning;
-- include enough detail that a later writer can say "Mason previously argued X" or "Westy has been skeptical of Y";
-- omit generic transitions, factual tables, headings, boilerplate, and neutral league information unless the host used it as part of an argument;
-- do not invent attribution. If a passage is neutral or attribution is unclear, omit it;
-- paraphrase faithfully rather than reproducing long passages verbatim;
-- list player names that materially appear in the hosts' analysis;
-- prioritize durable receipts over exhaustive recap. Target roughly 15-30 substantive take bullets per host when the issue supports that many.
-
-Return STRICT JSON only in this shape:
-{
-  "masonText": "Detailed attribution-preserving memory notes for Mason, separated into short paragraphs or bullets.",
-  "westyText": "Detailed attribution-preserving memory notes for Westy, separated into short paragraphs or bullets.",
-  "playerNames": ["Player Name"],
-  "confidence": 0.0,
-  "notes": ["Any attribution limitation worth knowing"]
-}
-
-If one host does not appear, return an empty string for that host. Do not make up copy.`;
-
-  for (const model of modelCandidates(configuredModel)) {
-    try {
-      const request: Anthropic.MessageCreateParamsNonStreaming = {
-        model,
-        max_tokens: 8_000,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: base64,
-              },
-            },
-            { type: 'text', text: prompt },
-          ],
-        }],
-      };
-
-      // Sonnet 5 enables adaptive thinking by default. That is unnecessary for
-      // this attribution/extraction task and can consume the response budget
-      // before a visible text block is emitted. Disable it explicitly here.
-      if (/claude-sonnet-5/i.test(model)) {
-        request.thinking = { type: 'disabled' };
-      }
-
-      const message = await client.messages.create(request);
-      const text = message.content
-        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-        .map(block => block.text)
-        .join('\n')
-        .trim();
-
-      if (!text) {
-        const blockTypes = message.content.map(block => block.type).join(',') || 'none';
-        console.warn(
-          `[UploadedPdfContinuity] ${model} returned no text for "${title}" ` +
-          `(stop_reason=${message.stop_reason ?? 'unknown'}, blocks=${blockTypes}). Trying fallback if available.`,
-        );
-        continue;
-      }
-
-      const recovered = parseContinuity(text, model);
-      if (!recovered) {
-        console.warn(
-          `[UploadedPdfContinuity] ${model} returned no attributable Mason/Westy text for "${title}". ` +
-          'Trying fallback if available.',
-        );
-        continue;
-      }
-
-      return recovered;
-    } catch (error) {
-      console.warn(
-        `[UploadedPdfContinuity] PDF continuity extraction failed for "${title}" using ${model}:`,
-        error instanceof Error ? error.message : String(error),
-      );
-    }
-  }
-
-  return null;
 }
