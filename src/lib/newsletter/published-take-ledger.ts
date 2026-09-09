@@ -7,6 +7,8 @@ import {
   type UploadedPdfContinuity,
 } from '@/lib/newsletter/uploaded-pdf-continuity';
 import { presignGet } from '@/server/storage/r2';
+import { getDb } from '@/server/db/client';
+import { newsletters } from '@/server/db/schema';
 import {
   synthesizePublishedIntelligence,
   type EditorialClaim,
@@ -18,8 +20,6 @@ import {
   loadNewsletterById,
   saveBotMemory,
 } from '@/server/db/newsletter-queries';
-import { getDb } from '@/server/db/client';
-import { newsletters } from '@/server/db/schema';
 import {
   PUBLISHED_CONTINUITY_VERSION,
   loadPublishedTakeLedgerState,
@@ -32,6 +32,10 @@ import {
 export type { PublishedTakeLedgerEntry, PublishedTakeStatus } from '@/lib/newsletter/published-take-store';
 
 type NewsletterSection = { type: string; data: unknown; [key: string]: unknown };
+type NewsletterShape = {
+  meta: { leagueName: string; week: number; date: string; season: number };
+  sections: NewsletterSection[];
+};
 
 type RecoveredContinuity = {
   entertainerText: string;
@@ -151,19 +155,13 @@ async function recoverContinuity(
   if (entertainerText.trim() || analystText.trim()) {
     return { entertainerText, analystText, playerNames, recoveredFromPdf: false };
   }
-
-  const key = pdfKey;
-  if (!key) return { entertainerText: '', analystText: '', playerNames, recoveredFromPdf: false };
+  if (!pdfKey) return { entertainerText: '', analystText: '', playerNames, recoveredFromPdf: false };
 
   try {
-    const url = await presignGet({ key, expiresSec: 180 });
-    const response = await fetch(url, {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(150_000),
-    });
+    const url = await presignGet({ key: pdfKey, expiresSec: 180 });
+    const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(150_000) });
     if (!response.ok) throw new Error(`R2 returned ${response.status}`);
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    const recovered = await extractUploadedPdfContinuity(bytes, title);
+    const recovered = await extractUploadedPdfContinuity(new Uint8Array(await response.arrayBuffer()), title);
     if (!recovered) return { entertainerText: '', analystText: '', playerNames, recoveredFromPdf: false };
 
     entertainerText = recovered.masonText;
@@ -188,12 +186,12 @@ async function recoverContinuity(
 
 async function persistLocalPdfExtractionMetadata(
   newsletterId: string,
-  newsletter: { meta: { leagueName: string; week: number; date: string; season: number }; sections: NewsletterSection[] },
+  newsletter: NewsletterShape,
   recovered: RecoveredContinuity,
 ): Promise<void> {
   if (!recovered.recoveredFromPdf || !recovered.pdfMetadata) return;
   let changed = false;
-  const sections = newsletter.sections.map(section => {
+  const sections: NewsletterShape['sections'] = newsletter.sections.map(section => {
     if (section.type !== 'UploadedPdf' || !section.data || typeof section.data !== 'object') return section;
     changed = true;
     const data = section.data as Record<string, unknown>;
@@ -201,6 +199,8 @@ async function persistLocalPdfExtractionMetadata(
       ...section,
       data: {
         ...data,
+        bot1_text: recovered.entertainerText,
+        bot2_text: recovered.analystText,
         players: recovered.playerNames.map(playerName => ({ playerName })),
         continuityExtraction: {
           status: 'extracted',
@@ -228,7 +228,7 @@ function statusForClaim(claim: EditorialClaim, previous?: PublishedTakeLedgerEnt
   if (!previous) return 'active';
   if (/\b(changed my mind|change my mind|reversing|reverse course|walk that back|taking that back|take that back|i'm out on|i am out on|i was too high|i was too low|no longer believe|now believe the opposite)\b/.test(text)) return 'reversed';
   if (/\b(less convinced|less confident|softening|cooling on|not as high on|weaker case|more worried|more concerned|downgrad(?:e|ing)|moving .* down)\b/.test(text)) return 'weakened';
-  if (/\b(still believe|still think|still trust|still like|even more convinced|more confident|double down|doubling down|same view|nothing changed|moving .* up)/.test(text)) return 'strengthened';
+  if (/\b(even more convinced|more confident|double down|doubling down|stronger conviction|more bullish|moving .* up)\b/.test(text)) return 'strengthened';
   return 'active';
 }
 
@@ -241,9 +241,7 @@ function candidateClaims(digest: EditorialMemoryDigest, bot: BotName): Editorial
   const candidates: EditorialClaim[] = [];
 
   for (const thesis of digest.teamTheses.filter(row => row.bot === bot)) {
-    const supporting = [...ownClaims].reverse().find(claim =>
-      claim.subjectType === 'team' && claim.subject.toLowerCase() === thesis.team.toLowerCase()
-    );
+    const supporting = [...ownClaims].reverse().find(claim => claim.subjectType === 'team' && claim.subject.toLowerCase() === thesis.team.toLowerCase());
     candidates.push({
       bot,
       subjectType: 'team',
@@ -257,9 +255,7 @@ function candidateClaims(digest: EditorialMemoryDigest, bot: BotName): Editorial
   }
 
   for (const thesis of digest.playerTheses.filter(row => row.bot === bot)) {
-    const supporting = [...ownClaims].reverse().find(claim =>
-      claim.subjectType === 'player' && claim.subject.toLowerCase() === thesis.player.toLowerCase()
-    );
+    const supporting = [...ownClaims].reverse().find(claim => claim.subjectType === 'player' && claim.subject.toLowerCase() === thesis.player.toLowerCase());
     candidates.push({
       bot,
       subjectType: 'player',
@@ -289,14 +285,7 @@ function addLedgerEntries(
   existing: PublishedTakeLedgerEntry[],
   digest: EditorialMemoryDigest,
   bot: BotName,
-  source: {
-    newsletterId: string;
-    title: string | null;
-    episodeType: string | null;
-    season: number;
-    week: number;
-    publishedAt: string;
-  },
+  source: { newsletterId: string; title: string | null; episodeType: string | null; season: number; week: number; publishedAt: string },
 ): PublishedTakeLedgerEntry[] {
   const ledger = existing.filter(entry => entry.sourceNewsletterId !== source.newsletterId);
   const candidates = candidateClaims(digest, bot);
@@ -304,20 +293,16 @@ function addLedgerEntries(
   for (const claim of candidates) {
     const cleanedClaim = normalize(claim.claim).slice(0, 520);
     if (cleanedClaim.length < 20) continue;
-
-    const duplicate = ledger.some(entry =>
+    if (ledger.some(entry =>
       entry.sourceNewsletterId === source.newsletterId &&
       entry.subjectType === claim.subjectType &&
       entry.subject.toLowerCase() === claim.subject.toLowerCase() &&
       entry.claim.toLowerCase() === cleanedClaim.toLowerCase()
-    );
-    if (duplicate) continue;
+    )) continue;
 
     const key = `${claim.subjectType}:${claim.subject.toLowerCase()}:${claim.claimType}`;
     const previous = [...ledger].reverse().find(entry =>
-      claimKey(entry) === key &&
-      entry.sourceNewsletterId !== source.newsletterId &&
-      entry.publishedAt < source.publishedAt
+      claimKey(entry) === key && entry.sourceNewsletterId !== source.newsletterId && entry.publishedAt < source.publishedAt
     );
     const status = statusForClaim(claim, previous);
 
@@ -361,18 +346,13 @@ function applySharedAssessments(mem: BotMemory, digest: EditorialMemoryDigest, w
     if (!mem.teams[team]) mem.teams[team] = { trust: 0, frustration: 0, mood: 'Neutral' };
     mem.teams[team].lastAssessment = {
       week,
-      text: [
-        mason ? `Mason previously: ${normalize(mason)}` : '',
-        westy ? `Westy previously: ${normalize(westy)}` : '',
-      ].filter(Boolean).join(' | ').slice(0, 900),
+      text: [mason ? `Mason previously: ${normalize(mason)}` : '', westy ? `Westy previously: ${normalize(westy)}` : ''].filter(Boolean).join(' | ').slice(0, 900),
     };
   }
 }
 
 function markProcessed(state: PublishedTakeLedgerState, newsletterId: string): PublishedTakeLedgerState {
-  const baseProcessed = state.extractionVersion < PUBLISHED_CONTINUITY_VERSION
-    ? []
-    : state.processedNewsletterIds;
+  const baseProcessed = state.extractionVersion < PUBLISHED_CONTINUITY_VERSION ? [] : state.processedNewsletterIds;
   return {
     ...state,
     extractionVersion: PUBLISHED_CONTINUITY_VERSION,
@@ -382,24 +362,17 @@ function markProcessed(state: PublishedTakeLedgerState, newsletterId: string): P
 
 export async function recordPublishedTakeLedger(newsletterId: string): Promise<boolean> {
   const issue = await loadNewsletterById(newsletterId);
-  if (!issue) {
-    console.warn(`[TakeLedger] Newsletter ${newsletterId} not found`);
-    return false;
-  }
+  if (!issue) return false;
 
   const [initialEntState, initialAnaState] = await Promise.all([
     loadPublishedTakeLedgerState('entertainer', issue.season),
     loadPublishedTakeLedgerState('analyst', issue.season),
   ]);
-  const forcePdfRefresh =
-    initialEntState.extractionVersion < PUBLISHED_CONTINUITY_VERSION ||
-    initialAnaState.extractionVersion < PUBLISHED_CONTINUITY_VERSION;
+  const forcePdfRefresh = initialEntState.extractionVersion < PUBLISHED_CONTINUITY_VERSION || initialAnaState.extractionVersion < PUBLISHED_CONTINUITY_VERSION;
 
   const sections = (issue.newsletter?.sections ?? []) as NewsletterSection[];
   const recovered = await recoverContinuity(sections, issue.title || 'East v. West Newsletter', forcePdfRefresh);
-  const entertainerText = recovered.entertainerText;
-  const analystText = recovered.analystText;
-  if (!entertainerText.trim() && !analystText.trim()) {
+  if (!recovered.entertainerText.trim() && !recovered.analystText.trim()) {
     console.warn(`[TakeLedger] ${newsletterId} contains no attributable Mason/Westy text`);
     return false;
   }
@@ -408,7 +381,6 @@ export async function recordPublishedTakeLedger(newsletterId: string): Promise<b
     loadBotMemory('entertainer', issue.season),
     loadBotMemory('analyst', issue.season),
   ]);
-
   const entMem = loadedEntMem ?? createEnhancedMemory('entertainer', issue.season);
   const anaMem = loadedAnaMem ?? createEnhancedMemory('analyst', issue.season);
 
@@ -430,10 +402,9 @@ export async function recordPublishedTakeLedger(newsletterId: string): Promise<b
     week: issue.week,
     teamNames,
     playerNames,
-    entertainerText,
-    analystText,
+    entertainerText: recovered.entertainerText,
+    analystText: recovered.analystText,
   });
-
   const source = {
     newsletterId: issue.id,
     title: issue.title,
@@ -443,23 +414,16 @@ export async function recordPublishedTakeLedger(newsletterId: string): Promise<b
     publishedAt: issue.generatedAt || new Date().toISOString(),
   };
 
-  const updatedEntState = markProcessed({
-    ...initialEntState,
-    entries: addLedgerEntries(initialEntState.entries, digest, 'entertainer', source),
-  }, issue.id);
-  const updatedAnaState = markProcessed({
-    ...initialAnaState,
-    entries: addLedgerEntries(initialAnaState.entries, digest, 'analyst', source),
-  }, issue.id);
+  const updatedEntState = markProcessed({ ...initialEntState, entries: addLedgerEntries(initialEntState.entries, digest, 'entertainer', source) }, issue.id);
+  const updatedAnaState = markProcessed({ ...initialAnaState, entries: addLedgerEntries(initialAnaState.entries, digest, 'analyst', source) }, issue.id);
 
   applySharedAssessments(entMem, digest, issue.week);
   applySharedAssessments(anaMem, digest, issue.week);
-
   await saveBotMemory('entertainer', issue.season, entMem);
   await saveBotMemory('analyst', issue.season, anaMem);
   await savePublishedTakeLedgerState('entertainer', issue.season, updatedEntState);
   await savePublishedTakeLedgerState('analyst', issue.season, updatedAnaState);
-  await persistLocalPdfExtractionMetadata(issue.id, issue.newsletter as { meta: { leagueName: string; week: number; date: string; season: number }; sections: NewsletterSection[] }, recovered).catch(error => {
+  await persistLocalPdfExtractionMetadata(issue.id, issue.newsletter as NewsletterShape, recovered).catch(error => {
     console.warn('[TakeLedger] could not persist local PDF extraction metadata:', error instanceof Error ? error.message : String(error));
   });
 
@@ -487,12 +451,8 @@ export async function ensurePublishedTakeLedgerForSeason(season: number): Promis
     loadPublishedTakeLedgerState('entertainer', season),
     loadPublishedTakeLedgerState('analyst', season),
   ]);
-  const refreshedForVersion =
-    entState.extractionVersion < PUBLISHED_CONTINUITY_VERSION ||
-    anaState.extractionVersion < PUBLISHED_CONTINUITY_VERSION;
-  const processed = refreshedForVersion
-    ? new Set<string>()
-    : new Set([...entState.processedNewsletterIds, ...anaState.processedNewsletterIds]);
+  const refreshedForVersion = entState.extractionVersion < PUBLISHED_CONTINUITY_VERSION || anaState.extractionVersion < PUBLISHED_CONTINUITY_VERSION;
+  const processed = refreshedForVersion ? new Set<string>() : new Set([...entState.processedNewsletterIds, ...anaState.processedNewsletterIds]);
   let alreadyProcessed = 0;
   let backfilled = 0;
   const unresolvedIssueIds: string[] = [];
