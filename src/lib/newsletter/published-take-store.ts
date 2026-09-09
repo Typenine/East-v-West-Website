@@ -7,6 +7,10 @@ import type {
   EditorialStance,
 } from '@/lib/newsletter/editorial-memory';
 
+export const PUBLISHED_CONTINUITY_VERSION = 2;
+const MAX_LEDGER_ENTRIES = 480;
+const MAX_PROCESSED_ISSUES = 240;
+
 export type PublishedTakeStatus = 'active' | 'strengthened' | 'weakened' | 'reversed' | 'resolved' | 'wrong';
 
 export interface PublishedTakeLedgerEntry {
@@ -33,6 +37,7 @@ export interface PublishedTakeLedgerState {
   entries: PublishedTakeLedgerEntry[];
   processedNewsletterIds: string[];
   updatedAt: string | null;
+  extractionVersion: number;
 }
 
 type EnhancedData = Record<string, unknown>;
@@ -46,11 +51,17 @@ function normalizeState(enhancedData: EnhancedData): PublishedTakeLedgerState {
   const processed = Array.isArray(rawState?.processedNewsletterIds)
     ? rawState.processedNewsletterIds.filter((value): value is string => typeof value === 'string')
     : [...new Set(entries.map(entry => entry.sourceNewsletterId).filter(Boolean))];
+  const extractionVersion = typeof rawState?.extractionVersion === 'number'
+    ? rawState.extractionVersion
+    : entries.length > 0
+      ? 1
+      : PUBLISHED_CONTINUITY_VERSION;
 
   return {
-    entries: entries.slice(-160),
-    processedNewsletterIds: [...new Set(processed)].slice(-200),
+    entries: entries.slice(-MAX_LEDGER_ENTRIES),
+    processedNewsletterIds: [...new Set(processed)].slice(-MAX_PROCESSED_ISSUES),
     updatedAt: typeof rawState?.updatedAt === 'string' ? rawState.updatedAt : null,
+    extractionVersion,
   };
 }
 
@@ -66,7 +77,7 @@ export async function loadPublishedTakeLedgerState(
     .limit(1);
 
   if (!rows.length) {
-    return { entries: [], processedNewsletterIds: [], updatedAt: null };
+    return { entries: [], processedNewsletterIds: [], updatedAt: null, extractionVersion: PUBLISHED_CONTINUITY_VERSION };
   }
 
   return normalizeState((rows[0].enhancedData as EnhancedData | null) ?? {});
@@ -91,9 +102,10 @@ export async function savePublishedTakeLedgerState(
   const current = ((rows[0].enhancedData as EnhancedData | null) ?? {});
   const updatedAt = new Date().toISOString();
   const normalized: PublishedTakeLedgerState = {
-    entries: state.entries.slice(-160),
-    processedNewsletterIds: [...new Set(state.processedNewsletterIds)].slice(-200),
+    entries: state.entries.slice(-MAX_LEDGER_ENTRIES),
+    processedNewsletterIds: [...new Set(state.processedNewsletterIds)].slice(-MAX_PROCESSED_ISSUES),
     updatedAt,
+    extractionVersion: state.extractionVersion,
   };
 
   await db
@@ -102,8 +114,6 @@ export async function savePublishedTakeLedgerState(
       enhancedData: {
         ...current,
         publishedTakeLedgerState: normalized,
-        // Keep the old key populated for compatibility with any code or old exports
-        // that started reading the first ledger implementation.
         publishedTakeLedger: normalized.entries,
       },
       updatedAt: new Date(),
