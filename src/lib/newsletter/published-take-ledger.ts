@@ -31,7 +31,7 @@ import {
 
 export type { PublishedTakeLedgerEntry, PublishedTakeStatus } from '@/lib/newsletter/published-take-store';
 
-type NewsletterSection = { type: string; data?: unknown; [key: string]: unknown };
+type NewsletterSection = { type: string; data: unknown; [key: string]: unknown };
 
 type RecoveredContinuity = {
   entertainerText: string;
@@ -228,7 +228,7 @@ function statusForClaim(claim: EditorialClaim, previous?: PublishedTakeLedgerEnt
   if (!previous) return 'active';
   if (/\b(changed my mind|change my mind|reversing|reverse course|walk that back|taking that back|take that back|i'm out on|i am out on|i was too high|i was too low|no longer believe|now believe the opposite)\b/.test(text)) return 'reversed';
   if (/\b(less convinced|less confident|softening|cooling on|not as high on|weaker case|more worried|more concerned|downgrad(?:e|ing)|moving .* down)\b/.test(text)) return 'weakened';
-  if (/\b(still believe|still think|still trust|still like|even more convinced|more confident|double down|doubling down|same view|nothing changed|moving .* up)\b/.test(text)) return 'strengthened';
+  if (/\b(still believe|still think|still trust|still like|even more convinced|more confident|double down|doubling down|same view|nothing changed|moving .* up)/.test(text)) return 'strengthened';
   return 'active';
 }
 
