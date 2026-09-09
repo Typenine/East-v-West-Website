@@ -58,6 +58,8 @@ interface ContextBlock {
 
 const MAX_HOST_CHARS = 120_000;
 const MAX_CLAIMS_PER_HOST = 64;
+const NON_PLAYER_PREFIXES = /^(?:the|westy|mason|reed|trent|for|moved|add|claim|official|season|power|final|good|acquiring|september|august|east|west|league)\b/i;
+const NON_PLAYER_WORDS = /\b(?:week|nfl|sports|rankings?|preview|agency|trade|claim|hinge|record|bottom|line|issue|format)\b/i;
 
 function normalizeSpace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -75,6 +77,18 @@ function uniqueCanonical(values: string[]): string[] {
     result.push(value);
   }
   return result.sort((a, b) => b.length - a.length);
+}
+
+function looksCanonicalPlayerName(value: string, teamSet: Set<string>): boolean {
+  const clean = normalizeSpace(value).replace(/’/g, "'");
+  const lower = clean.toLowerCase();
+  if (!clean || teamSet.has(lower) || clean.length < 4 || clean.length > 70) return false;
+  if (/\d|https?:|\$|\b(?:vs\.?|over|under)\b/i.test(clean)) return false;
+  if (NON_PLAYER_PREFIXES.test(clean) || NON_PLAYER_WORDS.test(clean)) return false;
+  if (/['’]s\b/i.test(clean)) return false;
+  const words = clean.split(' ');
+  if (words.length < 2 || words.length > 5) return false;
+  return words.every(word => /^[A-Za-z][A-Za-z.'-]*$/.test(word));
 }
 
 function parseBlocks(text: string): ContextBlock[] {
@@ -121,6 +135,11 @@ function firstMentionByPosition(text: string, candidates: string[]): string | un
     }
   }
   return best?.candidate;
+}
+
+function mentionIndex(text: string, candidate?: string): number {
+  if (!candidate) return Number.POSITIVE_INFINITY;
+  return text.toLowerCase().indexOf(candidate.toLowerCase());
 }
 
 function classifyClaimType(text: string, section?: string): EditorialClaimType {
@@ -170,15 +189,16 @@ function looksPlayerFocused(sentence: string, player?: string, section?: string)
 
 function claimsForBot(bot: BotName, text: string, teamNames: string[], playerNames: string[]): EditorialClaim[] {
   const teams = uniqueCanonical(teamNames);
-  const players = uniqueCanonical(playerNames);
+  const teamSet = new Set(teams.map(team => team.toLowerCase()));
+  const players = uniqueCanonical(playerNames).filter(player => looksCanonicalPlayerName(player, teamSet));
   const candidates: Array<{ order: number; score: number; claim: EditorialClaim }> = [];
   let order = 0;
 
   for (const block of parseBlocks(text.slice(0, MAX_HOST_CHARS))) {
     const blockTeam = block.team ? teams.find(team => team.toLowerCase() === block.team!.toLowerCase()) ?? block.team : undefined;
     for (const sentence of splitSentences(block.body)) {
-      const team = firstMentionByPosition(sentence, teams) ?? blockTeam;
       const directTeam = firstMentionByPosition(sentence, teams);
+      const team = directTeam ?? blockTeam;
       const player = firstMentionByPosition(sentence, players);
       const claimType = classifyClaimType(sentence, block.section);
       if (!team && !player && !isHighSignal(sentence, claimType, block.section)) {
@@ -187,7 +207,8 @@ function claimsForBot(bot: BotName, text: string, teamNames: string[], playerNam
       }
 
       const playerFocused = looksPlayerFocused(sentence, player, block.section);
-      const subjectType: EditorialClaim['subjectType'] = playerFocused || (!directTeam && player && !blockTeam)
+      const teamAppearsBeforePlayer = Boolean(directTeam && mentionIndex(sentence, directTeam) <= mentionIndex(sentence, player));
+      const subjectType: EditorialClaim['subjectType'] = player && playerFocused && !teamAppearsBeforePlayer
         ? 'player'
         : team
           ? 'team'
@@ -220,7 +241,6 @@ function claimsForBot(bot: BotName, text: string, teamNames: string[], playerNam
   if (candidates.length <= MAX_CLAIMS_PER_HOST) return candidates.map(row => row.claim);
 
   const selected = new Set<number>();
-
   for (const row of candidates.filter(row => row.claim.claimType === 'prediction' || row.claim.claimType === 'reaction')) {
     selected.add(row.order);
   }
