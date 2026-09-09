@@ -66,24 +66,16 @@ type NewsletterLinkSelector = {
   title?: string | null;
 };
 
-/** Build a stable link to one published issue. */
+/**
+ * Newsletter announcements always point to the public newsletter landing page.
+ * Issue selectors are intentionally ignored because individual issue URLs are not
+ * part of the public navigation contract.
+ */
 export function buildNewsletterUrl(
   siteUrl: string,
-  selector?: string | NewsletterLinkSelector,
+  _selector?: string | NewsletterLinkSelector,
 ): string {
-  const url = new URL('/newsletter', normalizeSiteUrl(siteUrl));
-  const options = typeof selector === 'string' ? { newsletterId: selector } : selector;
-
-  if (options?.newsletterId) {
-    url.searchParams.set('issue', options.newsletterId);
-  } else if (options) {
-    if (Number.isFinite(options.season)) url.searchParams.set('season', String(options.season));
-    if (Number.isFinite(options.week)) url.searchParams.set('week', String(options.week));
-    if (options.episodeType) url.searchParams.set('type', options.episodeType);
-    if (options.title?.trim()) url.searchParams.set('title', options.title.trim());
-  }
-
-  return url.toString();
+  return new URL('/newsletter', normalizeSiteUrl(siteUrl)).toString();
 }
 
 /**
