@@ -12,7 +12,17 @@ export interface UploadedPdfContinuity {
 function cleanJson(raw: string): string {
   const trimmed = raw.trim();
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  return fenced ? fenced[1].trim() : trimmed;
+  if (fenced) return fenced[1].trim();
+
+  // Claude normally follows the strict-JSON instruction, but do not lose an
+  // otherwise successful PDF read because it wrapped the JSON in one short
+  // explanatory sentence or an unmatched code fence.
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+  return trimmed;
 }
 
 function normalizeText(value: unknown, maxChars = 18_000): string {
@@ -50,10 +60,13 @@ export async function extractUploadedPdfContinuity(
   title: string,
 ): Promise<UploadedPdfContinuity | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey || bytes.length === 0) return null;
+  if (!apiKey || bytes.length === 0) {
+    if (!apiKey) console.warn('[UploadedPdfContinuity] ANTHROPIC_API_KEY is not configured.');
+    return null;
+  }
 
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
-  const client = new Anthropic({ apiKey, timeout: 120_000, maxRetries: 2 });
+  const client = new Anthropic({ apiKey, timeout: 180_000, maxRetries: 3 });
   const base64 = Buffer.from(bytes).toString('base64');
 
   const prompt = `You are extracting continuity memory from a finished East v. West fantasy-football newsletter titled "${title}".
@@ -71,7 +84,8 @@ For each host:
 - omit generic transitions, factual tables, headings, boilerplate, and neutral league information unless the host used it as part of an argument;
 - do not invent attribution. If a passage is neutral or attribution is unclear, omit it;
 - paraphrase faithfully rather than reproducing long passages verbatim;
-- list player names that materially appear in the hosts' analysis.
+- list player names that materially appear in the hosts' analysis;
+- prioritize durable receipts over exhaustive recap. Target roughly 15-30 substantive take bullets per host when the issue supports that many.
 
 Return STRICT JSON only in this shape:
 {
@@ -88,7 +102,9 @@ If one host does not appear, return an empty string for that host. Do not make u
     const message = await client.messages.create({
       model,
       max_tokens: 8_000,
-      temperature: 0.1,
+      // Do not send temperature here. Current Claude models used by the site
+      // can reject temperature for document extraction, which previously made
+      // every uploaded PDF continuity pass fail before the PDF was read.
       messages: [{
         role: 'user',
         content: [
@@ -111,10 +127,18 @@ If one host does not appear, return an empty string for that host. Do not make u
       .join('\n')
       .trim();
 
+    if (!text) {
+      console.warn(`[UploadedPdfContinuity] ${model} returned no text for "${title}".`);
+      return null;
+    }
+
     const parsed = JSON.parse(cleanJson(text)) as Record<string, unknown>;
     const masonText = normalizeText(parsed.masonText);
     const westyText = normalizeText(parsed.westyText);
-    if (!masonText && !westyText) return null;
+    if (!masonText && !westyText) {
+      console.warn(`[UploadedPdfContinuity] ${model} returned no attributable Mason/Westy text for "${title}".`);
+      return null;
+    }
 
     return {
       masonText,
@@ -127,7 +151,10 @@ If one host does not appear, return an empty string for that host. Do not make u
       model,
     };
   } catch (error) {
-    console.warn('[UploadedPdfContinuity] PDF continuity extraction failed:', error instanceof Error ? error.message : String(error));
+    console.warn(
+      `[UploadedPdfContinuity] PDF continuity extraction failed for "${title}" using ${model}:`,
+      error instanceof Error ? error.message : String(error),
+    );
     return null;
   }
 }
