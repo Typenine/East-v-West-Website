@@ -7,6 +7,8 @@ import { getLeagueRulesContext } from '@/lib/newsletter';
 import { getLeagueIdForSeason } from '@/lib/constants/league';
 import { fetchComprehensiveLeagueData, fetchCurrentWeekContext } from '@/lib/newsletter/data-integration';
 import { getTradeValues } from '@/lib/trade-analyzer/values';
+import { ensurePublishedTakeLedgerForSeason } from '@/lib/newsletter/published-take-ledger';
+import { loadPublishedTakeLedgerState } from '@/lib/newsletter/published-take-store';
 import {
   getAllPlayersCached,
   getDraftPicks,
@@ -36,6 +38,7 @@ import {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 type ExportKind = 'writing-room' | 'source-pack';
 type SignaturePhrases = { openers?: string[]; closers?: string[]; verbalTics?: string[] };
@@ -112,13 +115,13 @@ function valuesByPosition(players: Array<{ position: string | null; dynastyValue
 
 async function loadRecentPublishedIssues(season: number) {
   const current = await listNewslettersMeta(season).catch(() => []);
-  const previous = current.length >= 2 || season <= 2023
+  const previous = current.length >= 4 || season <= 2023
     ? []
     : await listNewslettersMeta(season - 1).catch(() => []);
   const selected = [...current, ...previous]
     .filter(item => item.status === 'published')
     .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))
-    .slice(0, 2);
+    .slice(0, 4);
 
   const loaded = await Promise.all(selected.map(item => loadNewsletterById(item.id).catch(() => null)));
   return loaded.filter(Boolean).map(issue => {
@@ -174,6 +177,18 @@ async function buildSourcePack(season: number, week: number, episodeType: string
   const snapshotWeek = Math.max(1, week || 1);
   const opts = { timeoutMs: 20000 };
 
+  // Before exporting anything to the ChatGPT Writing Room, make sure every
+  // published issue we can recover has been turned into durable host receipts.
+  const continuityHealth = await ensurePublishedTakeLedgerForSeason(season).catch(error => ({
+    publishedIssues: 0,
+    alreadyProcessed: 0,
+    backfilled: 0,
+    unresolvedIssueIds: [],
+    masonTakeCount: 0,
+    westyTakeCount: 0,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+
   const [
     comprehensive,
     currentWeek,
@@ -190,6 +205,8 @@ async function buildSourcePack(season: number, week: number, episodeType: string
     forecastRecords,
     recentPublishedIssues,
     overrides,
+    masonTakeState,
+    westyTakeState,
   ] = await Promise.all([
     fetchComprehensiveLeagueData(),
     fetchCurrentWeekContext(leagueId, season, snapshotWeek).catch(() => null),
@@ -206,6 +223,8 @@ async function buildSourcePack(season: number, week: number, episodeType: string
     loadForecastRecords(season).catch(() => ({ entertainer: { w: 0, l: 0 }, analyst: { w: 0, l: 0 } })),
     loadRecentPublishedIssues(season),
     loadAllTeamNarrativeOverrides().catch(() => []),
+    loadPublishedTakeLedgerState('entertainer', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null })),
+    loadPublishedTakeLedgerState('analyst', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null })),
   ]);
 
   const valueBySleeperId = new Map(
@@ -353,7 +372,7 @@ async function buildSourcePack(season: number, week: number, episodeType: string
   const episodeFormat = getExternalEpisodeFormat(episodeType);
   const exportedAt = new Date().toISOString();
   const sourcePack = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     packType: 'east-v-west-newsletter-source-pack',
     exportedAt,
     request: {
@@ -367,12 +386,15 @@ async function buildSourcePack(season: number, week: number, episodeType: string
       authority: 'This pack is authoritative for East v. West rosters, transactions, draft state, league history, rules, bot memory, and saved newsletter continuity as of exportedAt.',
       nflResearch: 'Research current reliable NFL information when player status, role, injury, depth chart, or team context materially affects the analysis. Do not overwrite East v. West league facts with web assumptions.',
       voice: 'Mason Reed and Trent Weston are the authors. Neutral factual material belongs only in compact tables/sidebars. Main prose should be their analysis, arguments, callbacks, disagreements, and conclusions.',
+      continuity: 'Use publishedContinuity as the primary receipt system for what Mason and Westy previously argued. Preserve each host\'s individual history. When new evidence changes a take, acknowledge the prior position and explain why it strengthened, weakened, or reversed. Do not force callbacks where they are not relevant.',
       finalOutput: 'Return a polished PDF with no AI/process/meta language inside the newsletter.',
     },
     dataQualityNotes: [
       'Current dynasty values are asset values, not current-season projections.',
       'Roster value is split into active, IR, taxi, and all-slots totals. Do not call a roster weak because a major asset is parked on IR.',
-      'Recent published newsletter sections are continuity evidence for what the bots previously said. Re-check any factual claim in those older sections against the current source pack before repeating it.',
+      'publishedContinuity is the primary continuity record. recentPublishedIssues provide additional prose context, not the only memory of prior newsletters.',
+      'Take-ledger entries preserve host attribution, source issue, subject, stance, confidence, and whether the position strengthened, weakened, reversed, resolved, or proved wrong.',
+      'Any IDs in publishedContinuity.health.unresolvedIssueIds are published issues whose Mason/Westy attribution could not yet be recovered. Do not invent takes for those issues.',
       'Future pick ownership is reconstructed from the current Sleeper roster map plus traded-pick ownership for four rookie-draft rounds.',
       'For weekless episodes, snapshotWeek is set to 1 so current standings/transaction APIs still return a usable league snapshot.',
     ],
@@ -397,6 +419,21 @@ async function buildSourcePack(season: number, week: number, episodeType: string
       rawTradedPickRecords: tradedPicks,
     },
     historyAndTransactions: comprehensive,
+    publishedContinuity: {
+      health: continuityHealth,
+      mason: masonTakeState.entries,
+      westy: westyTakeState.entries,
+      processedNewsletterIds: {
+        mason: masonTakeState.processedNewsletterIds,
+        westy: westyTakeState.processedNewsletterIds,
+      },
+      instructions: [
+        'These entries are receipts, not immutable opinions. New evidence may strengthen, weaken, or reverse a take.',
+        'Keep Mason and Westy separate. Never transfer one host\'s prior position to the other.',
+        'Prefer the most recent relevant entry, but use older entries when they establish a meaningful through-line, prediction receipt, or reversal.',
+        'A callback should identify the prior position accurately and then connect it to the current evidence.',
+      ],
+    },
     botContinuity: {
       currentSeason: { mason: masonMemory, westy: westyMemory },
       priorSeason: { mason: priorMasonMemory, westy: priorWestyMemory },
