@@ -30,19 +30,18 @@ const SECTION_PATTERNS: Array<[RegExp, string]> = [
   [/FINAL\s+WORD/i, 'FINAL WORD'],
 ];
 
-const PERSON_NAME_STOP = new Set([
-  'mason reed', 'trent weston', 'yahoo sports', 'east west', 'league pressure',
-  'power rankings', 'season preview', 'official season', 'final conversation',
-  'final receipts', 'free agency', 'trade analysis', 'the claim', 'the hinge',
-  'on record', 'bottom line', 'central stories', 'the format', 'this issue',
-]);
-
 function normalizeLine(value: string): string {
   return value.replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').trim();
 }
 
 function normalizeHostText(value: string): string {
-  return value.replace(/\r/g, '').replace(/[ \t]+/g, ' ').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, MAX_HOST_CHARS);
+  return value
+    .replace(/\r/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, MAX_HOST_CHARS);
 }
 
 function prepareRawText(value: string): string {
@@ -55,7 +54,9 @@ function prepareRawText(value: string): string {
 }
 
 function sectionContextFromLine(line: string): string | null {
-  for (const [pattern, label] of SECTION_PATTERNS) if (pattern.test(line)) return label;
+  for (const [pattern, label] of SECTION_PATTERNS) {
+    if (pattern.test(line)) return label;
+  }
   return null;
 }
 
@@ -97,8 +98,8 @@ function isNoiseLine(line: string, title: string): boolean {
   return false;
 }
 
-function isHardBoundaryLine(line: string, title: string): boolean {
-  return Boolean(sectionContextFromLine(line)) || isSourceOrSidebarLine(line) || /EAST\s+v\.?\s+WEST/i.test(line) || isNoiseLine(line, title);
+function isPublicationFurnitureLine(line: string, title: string): boolean {
+  return isSourceOrSidebarLine(line) || /EAST\s+v\.?\s+WEST/i.test(line) || isNoiseLine(line, title);
 }
 
 function speakerMarker(rawLine: string): { speaker: Speaker; remainder: string } | null {
@@ -130,21 +131,24 @@ function speakerMarker(rawLine: string): { speaker: Speaker; remainder: string }
   return null;
 }
 
-function likelyPlayerNames(rawText: string): string[] {
-  const candidates = rawText.match(/\b[A-Z][A-Za-z'’.-]{1,20}\s+[A-Z][A-Za-z'’.-]{1,24}\b/g) ?? [];
+function explicitPredictionPlayerNames(rawText: string): string[] {
   const teamLower = new Set(TEAM_NAMES.map(team => team.toLowerCase()));
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of candidates) {
-    const value = normalizeLine(raw.replace(/’/g, "'"));
-    const lower = value.toLowerCase();
-    if (PERSON_NAME_STOP.has(lower) || teamLower.has(lower)) continue;
-    if (value === value.toUpperCase()) continue;
-    if (/^(?:East|West|Power|Season|Official|Final|Trade|Free|League|Opening)\b/i.test(value)) continue;
-    if (seen.has(lower)) continue;
-    seen.add(lower);
-    out.push(value);
-    if (out.length >= 180) break;
+  const patterns = [
+    /\b([A-Z][A-Za-z'’.-]{1,24}(?:\s+[A-Z][A-Za-z'’.-]{1,24}){1,3})\s+is\s+(?:my\s+)?defining(?:\s+championship)?\s+player\b/g,
+    /\bmy\s+defining(?:\s+championship)?\s+player\s+is\s+([A-Z][A-Za-z'’.-]{1,24}(?:\s+[A-Z][A-Za-z'’.-]{1,24}){1,3})\b/g,
+    /\bDEFINING(?:\s+CHAMPIONSHIP)?\s+PLAYER\s*[:\-–—]\s*([A-Z][A-Za-z'’.-]{1,24}(?:\s+[A-Z][A-Za-z'’.-]{1,24}){1,3})\b/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of rawText.matchAll(pattern)) {
+      const value = normalizeLine(match[1].replace(/’/g, "'"));
+      const lower = value.toLowerCase();
+      if (teamLower.has(lower) || lower === 'mason reed' || lower === 'trent weston') continue;
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+      out.push(value);
+    }
   }
   return out;
 }
@@ -157,22 +161,48 @@ function splitBySpeaker(rawText: string, title: string): { masonText: string; we
   let contextSection: string | null = null;
 
   const flush = () => {
-    if (!active || current.length === 0) { current = []; return; }
+    if (!active || current.length === 0) {
+      current = [];
+      return;
+    }
     const text = normalizeLine(current.join(' '));
     if (text.length >= 20) {
-      const markers = [contextTeam ? `[[TEAM:${contextTeam}]]` : '', contextSection ? `[[SECTION:${contextSection}]]` : ''].filter(Boolean).join(' ');
+      const markers = [
+        contextTeam ? `[[TEAM:${contextTeam}]]` : '',
+        contextSection ? `[[SECTION:${contextSection}]]` : '',
+      ].filter(Boolean).join(' ');
       turns[active].push(`${markers}${markers ? ' ' : ''}${text}`);
     }
     current = [];
   };
 
+  const currentLooksIncomplete = (): boolean => {
+    if (current.length === 0) return true;
+    const text = normalizeLine(current.join(' '));
+    return !/[.!?]["')\]]?$/.test(text);
+  };
+
   for (const rawLine of prepareRawText(rawText).split('\n')) {
     const line = normalizeLine(rawLine);
     if (!line) continue;
+
     const section = sectionContextFromLine(line);
-    if (section) { flush(); contextSection = section; contextTeam = null; active = null; }
+    if (section) {
+      flush();
+      contextSection = section;
+      contextTeam = null;
+      active = null;
+      continue;
+    }
+
     const team = teamContextFromLine(line);
-    if (team) { flush(); contextTeam = team; active = null; }
+    if (team) {
+      flush();
+      contextTeam = team;
+      active = null;
+      continue;
+    }
+
     const marker = speakerMarker(line);
     if (marker) {
       flush();
@@ -180,7 +210,14 @@ function splitBySpeaker(rawText: string, title: string): { masonText: string; we
       if (marker.remainder && !isNoiseLine(marker.remainder, title)) current.push(marker.remainder);
       continue;
     }
-    if (isHardBoundaryLine(line, title)) { if (active) flush(); active = null; continue; }
+
+    if (isPublicationFurnitureLine(line, title)) {
+      if (active && currentLooksIncomplete()) continue;
+      if (active) flush();
+      active = null;
+      continue;
+    }
+
     if (!active) continue;
     current.push(line);
   }
@@ -199,7 +236,9 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   try {
     return await Promise.race([
       promise,
-      new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error(`PDF text extraction timed out after ${timeoutMs}ms`)), timeoutMs); }),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`PDF text extraction timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
     ]);
   } finally {
     if (timer) clearTimeout(timer);
@@ -228,15 +267,16 @@ export async function extractUploadedPdfContinuity(bytes: Uint8Array, title: str
     return {
       masonText: split.masonText,
       westyText: split.westyText,
-      playerNames: likelyPlayerNames(rawText),
+      playerNames: explicitPredictionPlayerNames(rawText),
       confidence: 1,
       notes: [
         `Parsed ${pdf.numPages} PDF pages locally.`,
         `Attributed ${split.masonTurns} Mason turns and ${split.westyTurns} Westy turns from visible speaker labels.`,
-        'Preserved team/section context markers and stripped publication furniture before continuity analysis.',
+        'Preserved incomplete speaker turns across page furniture so sentences are not cut off at page breaks.',
+        'Player discovery is restricted to explicit prediction labels; canonical league player names are supplied downstream.',
         'No LLM or external AI API was used.',
       ],
-      model: 'local-unpdf-v2',
+      model: 'local-unpdf-v3',
     };
   } catch (error) {
     console.warn(`[UploadedPdfContinuity] Local PDF extraction failed for "${title}":`, error instanceof Error ? error.message : String(error));
