@@ -7,7 +7,7 @@ import type {
   EditorialStance,
 } from '@/lib/newsletter/editorial-memory';
 
-export const PUBLISHED_CONTINUITY_VERSION = 2;
+export const PUBLISHED_CONTINUITY_VERSION = 3;
 const MAX_LEDGER_ENTRIES = 480;
 const MAX_PROCESSED_ISSUES = 240;
 
