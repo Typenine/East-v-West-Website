@@ -47,6 +47,31 @@ function normalizeNames(value: unknown): string[] {
   return out;
 }
 
+function parseContinuity(text: string, model: string): UploadedPdfContinuity | null {
+  const parsed = JSON.parse(cleanJson(text)) as Record<string, unknown>;
+  const masonText = normalizeText(parsed.masonText);
+  const westyText = normalizeText(parsed.westyText);
+  if (!masonText && !westyText) return null;
+
+  return {
+    masonText,
+    westyText,
+    playerNames: normalizeNames(parsed.playerNames),
+    confidence: typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.7,
+    notes: Array.isArray(parsed.notes)
+      ? parsed.notes.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean).slice(0, 8)
+      : [],
+    model,
+  };
+}
+
+function modelCandidates(configuredModel: string): string[] {
+  // Sonnet 5 is the preferred model. Sonnet 4.6 remains a deliberately boring
+  // fallback for document extraction so a model-specific response quirk cannot
+  // make the newsletter archive lose continuity.
+  return [...new Set([configuredModel, 'claude-sonnet-4-6'])];
+}
+
 /**
  * Read a finished externally-authored newsletter PDF and recover the substantive
  * Mason/Westy positions so publish-time editorial memory can treat the uploaded
@@ -65,7 +90,7 @@ export async function extractUploadedPdfContinuity(
     return null;
   }
 
-  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+  const configuredModel = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
   const client = new Anthropic({ apiKey, timeout: 180_000, maxRetries: 3 });
   const base64 = Buffer.from(bytes).toString('base64');
 
@@ -98,63 +123,67 @@ Return STRICT JSON only in this shape:
 
 If one host does not appear, return an empty string for that host. Do not make up copy.`;
 
-  try {
-    const message = await client.messages.create({
-      model,
-      max_tokens: 8_000,
-      // Do not send temperature here. Current Claude models used by the site
-      // can reject temperature for document extraction, which previously made
-      // every uploaded PDF continuity pass fail before the PDF was read.
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: {
-              type: 'base64',
-              media_type: 'application/pdf',
-              data: base64,
+  for (const model of modelCandidates(configuredModel)) {
+    try {
+      const request: Anthropic.MessageCreateParamsNonStreaming = {
+        model,
+        max_tokens: 8_000,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: base64,
+              },
             },
-          },
-          { type: 'text', text: prompt },
-        ],
-      }],
-    });
+            { type: 'text', text: prompt },
+          ],
+        }],
+      };
 
-    const text = message.content
-      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-      .map(block => block.text)
-      .join('\n')
-      .trim();
+      // Sonnet 5 enables adaptive thinking by default. That is unnecessary for
+      // this attribution/extraction task and can consume the response budget
+      // before a visible text block is emitted. Disable it explicitly here.
+      if (/claude-sonnet-5/i.test(model)) {
+        request.thinking = { type: 'disabled' };
+      }
 
-    if (!text) {
-      console.warn(`[UploadedPdfContinuity] ${model} returned no text for "${title}".`);
-      return null;
+      const message = await client.messages.create(request);
+      const text = message.content
+        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+        .map(block => block.text)
+        .join('\n')
+        .trim();
+
+      if (!text) {
+        const blockTypes = message.content.map(block => block.type).join(',') || 'none';
+        console.warn(
+          `[UploadedPdfContinuity] ${model} returned no text for "${title}" ` +
+          `(stop_reason=${message.stop_reason ?? 'unknown'}, blocks=${blockTypes}). Trying fallback if available.`,
+        );
+        continue;
+      }
+
+      const recovered = parseContinuity(text, model);
+      if (!recovered) {
+        console.warn(
+          `[UploadedPdfContinuity] ${model} returned no attributable Mason/Westy text for "${title}". ` +
+          'Trying fallback if available.',
+        );
+        continue;
+      }
+
+      return recovered;
+    } catch (error) {
+      console.warn(
+        `[UploadedPdfContinuity] PDF continuity extraction failed for "${title}" using ${model}:`,
+        error instanceof Error ? error.message : String(error),
+      );
     }
-
-    const parsed = JSON.parse(cleanJson(text)) as Record<string, unknown>;
-    const masonText = normalizeText(parsed.masonText);
-    const westyText = normalizeText(parsed.westyText);
-    if (!masonText && !westyText) {
-      console.warn(`[UploadedPdfContinuity] ${model} returned no attributable Mason/Westy text for "${title}".`);
-      return null;
-    }
-
-    return {
-      masonText,
-      westyText,
-      playerNames: normalizeNames(parsed.playerNames),
-      confidence: typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.7,
-      notes: Array.isArray(parsed.notes)
-        ? parsed.notes.filter((item): item is string => typeof item === 'string').map(item => item.trim()).filter(Boolean).slice(0, 8)
-        : [],
-      model,
-    };
-  } catch (error) {
-    console.warn(
-      `[UploadedPdfContinuity] PDF continuity extraction failed for "${title}" using ${model}:`,
-      error instanceof Error ? error.message : String(error),
-    );
-    return null;
   }
+
+  return null;
 }
