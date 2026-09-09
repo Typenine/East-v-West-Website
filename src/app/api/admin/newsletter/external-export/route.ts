@@ -177,15 +177,28 @@ async function buildSourcePack(season: number, week: number, episodeType: string
   const snapshotWeek = Math.max(1, week || 1);
   const opts = { timeoutMs: 20000 };
 
+  // Reuse the same roster/player data this export already needs as the canonical
+  // player-name catalog for deterministic continuity. This adds no model call and
+  // avoids treating arbitrary capitalized PDF text as a player name.
+  const [rosters, allPlayers] = await Promise.all([
+    getLeagueRosters(leagueId, opts).catch(() => [] as SleeperRoster[]),
+    getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
+  ]);
+  const canonicalPlayerNames = unique(
+    rosters.flatMap(roster => (roster.players ?? []).map(id => safePlayerName(allPlayers[id], ''))),
+  );
+
   // Before exporting anything to the ChatGPT Writing Room, make sure every
   // published issue we can recover has been turned into durable host receipts.
-  const continuityHealth = await ensurePublishedTakeLedgerForSeason(season).catch(error => ({
+  const continuityHealth = await ensurePublishedTakeLedgerForSeason(season, canonicalPlayerNames).catch(error => ({
     publishedIssues: 0,
     alreadyProcessed: 0,
     backfilled: 0,
     unresolvedIssueIds: [],
     masonTakeCount: 0,
     westyTakeCount: 0,
+    extractionVersion: 0,
+    refreshedForVersion: false,
     error: error instanceof Error ? error.message : String(error),
   }));
 
@@ -193,8 +206,6 @@ async function buildSourcePack(season: number, week: number, episodeType: string
     comprehensive,
     currentWeek,
     teams,
-    rosters,
-    allPlayers,
     league,
     tradeValues,
     drafts,
@@ -211,8 +222,6 @@ async function buildSourcePack(season: number, week: number, episodeType: string
     fetchComprehensiveLeagueData(),
     fetchCurrentWeekContext(leagueId, season, snapshotWeek).catch(() => null),
     getTeamsData(leagueId, opts).catch(() => []),
-    getLeagueRosters(leagueId, opts).catch(() => [] as SleeperRoster[]),
-    getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
     getLeague(leagueId, opts).catch(() => null),
     getTradeValues().catch(() => ({})),
     getLeagueDrafts(leagueId, opts).catch(() => []),
@@ -223,8 +232,8 @@ async function buildSourcePack(season: number, week: number, episodeType: string
     loadForecastRecords(season).catch(() => ({ entertainer: { w: 0, l: 0 }, analyst: { w: 0, l: 0 } })),
     loadRecentPublishedIssues(season),
     loadAllTeamNarrativeOverrides().catch(() => []),
-    loadPublishedTakeLedgerState('entertainer', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null })),
-    loadPublishedTakeLedgerState('analyst', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null })),
+    loadPublishedTakeLedgerState('entertainer', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null, extractionVersion: 0 })),
+    loadPublishedTakeLedgerState('analyst', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null, extractionVersion: 0 })),
   ]);
 
   const valueBySleeperId = new Map(

@@ -58,6 +58,9 @@ const BOT_KEYS: Record<BotName, Set<string>> = {
   ]),
 };
 
+const PLAYER_NAME_REJECT_PREFIX = /^(?:the|westy|mason|reed|trent|for|moved|add|claim|official|season|power|final|good|acquiring|september|august|east|west|league)\b/i;
+const PLAYER_NAME_REJECT_WORD = /\b(?:week|nfl|sports|rankings?|preview|agency|trade|claim|hinge|record|bottom|line|issue|format)\b/i;
+
 function normalize(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
@@ -95,10 +98,22 @@ function collectBotText(value: unknown, bot: BotName, out: string[] = []): strin
 }
 
 function looksLikePersonName(value: string): boolean {
-  const clean = normalize(value);
+  const clean = normalize(value).replace(/’/g, "'");
   if (clean.length < 4 || clean.length > 70 || /\d|https?:|\$/.test(clean)) return false;
+  if (PLAYER_NAME_REJECT_PREFIX.test(clean) || PLAYER_NAME_REJECT_WORD.test(clean) || /['’]s\b/i.test(clean)) return false;
   const words = clean.split(' ');
-  return words.length >= 2 && words.length <= 5 && words.every(word => /^[A-Za-z.'-]+$/.test(word));
+  if (words.length < 2 || words.length > 5) return false;
+  if (words.some(word => /^[A-Z]{2,}$/.test(word))) return false;
+  const first = words[0];
+  if (/^[A-Za-z]+\.$/.test(first) && !/^(?:[A-Z]\.){1,3}$/.test(first)) return false;
+  return words.every(word => /^[A-Za-z][A-Za-z.'-]*$/.test(word));
+}
+
+function cleanPlayerNames(values: string[], teamNames: string[]): string[] {
+  const teamSet = new Set(teamNames.map(team => normalize(team).toLowerCase()));
+  return unique(values)
+    .map(value => normalize(value).replace(/’/g, "'"))
+    .filter(value => looksLikePersonName(value) && !teamSet.has(value.toLowerCase()));
 }
 
 function collectPlayerNames(value: unknown, path = '', out: string[] = []): string[] {
@@ -147,7 +162,7 @@ async function recoverContinuity(
   forcePdfRefresh = false,
 ): Promise<RecoveredContinuity> {
   const pdfKey = uploadedPdfKey(sections);
-  const refreshUploadedPdf = Boolean(pdfKey) && (forcePdfRefresh || uploadedPdfExtractionModel(sections) !== 'local-unpdf-v2');
+  const refreshUploadedPdf = Boolean(pdfKey) && (forcePdfRefresh || uploadedPdfExtractionModel(sections) !== 'local-unpdf-v3');
   let entertainerText = refreshUploadedPdf ? '' : unique(collectBotText(sections, 'entertainer')).join('\n');
   let analystText = refreshUploadedPdf ? '' : unique(collectBotText(sections, 'analyst')).join('\n');
   let playerNames = unique(collectPlayerNames(sections));
@@ -360,7 +375,7 @@ function markProcessed(state: PublishedTakeLedgerState, newsletterId: string): P
   };
 }
 
-export async function recordPublishedTakeLedger(newsletterId: string): Promise<boolean> {
+export async function recordPublishedTakeLedger(newsletterId: string, canonicalPlayerNames: string[] = []): Promise<boolean> {
   const issue = await loadNewsletterById(newsletterId);
   if (!issue) return false;
 
@@ -391,11 +406,12 @@ export async function recordPublishedTakeLedger(newsletterId: string): Promise<b
     ...Object.keys(entMem.deepTeamRelationships ?? {}),
     ...Object.keys(anaMem.deepTeamRelationships ?? {}),
   ]);
-  const playerNames = unique([
+  const playerNames = cleanPlayerNames([
+    ...canonicalPlayerNames,
     ...recovered.playerNames,
     ...Object.values(entMem.deepPlayerRelationships ?? {}).map(row => row.playerName),
     ...Object.values(anaMem.deepPlayerRelationships ?? {}).map(row => row.playerName),
-  ]);
+  ], teamNames);
 
   const digest = await synthesizePublishedIntelligence({
     season: issue.season,
@@ -442,7 +458,10 @@ export interface PublishedContinuityHealth {
   refreshedForVersion: boolean;
 }
 
-export async function ensurePublishedTakeLedgerForSeason(season: number): Promise<PublishedContinuityHealth> {
+export async function ensurePublishedTakeLedgerForSeason(
+  season: number,
+  canonicalPlayerNames: string[] = [],
+): Promise<PublishedContinuityHealth> {
   const published = (await listNewslettersMeta(season))
     .filter(item => item.status === 'published')
     .sort((a, b) => a.generatedAt.localeCompare(b.generatedAt));
@@ -462,7 +481,7 @@ export async function ensurePublishedTakeLedgerForSeason(season: number): Promis
       alreadyProcessed += 1;
       continue;
     }
-    const recorded = await recordPublishedTakeLedger(issue.id).catch(error => {
+    const recorded = await recordPublishedTakeLedger(issue.id, canonicalPlayerNames).catch(error => {
       console.warn(`[TakeLedger] backfill failed for ${issue.id}:`, error instanceof Error ? error.message : String(error));
       return false;
     });
