@@ -60,6 +60,7 @@ const BOT_KEYS: Record<BotName, Set<string>> = {
 
 const PLAYER_NAME_REJECT_PREFIX = /^(?:the|westy|mason|reed|trent|for|moved|add|claim|official|season|power|final|good|acquiring|september|august|east|west|league)\b/i;
 const PLAYER_NAME_REJECT_WORD = /\b(?:week|nfl|sports|rankings?|preview|agency|trade|claim|hinge|record|bottom|line|issue|format)\b/i;
+const STRUCTURED_PICK_CAPABILITY = 'structured official-season-pick fields';
 
 function normalize(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -156,13 +157,29 @@ function uploadedPdfExtractionModel(sections: NewsletterSection[]): string | nul
   return null;
 }
 
+function uploadedPdfSupportsStructuredSeasonPicks(sections: NewsletterSection[]): boolean {
+  for (const section of sections) {
+    if (section.type !== 'UploadedPdf' || !section.data || typeof section.data !== 'object') continue;
+    const extraction = (section.data as Record<string, unknown>).continuityExtraction;
+    if (!extraction || typeof extraction !== 'object') return false;
+    const notes = (extraction as Record<string, unknown>).notes;
+    if (!Array.isArray(notes)) return false;
+    return notes.some(note => typeof note === 'string' && note.toLowerCase().includes(STRUCTURED_PICK_CAPABILITY));
+  }
+  return false;
+}
+
 async function recoverContinuity(
   sections: NewsletterSection[],
   title: string,
   forcePdfRefresh = false,
 ): Promise<RecoveredContinuity> {
   const pdfKey = uploadedPdfKey(sections);
-  const refreshUploadedPdf = Boolean(pdfKey) && (forcePdfRefresh || uploadedPdfExtractionModel(sections) !== 'local-unpdf-v4');
+  const refreshUploadedPdf = Boolean(pdfKey) && (
+    forcePdfRefresh ||
+    uploadedPdfExtractionModel(sections) !== 'local-unpdf-v4' ||
+    !uploadedPdfSupportsStructuredSeasonPicks(sections)
+  );
   let entertainerText = refreshUploadedPdf ? '' : unique(collectBotText(sections, 'entertainer')).join('\n');
   let analystText = refreshUploadedPdf ? '' : unique(collectBotText(sections, 'analyst')).join('\n');
   let playerNames = refreshUploadedPdf ? [] : unique(collectPlayerNames(sections));

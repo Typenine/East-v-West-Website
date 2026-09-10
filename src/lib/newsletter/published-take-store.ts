@@ -8,7 +8,7 @@ import type {
 } from '@/lib/newsletter/editorial-memory';
 
 // Increment when deterministic extraction changes require a one-time historical rebuild.
-export const PUBLISHED_CONTINUITY_VERSION = 6;
+export const PUBLISHED_CONTINUITY_VERSION = 7;
 const MAX_LEDGER_ENTRIES = 480;
 const MAX_PROCESSED_ISSUES = 240;
 
