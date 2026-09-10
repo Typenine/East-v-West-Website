@@ -7,7 +7,7 @@ import type {
   EditorialStance,
 } from '@/lib/newsletter/editorial-memory';
 
-// Increment when deterministic extraction changes require a one-time historical rebuild.
+// Increment when deterministic extraction changes require a one-time historical rebuild. Version 7 also rejects cached PDFs that predate structured season-pick receipts.
 export const PUBLISHED_CONTINUITY_VERSION = 7;
 const MAX_LEDGER_ENTRIES = 480;
 const MAX_PROCESSED_ISSUES = 240;
