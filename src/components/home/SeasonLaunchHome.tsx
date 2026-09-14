@@ -1,11 +1,13 @@
 import { LEAGUE_IDS, TEAM_NAMES } from "@/lib/constants/league";
 import {
   buildYearToLeagueMapUnique,
+  getAllPlayersCached,
   getLeagueMatchups,
   getLeagueRosters,
   getNFLState,
   getRosterIdToTeamNameMap,
   getTeamsData,
+  type SleeperPlayer,
 } from "@/lib/utils/sleeper-api";
 import { getHomepagePhase } from "@/lib/utils/countdown-resolver";
 import { selectCalendar } from "@/lib/constants/league-calendar";
@@ -38,6 +40,16 @@ import {
 } from "@/lib/fantasy/weekly-projections-next";
 
 const MAX_REGULAR_WEEKS = 14;
+const POS_DEFAULT_MEAN: Record<string, number> = { QB: 18, RB: 13, WR: 13, TE: 8, K: 8, DEF: 8 };
+const POS_DEFAULT_SD: Record<string, number> = { QB: 8, RB: 7, WR: 7, TE: 5, K: 4, DEF: 6 };
+
+function fallbackProjection(position: string): number {
+  return POS_DEFAULT_MEAN[position.toUpperCase()] ?? 10;
+}
+
+function fallbackStddev(position: string): number {
+  return POS_DEFAULT_SD[position.toUpperCase()] ?? 6;
+}
 
 export default async function SeasonLaunchHome({
   searchParams,
@@ -84,11 +96,12 @@ export default async function SeasonLaunchHome({
     defaultWeek = Math.min(MAX_REGULAR_WEEKS, Math.max(1, defaultWeek));
     selectedWeek = hasWeekOverride ? requestedWeek : defaultWeek;
 
-    const [teams, rosterNameMap, rosters, sleeperMatchups] = await Promise.all([
+    const [teams, rosterNameMap, rosters, sleeperMatchups, allPlayers] = await Promise.all([
       getTeamsData(leagueId).catch(() => []),
       getRosterIdToTeamNameMap(leagueId).catch(() => new Map<number, string>()),
       getLeagueRosters(leagueId).catch(() => []),
       getLeagueMatchups(leagueId, selectedWeek).catch(() => []),
+      getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
     ]);
 
     const sortedTeams = [...teams].sort(
@@ -132,28 +145,60 @@ export default async function SeasonLaunchHome({
       projectionSnapshots.map((snapshot) => [snapshot.teamName, snapshot] as const),
     );
 
-    const projectedStartersFor = (teamName: string): SeasonProjectionStarter[] => {
+    const projectedStartersFor = (teamName: string, liveStarterIds: string[]): SeasonProjectionStarter[] => {
       const snapshot = projectionByTeam.get(teamName);
       if (!snapshot) return [];
-      return (snapshot.currentLineup || []).flatMap((entry) => {
-        const player = entry.player;
-        if (!player) return [];
-        return [{
-          id: player.id,
-          position: player.position,
-          nflTeam: player.nflTeam,
-          projection: Number(player.projection || 0),
-          stddev: Math.max(0.1, (Number(player.rangeHigh || 0) - Number(player.rangeLow || 0)) / 2.564),
-        }];
+
+      const snapshotPlayers = new Map(
+        (snapshot.projectedPlayers || []).map((player) => [player.id, player] as const),
+      );
+      const starterIds = liveStarterIds.filter((id) => id && id !== "0");
+
+      // For a future week where Sleeper has not published starters yet, the
+      // stored lineup is still the best available projection context.
+      if (!starterIds.length) {
+        return (snapshot.currentLineup || []).flatMap((entry) => {
+          const player = entry.player;
+          if (!player) return [];
+          return [{
+            id: player.id,
+            position: player.position,
+            nflTeam: player.nflTeam,
+            projection: Number(player.projection || 0),
+            stddev: Math.max(0.1, (Number(player.rangeHigh || 0) - Number(player.rangeLow || 0)) / 2.564),
+          }];
+        });
+      }
+
+      // Once Sleeper has a lineup, use those actual starter IDs. Projection
+      // snapshots provide the forecast values, not the live lineup identity.
+      return starterIds.map((id) => {
+        const projected = snapshotPlayers.get(id);
+        const meta = allPlayers[id];
+        const position = String(projected?.position || meta?.position || "FLEX").toUpperCase();
+        const rangeHigh = Number(projected?.rangeHigh);
+        const rangeLow = Number(projected?.rangeLow);
+        const hasRange = Number.isFinite(rangeHigh) && Number.isFinite(rangeLow) && rangeHigh > rangeLow;
+
+        return {
+          id,
+          position,
+          nflTeam: projected?.nflTeam || meta?.team || null,
+          projection: projected ? Number(projected.projection || 0) : fallbackProjection(position),
+          stddev: projected && hasRange
+            ? Math.max(0.1, (rangeHigh - rangeLow) / 2.564)
+            : fallbackStddev(position),
+        };
       });
     };
 
-    const groups = new Map<number, Array<{ rosterId: number; points: number }>>();
+    const groups = new Map<number, Array<{ rosterId: number; points: number; starters: string[] }>>();
     for (const matchup of sleeperMatchups) {
       const entries = groups.get(matchup.matchup_id) || [];
       entries.push({
         rosterId: matchup.roster_id,
         points: matchup.custom_points ?? matchup.points ?? 0,
+        starters: (matchup.starters || []).filter((id) => id && id !== "0"),
       });
       groups.set(matchup.matchup_id, entries);
     }
@@ -165,6 +210,14 @@ export default async function SeasonLaunchHome({
       const awayTeam = rosterNameMap.get(away.rosterId) || `Roster ${away.rosterId}`;
       const homeSnapshot = projectionByTeam.get(homeTeam);
       const awaySnapshot = projectionByTeam.get(awayTeam);
+      const homeStarters = projectedStartersFor(homeTeam, home.starters);
+      const awayStarters = projectedStartersFor(awayTeam, away.starters);
+      const homeProjectedScore = homeStarters.length
+        ? homeStarters.reduce((sum, starter) => sum + starter.projection, 0)
+        : homeSnapshot?.currentTotal ?? undefined;
+      const awayProjectedScore = awayStarters.length
+        ? awayStarters.reduce((sum, starter) => sum + starter.projection, 0)
+        : awaySnapshot?.currentTotal ?? undefined;
 
       matchups.push({
         homeTeam,
@@ -173,10 +226,10 @@ export default async function SeasonLaunchHome({
         awayRosterId: away.rosterId,
         homeScore: home.points,
         awayScore: away.points,
-        homeProjectedScore: homeSnapshot?.currentTotal ?? undefined,
-        awayProjectedScore: awaySnapshot?.currentTotal ?? undefined,
-        homeStarters: projectedStartersFor(homeTeam),
-        awayStarters: projectedStartersFor(awayTeam),
+        homeProjectedScore,
+        awayProjectedScore,
+        homeStarters,
+        awayStarters,
         week: selectedWeek,
         matchupId,
       });

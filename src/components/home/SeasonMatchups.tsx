@@ -45,6 +45,10 @@ type ScoreboardPayload = {
   teamStatuses?: Record<string, TeamStatus>;
 };
 
+type MatchupPointsPayload = {
+  rosterPoints?: Record<number, number>;
+};
+
 function parseClockToMinutes(clock?: string): number {
   if (!clock) return 0;
   const match = /^(\d{1,2}):(\d{2})/.exec(clock);
@@ -104,17 +108,27 @@ function normalCdf(z: number): number {
   return 0.5 * (1 + erf(z / Math.SQRT2));
 }
 
+function liveRosterScore(
+  rosterId: number,
+  initialScore: number | undefined,
+  rosterPoints: Record<number, number>,
+): number {
+  const live = Number(rosterPoints[rosterId]);
+  if (Number.isFinite(live)) return live;
+  return Number(initialScore ?? 0);
+}
+
 function deriveTeam(
   starters: SeasonProjectionStarter[],
+  rosterId: number,
   initialScore: number | undefined,
   initialProjection: number | undefined,
-  pointsMap: Record<string, number>,
-  hasPointFeed: boolean,
+  rosterPoints: Record<number, number>,
   statuses: Record<string, TeamStatus>,
 ) {
-  const current = hasPointFeed && starters.length
-    ? starters.reduce((sum, starter) => sum + Number(pointsMap[starter.id] ?? 0), 0)
-    : Number(initialScore ?? 0);
+  // Sleeper's roster total is authoritative. Never rebuild a fantasy team's
+  // actual score from a projection snapshot or a subset of player scores.
+  const current = liveRosterScore(rosterId, initialScore, rosterPoints);
 
   if (!starters.length) {
     return {
@@ -156,7 +170,7 @@ export default function SeasonMatchups({
   season: string;
   matchups: SeasonHomeMatchup[];
 }) {
-  const [pointsMap, setPointsMap] = useState<Record<string, number>>({});
+  const [rosterPoints, setRosterPoints] = useState<Record<number, number>>({});
   const [statuses, setStatuses] = useState<Record<string, TeamStatus>>({});
 
   useEffect(() => {
@@ -169,8 +183,8 @@ export default function SeasonMatchups({
       if (cancelled) return;
 
       if (pointsResult.status === "fulfilled" && pointsResult.value.ok) {
-        const payload = await pointsResult.value.json().catch(() => ({}));
-        if (!cancelled) setPointsMap((payload?.playerPoints || {}) as Record<string, number>);
+        const payload = (await pointsResult.value.json().catch(() => ({}))) as MatchupPointsPayload;
+        if (!cancelled) setRosterPoints(payload.rosterPoints || {});
       }
       if (scoreboardResult.status === "fulfilled" && scoreboardResult.value.ok) {
         const payload = (await scoreboardResult.value.json().catch(() => ({}))) as ScoreboardPayload;
@@ -187,22 +201,21 @@ export default function SeasonMatchups({
   }, [selectedWeek, season]);
 
   const displayMatchups = useMemo(() => {
-    const hasPointFeed = Object.keys(pointsMap).length > 0;
     return matchups.map((matchup) => {
       const away = deriveTeam(
         matchup.awayStarters || [],
+        matchup.awayRosterId,
         matchup.awayScore,
         matchup.awayProjectedScore,
-        pointsMap,
-        hasPointFeed,
+        rosterPoints,
         statuses,
       );
       const home = deriveTeam(
         matchup.homeStarters || [],
+        matchup.homeRosterId,
         matchup.homeScore,
         matchup.homeProjectedScore,
-        pointsMap,
-        hasPointFeed,
+        rosterPoints,
         statuses,
       );
 
@@ -237,7 +250,7 @@ export default function SeasonMatchups({
         homeWinPct,
       };
     });
-  }, [matchups, pointsMap, statuses]);
+  }, [matchups, rosterPoints, statuses]);
 
   const prevWeek = Math.max(1, selectedWeek - 1);
   const nextWeek = Math.min(maxWeeks, selectedWeek + 1);
