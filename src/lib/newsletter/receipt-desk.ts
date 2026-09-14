@@ -43,6 +43,12 @@ function speakerLabel(bot: 'entertainer' | 'analyst'): 'Mason Reed' | 'Westy' {
   return bot === 'entertainer' ? 'Mason Reed' : 'Westy';
 }
 
+function handoff(speaker: 'Mason Reed' | 'Westy' | 'Mason Reed & Westy' | 'Editorial'): string {
+  if (speaker === 'Mason Reed & Westy') return 'Gentlemen?';
+  if (speaker === 'Editorial') return 'The corrected record stands.';
+  return `${speaker}?`;
+}
+
 export async function buildReceiptDesk(input: StepInput): Promise<ReceiptDeskSection> {
   if (input.episodeType !== 'regular' || input.week < 2) {
     return { mode: 'receipt_desk', audited: true, receipts: [], note: 'No prior weekly receipts to audit yet.' };
@@ -76,7 +82,9 @@ export async function buildReceiptDesk(input: StepInput): Promise<ReceiptDeskSec
         originalTake: `${speaker} picked ${chosen} in ${matchup}.`,
         whatHappenedAfterward: `${winner} won. The pick was ${correct ? 'correct' : 'incorrect'}.`,
         team: chosen,
-        clancy: `${speaker} had ${chosen} in ${matchup}. ${winner} won. That is the published pick and the result, nothing more.`,
+        clancy: correct
+          ? `${speaker} had ${chosen} in ${matchup}. ${winner} won. The archive is annoyingly cooperative for once. ${handoff(speaker)}`
+          : `${speaker} had ${chosen} in ${matchup}. ${winner} won. I checked twice; the result remained uncooperative. ${handoff(speaker)}`,
       });
 
       if (pick.entertainer_pick !== pick.analyst_pick) {
@@ -111,7 +119,7 @@ export async function buildReceiptDesk(input: StepInput): Promise<ReceiptDeskSec
         whatHappenedAfterward: `${speaker}'s later published position became: ${reversal.claim}`,
         team: reversal.subjectType === 'team' ? reversal.subject : reversal.relatedTeam,
         player: reversal.subjectType === 'player' ? reversal.subject : undefined,
-        clancy: `Continuity check for ${speaker}: the earlier published position was “${reversal.previousClaim}” and the later published position was “${reversal.claim}”. That is a change in the record; ${speaker} can explain whether new evidence justified it.`,
+        clancy: `Continuity check for ${speaker}: earlier, “${reversal.previousClaim}” Later, “${reversal.claim}” The archive has a long memory and very little tact. ${handoff(speaker)}`,
       });
     }
   }
@@ -138,7 +146,7 @@ export async function buildReceiptDesk(input: StepInput): Promise<ReceiptDeskSec
         whatHappenedAfterward: result,
         team: entry.subjectType === 'team' ? entry.subject : entry.relatedTeam,
         player: entry.subjectType === 'player' ? entry.subject : undefined,
-        clancy: `From ${entry.title ?? `Week ${entry.week}`}, ${speaker} put this on the record: “${entry.claim}” Since then: ${result}`,
+        clancy: `From ${entry.title ?? `Week ${entry.week}`}, ${speaker} put this on the record: “${entry.claim}” Since then: ${result} The calendar moved on; the quote declined to. ${handoff(speaker)}`,
       });
     }
   }
@@ -167,7 +175,7 @@ export async function buildReceiptDesk(input: StepInput): Promise<ReceiptDeskSec
         originalTake: `Mason ranked ${biggest.westy.team} #${biggest.mason.rank}; Westy ranked them #${biggest.westy.rank}.`,
         whatHappenedAfterward: result,
         team: biggest.westy.team,
-        clancy: `Ranking receipt: Mason had ${biggest.westy.team} #${biggest.mason.rank}; Westy had them #${biggest.westy.rank}. This week: ${result} The gap is the record; the writers can say whose process they still prefer.`,
+        clancy: `Ranking receipt: Mason had ${biggest.westy.team} #${biggest.mason.rank}; Westy had them #${biggest.westy.rank}. This week: ${result} One of those numbers was always going to age loudly. ${handoff('Mason Reed & Westy')}`,
       });
     } else {
       outer: for (const list of lists) {
@@ -182,7 +190,7 @@ export async function buildReceiptDesk(input: StepInput): Promise<ReceiptDeskSec
             originalTake: `${ranking.team} was ranked #${ranking.rank}.`,
             whatHappenedAfterward: result,
             team: ranking.team,
-            clancy: `${list.speaker} had ${ranking.team} at #${ranking.rank}. This week: ${result} The ranking is the receipt; the interpretation belongs to the writers.`,
+            clancy: `${list.speaker} had ${ranking.team} at #${ranking.rank}. This week: ${result} The ranking has been invited back for questioning. ${handoff(list.speaker)}`,
           });
           break outer;
         }
@@ -205,7 +213,7 @@ export async function buildReceiptDesk(input: StepInput): Promise<ReceiptDeskSec
         source: { speaker: 'Editorial', season: input.season, week: corrections[0].week },
         originalTake: correction.original,
         whatHappenedAfterward: `The published version was corrected to: ${correction.published}`,
-        clancy: `Editorial record: ${correction.note}. The published text was corrected, so the corrected version is the one that carries forward.`,
+        clancy: `Editorial record: ${correction.note}. The published text was corrected. Even the archive gets a red pen sometimes. ${handoff('Editorial')}`,
       });
     }
   }
