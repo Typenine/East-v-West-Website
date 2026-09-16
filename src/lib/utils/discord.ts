@@ -30,6 +30,8 @@ export interface DiscordWebhookHealth {
 }
 
 const CANONICAL_SITE_URL = 'https://east-v-west.com';
+// This is the verified public production alias. The custom domain is retained for
+// site configuration, but Discord announcements must not depend on its DNS state.
 const PUBLIC_VERCEL_SITE_URL = 'https://east-v-west-website.vercel.app';
 
 /** Normalize production URL configuration before it is placed in a Discord embed. */
@@ -75,7 +77,9 @@ export function buildNewsletterUrl(
   siteUrl: string,
   _selector?: string | NewsletterLinkSelector,
 ): string {
-  return new URL('/newsletter', normalizeSiteUrl(siteUrl)).toString();
+  const normalizedSiteUrl = normalizeSiteUrl(siteUrl);
+  const isLocal = normalizedSiteUrl.includes('localhost') || normalizedSiteUrl.includes('127.0.0.1');
+  return new URL('/newsletter', isLocal ? normalizedSiteUrl : PUBLIC_VERCEL_SITE_URL).toString();
 }
 
 /**
