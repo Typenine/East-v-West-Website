@@ -77,7 +77,17 @@ export default async function SeasonLaunchHome({
   let tradeRows: TeamRow[] = [];
 
   try {
-    const nflState = await getNFLState().catch(() => ({ week: 1, display_week: 1, season_has_scores: false }));
+    const beforeKickoff = now.getTime() < calendar.regularSeasonStart.getTime();
+    const elapsedSinceKickoff = now.getTime() - calendar.regularSeasonStart.getTime();
+    const calendarWeek = beforeKickoff
+      ? 1
+      : Math.max(1, Math.min(18, Math.floor(elapsedSinceKickoff / (7 * 24 * 60 * 60 * 1000)) + 1));
+
+    const nflState = await getNFLState().catch(() => ({
+      week: calendarWeek,
+      display_week: calendarWeek,
+      season: String(calendar.season),
+    }));
     seasonYear = String((nflState as { season?: string | number }).season ?? calendar.season);
     const yearMap = await buildYearToLeagueMapUnique().catch(() => ({} as Record<string, string>));
     leagueId = yearMap[seasonYear] || leagueId;
@@ -85,15 +95,10 @@ export default async function SeasonLaunchHome({
     const rawWeek = Number(
       (nflState as { week?: number; display_week?: number }).week
       ?? (nflState as { display_week?: number }).display_week
-      ?? 1,
+      ?? calendarWeek,
     );
-    const currentWeek = Math.max(1, Math.min(18, Number.isFinite(rawWeek) ? rawWeek : 1));
-    const beforeKickoff = now.getTime() < calendar.regularSeasonStart.getTime();
-    const hasScores = (nflState as { season_has_scores?: boolean }).season_has_scores;
-    let defaultWeek = beforeKickoff || hasScores === false ? 1 : currentWeek;
-    const dowET = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/New_York" }).format(now);
-    if (!beforeKickoff && (dowET === "Mon" || dowET === "Tue")) defaultWeek = Math.max(1, defaultWeek - 1);
-    defaultWeek = Math.min(MAX_REGULAR_WEEKS, Math.max(1, defaultWeek));
+    const currentWeek = Math.max(1, Math.min(18, Number.isFinite(rawWeek) ? rawWeek : calendarWeek));
+    const defaultWeek = Math.min(MAX_REGULAR_WEEKS, Math.max(1, beforeKickoff ? 1 : currentWeek));
     selectedWeek = hasWeekOverride ? requestedWeek : defaultWeek;
 
     const [teams, rosterNameMap, rosters, sleeperMatchups, allPlayers] = await Promise.all([
