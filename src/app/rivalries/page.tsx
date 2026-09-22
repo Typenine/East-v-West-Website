@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import { unstable_cache } from 'next/cache';
 import SectionHeader from '@/components/ui/SectionHeader';
-import { CURRENT_SEASON, LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, LEAGUE_IDS, isRivalryWeek } from '@/lib/constants/league';
 import { getTeamColors, getTeamLogoPath, resolveCanonicalTeamName } from '@/lib/utils/team-utils';
 import { getLatestCycle, getPairsForCycle } from '@/server/db/rivalry-queries';
 import type { RivalryPair } from '@/lib/rivalry/types';
@@ -68,7 +68,6 @@ type RivalryHubData = {
   partial: boolean;
 };
 
-const RIVALRY_WEEKS = new Set([3, 14]);
 
 const FALLBACK_PAIRS: RivalryPair[] = [
   {
@@ -355,7 +354,7 @@ async function loadRivalryHub(): Promise<RivalryHubData> {
             teamAPoints,
             teamBPoints,
             completed,
-            rivalryWeek: RIVALRY_WEEKS.has(week),
+            rivalryWeek: isRivalryWeek(week),
             winner,
             margin: Math.abs(teamAPoints - teamBPoints),
             combined: teamAPoints + teamBPoints,
