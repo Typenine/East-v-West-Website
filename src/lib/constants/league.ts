@@ -14,6 +14,12 @@ export const LEAGUE_IDS = {
 
 export const CURRENT_SEASON = '2026';
 
+export const RIVALRY_WEEKS = [3, 14] as const;
+
+export function isRivalryWeek(week: number): boolean {
+  return RIVALRY_WEEKS.some((rivalryWeek) => rivalryWeek === week);
+}
+
 // Accepts a string or number season. Coerces internally so callers can pass a
 // numeric season (e.g. a DB integer column) without silently getting null — the
 // comparison against CURRENT_SEASON (a string) is otherwise strict and would fail
