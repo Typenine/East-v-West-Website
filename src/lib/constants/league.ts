@@ -20,6 +20,76 @@ export function isRivalryWeek(week: number): boolean {
   return RIVALRY_WEEKS.some((rivalryWeek) => rivalryWeek === week);
 }
 
+export type GameweekModeTone =
+  | 'opening'
+  | 'rivalry'
+  | 'east-west'
+  | 'deadline'
+  | 'playoffs'
+  | 'championship';
+
+export type GameweekMode = {
+  label: string;
+  subtitle: string;
+  href: string;
+  tone: GameweekModeTone;
+};
+
+const GAMEWEEK_MODES: Partial<Record<number, GameweekMode>> = {
+  1: {
+    label: 'Opening Week',
+    subtitle: 'A new East v. West season begins.',
+    href: '/matchups',
+    tone: 'opening',
+  },
+  3: {
+    label: 'Rivalry Week',
+    subtitle: 'Rivals meet across the league. Bragging rights are on the line.',
+    href: '/rivalries',
+    tone: 'rivalry',
+  },
+  8: {
+    label: 'East vs. West Week',
+    subtitle: 'East and West collide in the league-wide conference showcase.',
+    href: '/matchups',
+    tone: 'east-west',
+  },
+  12: {
+    label: 'Trade Deadline Week',
+    subtitle: 'The final week to reshape a contender before the trade deadline closes.',
+    href: '/trades',
+    tone: 'deadline',
+  },
+  14: {
+    label: 'Rivalry Week',
+    subtitle: 'Rivalries return for the regular-season finale, with playoff positioning on the line.',
+    href: '/rivalries',
+    tone: 'rivalry',
+  },
+  15: {
+    label: 'Playoffs Begin',
+    subtitle: 'Seven teams enter the bracket. The No. 1 seed has the first-round bye.',
+    href: '/standings',
+    tone: 'playoffs',
+  },
+  16: {
+    label: 'Semifinal Week',
+    subtitle: 'Four teams remain in the championship chase.',
+    href: '/standings',
+    tone: 'playoffs',
+  },
+  17: {
+    label: 'Championship Week',
+    subtitle: 'The East v. West title is decided this week.',
+    href: '/standings',
+    tone: 'championship',
+  },
+};
+
+export function getGameweekMode(week: number): GameweekMode | null {
+  return GAMEWEEK_MODES[week] ?? null;
+}
+
 // Accepts a string or number season. Coerces internally so callers can pass a
 // numeric season (e.g. a DB integer column) without silently getting null — the
 // comparison against CURRENT_SEASON (a string) is otherwise strict and would fail
