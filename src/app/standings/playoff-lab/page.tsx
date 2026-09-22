@@ -140,7 +140,7 @@ export default async function PlayoffLabPage() {
     <div className="container mx-auto px-4 py-8">
       <SectionHeader
         title="Playoff Scenario Lab"
-        subtitle={`${CURRENT_SEASON} playoff odds, remaining schedule, and what-if outcomes`}
+        subtitle={`${CURRENT_SEASON} playoff odds, clinching and elimination scenarios, remaining schedule, and what-if outcomes`}
         actions={
           <Link href="/standings" className="rounded-md border border-[var(--border)] px-3 py-2 text-xs font-bold hover:bg-white/5">
             Back to standings

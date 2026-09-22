@@ -118,7 +118,7 @@ export default function StandingsPage() {
           href="/standings/playoff-lab"
           className="ml-0 rounded-full border border-[var(--accent)] px-3 py-1.5 text-xs font-bold text-[var(--accent)] transition hover:bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] sm:ml-2"
         >
-          Playoff Scenario Lab
+          Playoff Lab
         </Link>
       )}
     </div>
