@@ -6,6 +6,7 @@ import MatchupCard from "@/components/ui/matchup-card";
 import EmptyState from "@/components/ui/empty-state";
 import SectionHeader from "@/components/ui/SectionHeader";
 import { normalizeTeamCode } from "@/lib/constants/nfl-teams";
+import { isRivalryWeek } from "@/lib/constants/league";
 
 export type SeasonProjectionStarter = {
   id: string;
@@ -254,18 +255,43 @@ export default function SeasonMatchups({
 
   const prevWeek = Math.max(1, selectedWeek - 1);
   const nextWeek = Math.min(maxWeeks, selectedWeek + 1);
+  const rivalryWeek = isRivalryWeek(selectedWeek);
 
   return (
     <section className="mb-10 sm:mb-12">
       <SectionHeader
         title="This week in East v. West"
-        subtitle={`Week ${selectedWeek}`}
+        subtitle={rivalryWeek ? `Week ${selectedWeek} · Rivalry Week` : `Week ${selectedWeek}`}
         actions={
           <Link href="/matchups" className="text-sm text-[var(--muted)] hover:text-[var(--text)] transition-colors">
             Full schedule →
           </Link>
         }
       />
+
+      {rivalryWeek ? (
+        <Link
+          href="/rivalries"
+          className="group mb-5 block overflow-hidden rounded-2xl border border-amber-400/55 bg-gradient-to-r from-amber-400/15 via-yellow-300/[0.07] to-amber-400/15 px-5 py-4 shadow-[0_0_32px_rgba(251,191,36,0.08)] transition hover:border-amber-300/75 hover:bg-amber-400/[0.12] sm:px-6 sm:py-5"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[0.28em] text-amber-300">
+                East v. West Event Week
+              </div>
+              <div className="mt-1 text-xl font-black uppercase tracking-[0.08em] text-amber-100 sm:text-2xl">
+                Rivalry Week
+              </div>
+              <p className="mt-1 max-w-2xl text-sm font-medium text-amber-100/75">
+                Six rivalry matchups. Bragging rights, history, and a little extra hate on every result.
+              </p>
+            </div>
+            <div className="w-fit rounded-full border border-amber-300/40 bg-amber-300/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-amber-200 transition group-hover:bg-amber-300/20">
+              View rivalries →
+            </div>
+          </div>
+        </Link>
+      ) : null}
 
       <div className="mb-5 flex items-center gap-2" aria-label="Select week">
         <Link
@@ -296,22 +322,30 @@ export default function SeasonMatchups({
       {displayMatchups.length > 0 ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {displayMatchups.map((matchup) => (
-            <MatchupCard
+            <div
               key={`${matchup.week}-${matchup.matchupId}`}
-              homeTeam={matchup.homeTeam}
-              awayTeam={matchup.awayTeam}
-              homeRosterId={matchup.homeRosterId}
-              awayRosterId={matchup.awayRosterId}
-              homeScore={matchup.homeScore}
-              awayScore={matchup.awayScore}
-              homeProjectedScore={matchup.homeProjectedScore}
-              awayProjectedScore={matchup.awayProjectedScore}
-              homeWinPct={matchup.homeWinPct}
-              awayWinPct={matchup.awayWinPct}
-              kickoffTime={matchup.kickoffTime}
-              week={matchup.week}
-              matchupId={matchup.matchupId}
-            />
+              className={
+                rivalryWeek
+                  ? "rounded-2xl border border-amber-400/55 bg-amber-400/[0.035] p-1 shadow-[0_0_24px_rgba(251,191,36,0.07)]"
+                  : undefined
+              }
+            >
+              <MatchupCard
+                homeTeam={matchup.homeTeam}
+                awayTeam={matchup.awayTeam}
+                homeRosterId={matchup.homeRosterId}
+                awayRosterId={matchup.awayRosterId}
+                homeScore={matchup.homeScore}
+                awayScore={matchup.awayScore}
+                homeProjectedScore={matchup.homeProjectedScore}
+                awayProjectedScore={matchup.awayProjectedScore}
+                homeWinPct={matchup.homeWinPct}
+                awayWinPct={matchup.awayWinPct}
+                kickoffTime={matchup.kickoffTime}
+                week={matchup.week}
+                matchupId={matchup.matchupId}
+              />
+            </div>
           ))}
         </div>
       ) : (
