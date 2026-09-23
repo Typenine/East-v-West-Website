@@ -16,6 +16,7 @@ import DraftOverlayLive, {
 } from '@/components/draft-overlay/DraftOverlayLive';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
+import { getDraftBrandingDefaults } from '@/lib/draft/branding-defaults';
 
 const LEAGUE_LOGO_PATH = `/assets/teams/East%20v%20West%20Logos/${encodeURIComponent('Official East v. West Logo.png')}`;
 
@@ -456,6 +457,7 @@ export default function AdminDraftPage() {
   const [clockMins, setClockMins] = useState('10');
   const [clockSecs, setClockSecs] = useState('0');
   const [form, setForm] = useState({ year: new Date().getFullYear().toString(), rounds: '4' });
+  const [brandingTouched, setBrandingTouched] = useState(false);
   const [roundOrders, setRoundOrders] = useState<Record<number, string[]>>({});
   const [search, setSearch] = useState('');
   const [pos, setPos] = useState('');
@@ -483,7 +485,10 @@ export default function AdminDraftPage() {
     paused: false,
     slideLabel: 'Best Available',
   });
-  const [brandingForm, setBrandingForm] = useState({ eventName: '', eventColor1: '#a4c810', eventColor2: '#ffffff', eventLogoUrl: '' });
+  const [brandingForm, setBrandingForm] = useState(() => {
+    const d = getDraftBrandingDefaults(new Date().getFullYear());
+    return { eventName: d.eventName, eventColor1: d.eventColor1, eventColor2: d.eventColor2, eventLogoUrl: d.eventLogoUrl };
+  });
   const [brandingLogoPreview, setBrandingLogoPreview] = useState<string | null>(null);
   const [savingBranding, setSavingBranding] = useState(false);
   type BrandingTemplate = { id: string; label: string; eventName: string | null; eventLogoUrl: string | null; eventColor1: string | null; eventColor2: string | null; updatedAt: string };
@@ -519,11 +524,24 @@ export default function AdminDraftPage() {
   function applyBrandingTemplate(t: BrandingTemplate) {
     setBrandingForm({
       eventName: t.eventName ?? '',
-      eventColor1: t.eventColor1 ?? '#a4c810',
-      eventColor2: t.eventColor2 ?? '#ffffff',
+      eventColor1: t.eventColor1 ?? '#be161e',
+      eventColor2: t.eventColor2 ?? '#bf9944',
       eventLogoUrl: t.eventLogoUrl ?? '',
     });
     setBrandingLogoPreview(t.eventLogoUrl || null);
+    setBrandingTouched(true);
+  }
+
+  function applyYearBrandingDefaults(yearValue: string | number, force = false) {
+    if (brandingTouched && !force) return;
+    const d = getDraftBrandingDefaults(Number(yearValue));
+    setBrandingForm({
+      eventName: d.eventName,
+      eventColor1: d.eventColor1,
+      eventColor2: d.eventColor2,
+      eventLogoUrl: d.eventLogoUrl,
+    });
+    setBrandingLogoPreview(d.eventLogoUrl || null);
   }
 
   async function saveAsBrandingTemplate() {
@@ -679,6 +697,13 @@ export default function AdminDraftPage() {
     void loadDraftLogoFiles();
   }, [isAdmin, activeTab]);
 
+  // Also preload templates on create form so template-first setup works without switching tabs.
+  useEffect(() => {
+    if (!isAdmin || draft) return;
+    void loadBrandingTemplates();
+    void loadDraftLogoFiles();
+  }, [isAdmin, draft]);
+
   useEffect(() => {
     if (!isAdmin || draft) return;
     (async () => {
@@ -691,17 +716,26 @@ export default function AdminDraftPage() {
         if (!res.ok) return;
         const j = await res.json();
         const w = j.workspace;
-        if (!w) return;
-        setBrandingForm(prev => ({
-          eventName: w.eventName ?? prev.eventName,
-          eventColor1: w.eventColor1 ?? prev.eventColor1,
-          eventColor2: w.eventColor2 ?? prev.eventColor2,
-          eventLogoUrl: w.eventLogoUrl ?? prev.eventLogoUrl,
-        }));
-        if (w.eventLogoUrl && !brandingLogoPreview) {
-          setBrandingLogoPreview(w.eventLogoUrl);
+        if (!w) {
+          applyYearBrandingDefaults(form.year, true);
+          return;
         }
-      } catch { /* ignore */ }
+        const hasWorkspaceBranding = Boolean(w.eventName || w.eventLogoUrl || w.eventColor1 || w.eventColor2);
+        if (hasWorkspaceBranding) {
+          setBrandingForm(prev => ({
+            eventName: w.eventName ?? prev.eventName,
+            eventColor1: w.eventColor1 ?? prev.eventColor1,
+            eventColor2: w.eventColor2 ?? prev.eventColor2,
+            eventLogoUrl: w.eventLogoUrl ?? prev.eventLogoUrl,
+          }));
+          if (w.eventLogoUrl) setBrandingLogoPreview(w.eventLogoUrl);
+          setBrandingTouched(true);
+        } else {
+          applyYearBrandingDefaults(form.year, true);
+        }
+      } catch {
+        applyYearBrandingDefaults(form.year, true);
+      }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, draft, draft?.id]);
@@ -887,7 +921,18 @@ export default function AdminDraftPage() {
       const res = await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, ...(payload || {}) }) });
       const j = await res.json();
       if (!res.ok || j?.error) throw new Error(j?.error || 'failed');
+      if (action === 'create' && j?.sleeperPool) {
+        const sp = j.sleeperPool as { label?: string; count?: number; rookieCount?: number; defCount?: number };
+        alert(`Draft created. Auto-loaded ${sp.label || 'Sleeper pool'}: ${sp.rookieCount ?? '?'} rookies + ${sp.defCount ?? '?'} DEF (${sp.count ?? 0} total).`);
+      }
+      if (action === 'refresh_sleeper_pool' && j?.sleeperPool) {
+        const sp = j.sleeperPool as { label?: string; count?: number; rookieCount?: number; defCount?: number };
+        alert(`Refreshed ${sp.label || 'Sleeper pool'}: ${sp.rookieCount ?? '?'} rookies + ${sp.defCount ?? '?'} DEF (${sp.count ?? 0} total).`);
+      }
       await load(true);
+      if (action === 'create' || action === 'refresh_sleeper_pool') {
+        try { await refreshPlayersInfo(); } catch { /* ignore */ }
+      }
     } catch (e) {
       alert((e as Error).message || 'Action failed');
     } finally {
@@ -1608,7 +1653,14 @@ export default function AdminDraftPage() {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       <div>
                         <Label className="mb-1 block">Year</Label>
-                        <Input value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} />
+                        <Input
+                          value={form.year}
+                          onChange={(e) => {
+                            const year = e.target.value;
+                            setForm({ ...form, year });
+                            applyYearBrandingDefaults(year);
+                          }}
+                        />
                       </div>
                       <div>
                         <Label className="mb-1 block">Rounds</Label>
@@ -1626,6 +1678,130 @@ export default function AdminDraftPage() {
                         <Label className="mb-1 block">Draft Type</Label>
                         <div className="text-sm text-[var(--muted)] py-2">Linear (Dynasty)</div>
                       </div>
+                    </div>
+
+                    <div className="rounded-lg border border-zinc-700 p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div>
+                          <div className="text-sm font-bold text-white">Event branding</div>
+                          <p className="text-xs text-zinc-400 mt-0.5">Auto-fills from the draft year. Load a saved template or tweak before create.</p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => applyYearBrandingDefaults(form.year, true)}
+                        >
+                          Reset to {form.year} defaults
+                        </Button>
+                      </div>
+                      {brandingTemplates.length > 0 && (
+                        <div>
+                          <Label className="mb-1 block text-xs uppercase tracking-wide text-zinc-500">Start from template</Label>
+                          <div className="flex flex-wrap gap-2">
+                            {brandingTemplates.map((t) => (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => applyBrandingTemplate(t)}
+                                className="flex items-center gap-2 rounded-lg border border-zinc-600 bg-zinc-800/60 hover:bg-zinc-800 px-2 py-1.5 text-left"
+                              >
+                                <span className="text-sm font-semibold text-white">{t.label}</span>
+                                <span className="flex gap-1">
+                                  <span className="w-2.5 h-2.5 rounded-full border border-white/20" style={{ background: t.eventColor1 || '#666' }} />
+                                  <span className="w-2.5 h-2.5 rounded-full border border-white/20" style={{ background: t.eventColor2 || '#666' }} />
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <Label className="mb-1 block">Event Name</Label>
+                          <Input
+                            value={brandingForm.eventName}
+                            onChange={(e) => {
+                              setBrandingTouched(true);
+                              setBrandingForm((f) => ({ ...f, eventName: e.target.value }));
+                            }}
+                            placeholder="e.g. Denver 2027"
+                          />
+                        </div>
+                        <div>
+                          <Label className="mb-1 block">Event Logo path</Label>
+                          <Input
+                            value={brandingForm.eventLogoUrl}
+                            onChange={(e) => {
+                              setBrandingTouched(true);
+                              const v = e.target.value;
+                              setBrandingForm((f) => ({ ...f, eventLogoUrl: v }));
+                              setBrandingLogoPreview(v.trim() || null);
+                            }}
+                            placeholder={`/draft-logos/${form.year}-draft-logo.png`}
+                          />
+                        </div>
+                        <div>
+                          <Label className="mb-1 block">Primary color</Label>
+                          <div className="flex gap-2 items-center">
+                            <input
+                              type="color"
+                              value={brandingForm.eventColor1}
+                              onChange={(e) => {
+                                setBrandingTouched(true);
+                                setBrandingForm((f) => ({ ...f, eventColor1: e.target.value }));
+                              }}
+                              className="h-9 w-12 rounded border border-zinc-600 bg-transparent"
+                            />
+                            <Input
+                              value={brandingForm.eventColor1}
+                              onChange={(e) => {
+                                setBrandingTouched(true);
+                                setBrandingForm((f) => ({ ...f, eventColor1: e.target.value }));
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="mb-1 block">Secondary color</Label>
+                          <div className="flex gap-2 items-center">
+                            <input
+                              type="color"
+                              value={brandingForm.eventColor2}
+                              onChange={(e) => {
+                                setBrandingTouched(true);
+                                setBrandingForm((f) => ({ ...f, eventColor2: e.target.value }));
+                              }}
+                              className="h-9 w-12 rounded border border-zinc-600 bg-transparent"
+                            />
+                            <Input
+                              value={brandingForm.eventColor2}
+                              onChange={(e) => {
+                                setBrandingTouched(true);
+                                setBrandingForm((f) => ({ ...f, eventColor2: e.target.value }));
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className="flex items-center gap-3 rounded-lg border border-zinc-700 px-3 py-2"
+                        style={{ background: `linear-gradient(135deg, ${brandingForm.eventColor1}22 0%, ${brandingForm.eventColor2}22 100%)` }}
+                      >
+                        {(brandingLogoPreview || brandingForm.eventLogoUrl) ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={brandingLogoPreview || brandingForm.eventLogoUrl} alt="" className="w-10 h-10 object-contain" />
+                        ) : (
+                          <div className="w-10 h-10 rounded bg-zinc-800" />
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-white truncate">{brandingForm.eventName || `${form.year} Rookie Draft`}</div>
+                          <div className="text-[10px] text-zinc-400 uppercase tracking-wide">Preview</div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-emerald-400/90">
+                        Creating this draft will auto-import Sleeper rookies for {form.year} plus all team defenses. No CSV upload required.
+                      </p>
                     </div>
                     <div>
                       <Label className="mb-2 block">Draft Order (All Rounds)</Label>
@@ -1692,7 +1868,20 @@ export default function AdminDraftPage() {
                         </div>
                       )}
                     </div>
-                    <Button disabled={busy==='create'} onClick={() => onAdmin('create', { year: Number(form.year), rounds: Number(form.rounds), clockSeconds: getTotalSeconds(), teams: teamOrder, roundOrders: Object.keys(roundOrders).length > 0 ? roundOrders : undefined })}>
+                    <Button
+                      disabled={busy==='create'}
+                      onClick={() => onAdmin('create', {
+                        year: Number(form.year),
+                        rounds: Number(form.rounds),
+                        clockSeconds: getTotalSeconds(),
+                        teams: teamOrder,
+                        roundOrders: Object.keys(roundOrders).length > 0 ? roundOrders : undefined,
+                        eventName: brandingForm.eventName || null,
+                        eventLogoUrl: brandingForm.eventLogoUrl || null,
+                        eventColor1: brandingForm.eventColor1 || null,
+                        eventColor2: brandingForm.eventColor2 || null,
+                      })}
+                    >
                       Create Draft
                     </Button>
                   </div>
@@ -2113,7 +2302,23 @@ export default function AdminDraftPage() {
                 <div className="space-y-3">
                   <p className="text-sm">{playersInfo.useCustom ? `Using custom list (${playersInfo.count} players)` : 'Using Sleeper player pool'}</p>
                   {!draft && (
-                    <p className="text-xs text-amber-400/90">No active draft — upload saves a reusable pool for next time. After you create a draft, use &quot;Apply saved pool&quot; or upload again to attach it.</p>
+                    <p className="text-xs text-amber-400/90">No active draft — create a draft to auto-import that year&apos;s Sleeper rookies + DEF. CSV upload remains optional for custom rankings.</p>
+                  )}
+                  {draft && (
+                    <div className="rounded-lg border border-emerald-800/60 bg-emerald-950/20 p-3 space-y-2">
+                      <p className="text-xs text-emerald-300/90">
+                        New drafts auto-load Sleeper rookies for the draft year plus all defenses. Refresh after the NFL draft if the pool changed.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        disabled={busy !== null}
+                        onClick={() => onAdmin('refresh_sleeper_pool', { id: draft.id, year: draft.year })}
+                      >
+                        {busy === 'refresh_sleeper_pool' ? 'Refreshing…' : `Refresh ${draft.year} rookies + DEF from Sleeper`}
+                      </Button>
+                    </div>
                   )}
                   <div>
                     <Label className="mb-1 block">Saved pool</Label>

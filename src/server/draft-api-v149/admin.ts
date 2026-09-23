@@ -46,6 +46,7 @@ import {
 } from '@/server/draft-v149';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
+import { applySleeperRookieDefPool } from '@/lib/draft/apply-sleeper-pool';
 import {
   autoPickCurrent,
   bad,
@@ -61,7 +62,7 @@ export const ADMIN_ACTIONS = new Set([
   'force_pick', 'undo', 'skip_pick', 'approve_pick', 'reject_pick', 'auto_pick',
   'reset', 'reset_trades', 'set_draft_order', 'set_draft_slots', 'update_slot',
   'upload_players', 'clear_players', 'update_branding', 'admin_workspace',
-  'delete_player_pool', 'apply_player_pool', 'repair_state',
+  'delete_player_pool', 'apply_player_pool', 'repair_state', 'refresh_sleeper_pool',
   'list_branding_templates', 'save_branding_template', 'delete_branding_template',
 ]);
 
@@ -180,8 +181,44 @@ export async function handleAdminDraftAction(
       clockSeconds: Math.max(1, Number(body.clockSeconds || 60)),
       roundOrders,
     });
-    await seedDraftFromWorkspace(created.id);
-    return ok({ ok: true, id: created.id, draft: await getDraftOverview(created.id) });
+    // Branding from workspace (templates / prior save), then optional create-time overrides.
+    // Skip copying the prior default player pool — we always build a year-specific Sleeper list.
+    await seedDraftFromWorkspace(created.id, { includePlayers: false });
+    const brandingOverride = {
+      eventName: typeof body.eventName === 'string' ? body.eventName.trim() || null : undefined,
+      eventLogoUrl: typeof body.eventLogoUrl === 'string' ? body.eventLogoUrl.trim() || null : undefined,
+      eventColor1: typeof body.eventColor1 === 'string' ? body.eventColor1.trim() || null : undefined,
+      eventColor2: typeof body.eventColor2 === 'string' ? body.eventColor2.trim() || null : undefined,
+    };
+    const hasBrandingOverride = Object.values(brandingOverride).some((v) => v !== undefined);
+    if (hasBrandingOverride) {
+      if (brandingOverride.eventLogoUrl && isDataUrl(brandingOverride.eventLogoUrl)) {
+        return bad('base64_logos_disabled');
+      }
+      await updateDraftBranding(created.id, brandingOverride);
+      await saveDraftWorkspaceBranding({
+        eventName: brandingOverride.eventName ?? null,
+        eventLogoUrl: brandingOverride.eventLogoUrl ?? null,
+        eventColor1: brandingOverride.eventColor1 ?? null,
+        eventColor2: brandingOverride.eventColor2 ?? null,
+      });
+    }
+
+    // Always auto-build a year-specific Sleeper rookies + DEF pool (works for 2027, 2028, …).
+    // Custom CSV pools remain available via upload_players / apply_player_pool after create.
+    let sleeperPool: Awaited<ReturnType<typeof applySleeperRookieDefPool>> | null = null;
+    try {
+      sleeperPool = await applySleeperRookieDefPool(created.id, year);
+    } catch (error) {
+      console.error('[draft] auto Sleeper pool failed', error);
+    }
+
+    return ok({
+      ok: true,
+      id: created.id,
+      draft: await getDraftOverview(created.id),
+      sleeperPool,
+    });
   }
 
   const draftId = requestedId || (await getActiveOrLatestDraftId());
@@ -190,6 +227,13 @@ export async function handleAdminDraftAction(
   if (action === 'repair_state') {
     const repaired = await repairGhostPendingIfNeeded(draftId);
     return ok({ ok: true, ...repaired, draft: await getDraftOverview(draftId) });
+  }
+  if (action === 'refresh_sleeper_pool') {
+    const overview = await getDraftOverview(draftId);
+    if (!overview) return bad('no_draft');
+    const year = Number(body.year || overview.year);
+    const sleeperPool = await applySleeperRookieDefPool(draftId, year);
+    return ok({ ok: true, sleeperPool, draft: await getDraftOverview(draftId) });
   }
   if (action === 'delete') {
     await deleteDraft(draftId);
