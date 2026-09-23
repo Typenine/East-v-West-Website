@@ -1033,7 +1033,11 @@ export async function copyPlayerPoolToDraft(poolId: string, draftId: string): Pr
   );
 }
 
-export async function seedDraftFromWorkspace(draftId: string): Promise<void> {
+export async function seedDraftFromWorkspace(
+  draftId: string,
+  options: { includePlayers?: boolean } = {},
+): Promise<void> {
+  const includePlayers = options.includePlayers !== false;
   const w = await getDraftWorkspace();
   if (!w) return;
   await updateDraftBranding(draftId, {
@@ -1042,7 +1046,7 @@ export async function seedDraftFromWorkspace(draftId: string): Promise<void> {
     eventColor1: w.eventColor1,
     eventColor2: w.eventColor2,
   });
-  if (w.defaultPlayerPoolId) {
+  if (includePlayers && w.defaultPlayerPoolId) {
     await copyPlayerPoolToDraft(w.defaultPlayerPoolId, draftId);
   }
 }

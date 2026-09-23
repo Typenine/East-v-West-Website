@@ -5,12 +5,15 @@ import {
   createDraftWithOrder,
   getActiveOrLatestDraftId,
   getDraftOverview,
+  saveDraftWorkspaceBranding,
   seedDraftFromWorkspace,
+  updateDraftBranding,
 } from '@/server/db/queries';
 import { getDb } from '@/server/db/client';
 import { LEAGUE_IDS, TEAM_NAMES } from '@/lib/constants/league';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 import { isAdminCookieValue } from '@/lib/auth/admin';
+import { applySleeperRookieDefPool } from '@/lib/draft/apply-sleeper-pool';
 import {
   getAllPlayersCached,
   getLeagueRosters,
@@ -255,6 +258,7 @@ function requestWithJsonBody(req: NextRequest, body: Record<string, unknown>): N
 
 async function createDraftWithTradedOwners(req: NextRequest, body: Record<string, unknown>): Promise<Response> {
   if (!isAdmin(req)) return Response.json({ error: 'forbidden' }, { status: 403 });
+  const year = Number(body.year || new Date().getFullYear());
   const teams = normalizeOwnerOrder(body.teams) || [...TEAM_NAMES];
   const rounds = Math.max(1, Number(body.rounds || 4));
   const roundOrders: Record<number, string[]> = {};
@@ -269,17 +273,52 @@ async function createDraftWithTradedOwners(req: NextRequest, body: Record<string
     roundOrders[round] = normalized;
   }
 
+  const eventLogoUrl = typeof body.eventLogoUrl === 'string' ? body.eventLogoUrl.trim() : '';
+  if (eventLogoUrl.toLowerCase().startsWith('data:')) {
+    return Response.json({ error: 'base64_logos_disabled' }, { status: 400 });
+  }
+
   const created = await createDraftWithOrder({
-    year: Number(body.year || new Date().getFullYear()),
+    year,
     rounds,
     teams,
     roundOrders: Object.keys(roundOrders).length ? roundOrders : undefined,
     clockSeconds: Math.max(1, Number(body.clockSeconds || 60)),
   });
-  await seedDraftFromWorkspace(created.id);
+
+  // Branding from workspace, then create-form overrides. Skip old default player pool.
+  await seedDraftFromWorkspace(created.id, { includePlayers: false });
+  const brandingOverride = {
+    eventName: typeof body.eventName === 'string' ? body.eventName.trim() || null : undefined,
+    eventLogoUrl: typeof body.eventLogoUrl === 'string' ? body.eventLogoUrl.trim() || null : undefined,
+    eventColor1: typeof body.eventColor1 === 'string' ? body.eventColor1.trim() || null : undefined,
+    eventColor2: typeof body.eventColor2 === 'string' ? body.eventColor2.trim() || null : undefined,
+  };
+  if (Object.values(brandingOverride).some((v) => v !== undefined)) {
+    await updateDraftBranding(created.id, brandingOverride);
+    await saveDraftWorkspaceBranding({
+      eventName: brandingOverride.eventName ?? null,
+      eventLogoUrl: brandingOverride.eventLogoUrl ?? null,
+      eventColor1: brandingOverride.eventColor1 ?? null,
+      eventColor2: brandingOverride.eventColor2 ?? null,
+    });
+  }
+
+  let sleeperPool: Awaited<ReturnType<typeof applySleeperRookieDefPool>> | null = null;
+  try {
+    sleeperPool = await applySleeperRookieDefPool(created.id, year);
+  } catch (error) {
+    console.error('[draft] auto Sleeper pool failed', error);
+  }
+
   await setManualOrderLock(created.id, false);
   await syncDraftFromSleeper(created.id, req, { force: true, overrideManualOrder: true });
-  return Response.json({ ok: true, id: created.id, draft: await getDraftOverview(created.id) });
+  return Response.json({
+    ok: true,
+    id: created.id,
+    draft: await getDraftOverview(created.id),
+    sleeperPool,
+  });
 }
 
 export async function GET(req: NextRequest) {
