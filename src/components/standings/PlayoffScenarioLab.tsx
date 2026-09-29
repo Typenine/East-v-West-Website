@@ -93,31 +93,13 @@ export default function PlayoffScenarioLab({
     );
   };
 
-  const remainingWeeks = Math.max(0, regularSeasonEnd - completedWeeks);
-
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-4">
-          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[var(--muted)]">Season progress</div>
-          <div className="mt-1 text-2xl font-black">{completedWeeks} / {regularSeasonEnd}</div>
-          <div className="mt-1 text-xs text-[var(--muted)]">regular-season weeks complete</div>
-        </div>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-4">
-          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[var(--muted)]">Playoff field</div>
-          <div className="mt-1 text-2xl font-black">{playoffTeams} / {teams.length}</div>
-          <div className="mt-1 text-xs text-[var(--muted)]">teams qualify</div>
-        </div>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-4">
-          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[var(--muted)]">Schedule left</div>
-          <div className="mt-1 text-2xl font-black">{remainingWeeks}</div>
-          <div className="mt-1 text-xs text-[var(--muted)]">weeks still to simulate</div>
-        </div>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-4">
-          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[var(--muted)]">Model runs</div>
-          <div className="mt-1 text-2xl font-black">{PLAYOFF_SIM_ITERATIONS.toLocaleString()}</div>
-          <div className="mt-1 text-xs text-[var(--muted)]">season simulations per scenario</div>
-        </div>
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-4 sm:px-5">
+        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[var(--muted)]">How the forecast works</div>
+        <p className="mt-1.5 max-w-4xl text-sm leading-6 text-[var(--muted)]">
+          The model blends each team&apos;s actual scoring with its current roster projection, giving the projection more weight early in the season and actual results more weight as the sample grows. It then simulates the remaining schedule {PLAYOFF_SIM_ITERATIONS.toLocaleString()} times, with more uncertainty early in the year and less as we learn more about each team.
+        </p>
       </div>
 
       {scheduleCoverage ? (
