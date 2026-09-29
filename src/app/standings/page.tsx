@@ -183,7 +183,9 @@ export default function StandingsPage() {
                   <th scope="col" className={thClass} style={broadcastFaintTextStyle}>Team</th>
                   <th scope="col" className={thClass} aria-sort={sortAriaSort('wins')}>{sortHeader('wins', 'Record')}</th>
                   <th scope="col" className={thClass} aria-sort={sortAriaSort('fpts')}>{sortHeader('fpts', 'PF')}</th>
+                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>PF/G</th>
                   <th scope="col" className={thClass} aria-sort={sortAriaSort('fptsAgainst')}>{sortHeader('fptsAgainst', 'PA')}</th>
+                  <th scope="col" className={thClass} style={broadcastFaintTextStyle}>PA/G</th>
                   <th scope="col" className={thClass} style={broadcastFaintTextStyle}>Streak</th>
                 </tr>
               </thead>
@@ -191,6 +193,9 @@ export default function StandingsPage() {
                 {teamsWithSeeds.map((team) => {
                   const accent = teamAccent(team.teamName);
                   const streak = streaks[team.rosterId];
+                  const gamesPlayed = team.wins + team.losses + team.ties;
+                  const pointsForPerGame = gamesPlayed > 0 ? team.fpts / gamesPlayed : null;
+                  const pointsAgainstPerGame = gamesPlayed > 0 ? team.fptsAgainst / gamesPlayed : null;
                   const firstOutsidePlayoffs = showingOfficialOrder && team.seed === PLAYOFF_TEAMS + 1;
                   return (
                     <tr
@@ -223,7 +228,13 @@ export default function StandingsPage() {
                         {team.wins}-{team.losses}{team.ties > 0 ? `-${team.ties}` : ''}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums sm:px-5" style={broadcastBodyTextStyle}>{team.fpts.toFixed(2)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold tabular-nums sm:px-5" style={broadcastBodyTextStyle}>
+                        {pointsForPerGame !== null ? pointsForPerGame.toFixed(2) : '—'}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums sm:px-5" style={broadcastMutedTextStyle}>{team.fptsAgainst.toFixed(2)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold tabular-nums sm:px-5" style={broadcastMutedTextStyle}>
+                        {pointsAgainstPerGame !== null ? pointsAgainstPerGame.toFixed(2) : '—'}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold sm:px-5" style={broadcastMutedTextStyle}>
                         {streak && streak.type && streak.length > 0 ? `${streak.type}${streak.length}` : '—'}
                       </td>
