@@ -708,7 +708,7 @@ export default function DraftContent() {
               <CardContent>
                 <div className="space-y-4">
                   <p className="text-[var(--muted)]">
-                    Commissioner controls for setting up and managing the live draft. Create drafts, upload custom player lists, control the clock, and more.
+                    Commissioner controls for setting up and managing the live draft. Create drafts (auto-imports that year&apos;s Sleeper rookies + DEF), branding, clock, and more.
                   </p>
                   <div className="flex gap-3">
                     <a href="/admin/draft" className="btn btn-primary text-sm px-3 py-1.5 inline-block">
@@ -797,7 +797,9 @@ function FullDraftBoard({ data, selectedYear }: { data: DraftYearData; selectedY
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex min-w-0 items-center gap-1.5">
-                                <span className="truncate text-sm font-semibold text-[var(--text)]">{pick.player}</span>
+                                <span className="truncate text-sm font-semibold text-[var(--text)]">
+                                  {pick.playerId ? <PlayerLink playerId={pick.playerId}>{pick.player}</PlayerLink> : pick.player}
+                                </span>
                                 {pick.pos ? (
                                   <span className="shrink-0 rounded bg-black/15 px-1 py-0.5 text-[9px] font-bold text-[var(--muted)]">{pick.pos}</span>
                                 ) : null}
