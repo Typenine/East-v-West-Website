@@ -24,6 +24,8 @@ type Props = {
   scheduleCoverage: string | null;
 };
 
+const CLINCHING_SCENARIO_START_WEEK = 11;
+
 function recordLabel(team: PlayoffLabTeam) {
   return team.wins + '-' + team.losses + (team.ties ? '-' + team.ties : '');
 }
@@ -76,6 +78,7 @@ export default function PlayoffScenarioLab({
     (value) => value !== null && value !== undefined,
   ).length;
   const activeGames = games.filter((game) => game.week === activeWeek);
+  const showClinchingScenarios = scenarioStartWeek >= CLINCHING_SCENARIO_START_WEEK;
   const activeLocked = activeGames.filter(
     (game) => picks[game.id] !== null && picks[game.id] !== undefined,
   ).length;
@@ -354,14 +357,16 @@ export default function PlayoffScenarioLab({
           <CardHeader>
             <CardTitle>Clinching Status</CardTitle>
             <div className="mt-1 text-xs text-[var(--muted)]">
-              Mathematical playoff status only. This does not use forecast odds. A team is Clinched only when no remaining result can knock it out, and Eliminated only when no remaining result can get it into the top {playoffTeams}.
+              Mathematical playoff status only. Beginning in Week {CLINCHING_SCENARIO_START_WEEK}, the Lab also shows exact combinations of upcoming results that would clinch a berth or eliminate a team.
             </div>
           </CardHeader>
           <CardContent>
             <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--muted)]">
               {scenarioStartWeek > regularSeasonEnd
                 ? 'The regular season is complete, so playoff qualification is final.'
-                : 'Week ' + String(scenarioStartWeek) + ' is the next unresolved week. Points-for tiebreak possibilities are kept alive until they can no longer affect qualification.'}
+                : showClinchingScenarios
+                  ? 'Week ' + String(scenarioStartWeek) + ' scenarios are based on every possible combination of this week\'s results. Points-for tiebreak possibilities stay alive until they can no longer affect qualification.'
+                  : 'Clinching and elimination scenarios will activate in Week ' + String(CLINCHING_SCENARIO_START_WEEK) + '. Until then, this tab tracks only whether a team is mathematically alive, clinched, or eliminated.'}
             </div>
 
             <div className="space-y-2">
@@ -408,22 +413,22 @@ export default function PlayoffScenarioLab({
                           </div>
                         ) : null}
 
-                        {scenario.status === 'alive' && scenario.clinchPaths.length === 0 && scenario.eliminationPaths.length === 0 ? (
+                        {showClinchingScenarios && scenario.status === 'alive' && scenario.clinchPaths.length === 0 && scenario.eliminationPaths.length === 0 ? (
                           <div className="mt-2 text-xs text-[var(--muted)]">
                             No Week {scenarioStartWeek} clinching or elimination path yet.
                           </div>
                         ) : null}
 
-                        {scenario.clinchPaths.length > 0 ? (
+                        {showClinchingScenarios && scenario.clinchPaths.length > 0 ? (
                           <div className="mt-2 text-xs text-[var(--muted)]">
-                            <span className="font-bold text-emerald-300">Can clinch this week:</span>{' '}
+                            <span className="font-bold text-emerald-300">Can clinch in Week {scenarioStartWeek}:</span>{' '}
                             {scenario.clinchPaths.join(' OR ')}
                           </div>
                         ) : null}
 
-                        {scenario.eliminationPaths.length > 0 ? (
+                        {showClinchingScenarios && scenario.eliminationPaths.length > 0 ? (
                           <div className="mt-2 text-xs text-[var(--muted)]">
-                            <span className="font-bold text-rose-300">Can be eliminated this week:</span>{' '}
+                            <span className="font-bold text-rose-300">Can be eliminated in Week {scenarioStartWeek}:</span>{' '}
                             {scenario.eliminationPaths.join(' OR ')}
                           </div>
                         ) : null}
