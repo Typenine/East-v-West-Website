@@ -22,7 +22,7 @@ type SortKey = 'wins' | 'losses' | 'ties' | 'fpts' | 'fptsAgainst';
 type SortDirection = 'asc' | 'desc';
 
 const SEASON_OPTIONS = [CURRENT_SEASON, '2025', '2024', '2023'];
-const PLAYOFF_TEAMS = 7;
+const getPlayoffTeamsForSeason = (season: string) => season === '2026' ? 7 : 8;
 
 const thClass = 'px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.18em] sm:px-5';
 
@@ -98,6 +98,7 @@ export default function StandingsPage() {
     seed: seedByRoster.get(team.rosterId) ?? 0,
   }));
   const showingOfficialOrder = sortConfig.key === 'wins' && sortConfig.direction === 'desc';
+  const playoffTeams = getPlayoffTeamsForSeason(selectedYear);
   
   const seasonTabs = (
     <div className="mt-4 flex flex-wrap items-center gap-2" role="tablist" aria-orientation="horizontal">
@@ -174,7 +175,7 @@ export default function StandingsPage() {
       {seasonTabs}
 
       <div className="mt-5">
-        <BroadcastPanel title="Standings" meta={`${selectedYear} · Top 7 make the playoffs`} bodyClassName="!p-0">
+        <BroadcastPanel title="Standings" meta={`${selectedYear} · Top ${playoffTeams} make the playoffs`} bodyClassName="!p-0">
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead>
@@ -196,7 +197,7 @@ export default function StandingsPage() {
                   const gamesPlayed = team.wins + team.losses + team.ties;
                   const pointsForPerGame = gamesPlayed > 0 ? team.fpts / gamesPlayed : null;
                   const pointsAgainstPerGame = gamesPlayed > 0 ? team.fptsAgainst / gamesPlayed : null;
-                  const firstOutsidePlayoffs = showingOfficialOrder && team.seed === PLAYOFF_TEAMS + 1;
+                  const firstOutsidePlayoffs = showingOfficialOrder && team.seed === playoffTeams + 1;
                   return (
                     <tr
                       key={team.rosterId}
@@ -207,7 +208,7 @@ export default function StandingsPage() {
                         borderBottom: `1px solid ${PANEL.hairline}`,
                         borderTop: firstOutsidePlayoffs ? '2px solid #2563eb' : undefined,
                         borderLeft: `3px solid ${accent}`,
-                        background: team.seed <= PLAYOFF_TEAMS ? 'rgba(37,99,235,0.04)' : undefined,
+                        background: team.seed <= playoffTeams ? 'rgba(37,99,235,0.04)' : undefined,
                       }}
                       onClick={() => (window.location.href = `/teams/${team.rosterId}?year=${selectedYear}`)}
                       onKeyDown={(e) => {
@@ -246,7 +247,7 @@ export default function StandingsPage() {
           </div>
           <div className="flex items-center gap-2 border-t border-[var(--panel-hairline)] px-4 py-3 text-[10px] font-bold uppercase tracking-[0.14em] sm:px-5" style={broadcastMutedTextStyle}>
             <span className="h-0.5 w-8 bg-[#2563eb]" aria-hidden="true" />
-            Seeds 1-7 qualify for the playoffs
+            Seeds 1-{playoffTeams} qualify for the playoffs
           </div>
         </BroadcastPanel>
       </div>
