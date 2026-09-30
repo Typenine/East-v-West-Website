@@ -38,9 +38,9 @@ type DisplayPowerRankings = {
 function structuredMovement(item: IndependentRankingItem) {
   if (item.movement === 'new') {
     return {
-      movementLabel: 'NEW',
+      movementLabel: '→',
       movementDirection: 'neutral' as const,
-      movementDescription: 'New to the rankings',
+      movementDescription: 'No prior ranking comparison available',
     };
   }
   if (item.movement === 'same') {
@@ -113,9 +113,9 @@ function pdfMovement(item: UploadedPdfRankingItem): Pick<
   }
   if (item.movement === 'new') {
     return {
-      movementLabel: 'NEW',
+      movementLabel: '→',
       movementDirection: 'neutral',
-      movementDescription: 'New to the rankings',
+      movementDescription: 'No prior ranking comparison available',
     };
   }
   return {};

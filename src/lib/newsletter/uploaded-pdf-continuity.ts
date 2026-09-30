@@ -47,6 +47,7 @@ const SECTION_PATTERNS: Array<[RegExp, string]> = [
   [/FINAL\s+RECEIPTS?/i, 'FINAL RECEIPTS'],
   [/THE\s+DISAGREEMENTS?/i, 'DISAGREEMENTS'],
   [/LEAGUE\s+PRESSURE/i, 'LEAGUE PRESSURE'],
+  [/LEAGUE\s+PULSE/i, 'LEAGUE PULSE'],
   [/FREE\s+AGENCY/i, 'FREE AGENCY'],
   [/TRADE\s+ANALYSIS/i, 'TRADE ANALYSIS'],
   [/OPENING\s+EXCHANGE/i, 'OPENING EXCHANGE'],
@@ -136,22 +137,36 @@ function speakerMarker(rawLine: string): { speaker: Speaker; remainder: string }
   const lower = line.toLowerCase();
   if (lower.includes('mason reed') && (lower.includes('westy') || lower.includes('trent weston'))) return null;
 
-  if (/^MASON REED$/i.test(line)) return { speaker: 'mason', remainder: '' };
-  let match = line.match(/^MASON REED\s*[:\-–—]\s*(.+)$/i) ?? line.match(/^MASON REED\s+(.+)$/i);
+  if (/^MASON REED$/i.test(line) || /^MASON REED\s*\/\s*No\.\s*\d{1,2}$/i.test(line)) {
+    return { speaker: 'mason', remainder: '' };
+  }
+  let match = line.match(/^MASON REED\s*[:\-–—]\s*(.+)$/i);
   if (match) {
     const remainder = normalizeLine(match[1]);
-    if (!isSourceOrSidebarLine(remainder) && !/POWER\s+RANKINGS?/i.test(remainder)) return { speaker: 'mason', remainder };
+    if (!isSourceOrSidebarLine(remainder) && !/POWER\s+RANKINGS?/i.test(remainder)) {
+      return { speaker: 'mason', remainder };
+    }
   }
 
-  if (/^WESTY$/i.test(line)) return { speaker: 'westy', remainder: '' };
-  match = line.match(/^WESTY\s*[:\-–—]\s*(.+)$/i) ?? line.match(/^WESTY\s+(.+)$/i);
+  if (/^WESTY$/i.test(line) || /^WESTY\s*\/\s*No\.\s*\d{1,2}$/i.test(line)) {
+    return { speaker: 'westy', remainder: '' };
+  }
+  match = line.match(/^WESTY\s*[:\-–—]\s*(.+)$/i);
   if (match) {
     const remainder = normalizeLine(match[1]);
-    if (!isSourceOrSidebarLine(remainder) && !/POWER\s+RANKINGS?/i.test(remainder)) return { speaker: 'westy', remainder };
+    if (!isSourceOrSidebarLine(remainder) && !/POWER\s+RANKINGS?/i.test(remainder)) {
+      return { speaker: 'westy', remainder };
+    }
   }
 
-  if (/^TRENT\s+["“”']?WESTY["“”']?\s+WESTON$/i.test(line) || /^TRENT WESTON$/i.test(line)) return { speaker: 'westy', remainder: '' };
-  match = line.match(/^TRENT\s+["“”']?WESTY["“”']?\s+WESTON\s*[:\-–—]\s*(.+)$/i) ?? line.match(/^TRENT\s+["“”']?WESTY["“”']?\s+WESTON\s+(.+)$/i);
+  if (
+    /^TRENT\s+["“”']?WESTY["“”']?\s+WESTON$/i.test(line)
+    || /^TRENT WESTON$/i.test(line)
+    || /^TRENT\s+["“”']?WESTY["“”']?\s+WESTON\s*\/\s*No\.\s*\d{1,2}$/i.test(line)
+  ) {
+    return { speaker: 'westy', remainder: '' };
+  }
+  match = line.match(/^TRENT\s+["“”']?WESTY["“”']?\s+WESTON\s*[:\-–—]\s*(.+)$/i);
   if (match) {
     const remainder = normalizeLine(match[1]);
     if (!isSourceOrSidebarLine(remainder)) return { speaker: 'westy', remainder };

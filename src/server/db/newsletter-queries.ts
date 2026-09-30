@@ -3,7 +3,7 @@
  * Handles persistence of bot memory, forecast records, and newsletters
  */
 
-import { eq, and, ne, desc } from 'drizzle-orm';
+import { eq, and, ne, desc, or, isNull } from 'drizzle-orm';
 import { getDb } from './client';
 import {
   botMemory,
@@ -14,6 +14,11 @@ import {
   relationshipMemory,
 } from './schema';
 import type { BotMemory, BotName, RelationshipMemory } from '@/lib/newsletter/types';
+
+const publishedNewsletterCondition = or(
+  eq(newsletters.status, 'published'),
+  isNull(newsletters.status),
+)!;
 
 // ============ Bot Memory ============
 
@@ -396,7 +401,7 @@ export async function loadNewsletter(
   // by episodeType); the public path is unique because publish enforces at most
   // one published newsletter per (season, week).
   const conditions = [eq(newsletters.season, season), eq(newsletters.week, week)];
-  if (!opts?.includeDrafts) conditions.push(eq(newsletters.status, 'published'));
+  if (!opts?.includeDrafts) conditions.push(publishedNewsletterCondition);
   if (opts?.episodeType) conditions.push(eq(newsletters.episodeType, opts.episodeType));
   const rows = await db
     .select()
@@ -596,7 +601,7 @@ export async function listNewsletterWeeks(
   const db = getDb();
   const where = opts?.includeDrafts
     ? eq(newsletters.season, season)
-    : and(eq(newsletters.season, season), eq(newsletters.status, 'published'));
+    : and(eq(newsletters.season, season), publishedNewsletterCondition);
   const rows = await db
     .select({ week: newsletters.week })
     .from(newsletters)
@@ -631,7 +636,7 @@ export async function listNewslettersMeta(
   const db = getDb();
   const where = opts?.includeDrafts
     ? eq(newsletters.season, season)
-    : and(eq(newsletters.season, season), eq(newsletters.status, 'published'));
+    : and(eq(newsletters.season, season), publishedNewsletterCondition);
   const rows = await db
     .select({
       id: newsletters.id,

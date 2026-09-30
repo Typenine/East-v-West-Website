@@ -64,9 +64,9 @@ function fillMissingMovement(
     if (!prior) {
       return {
         ...item,
-        movementLabel: 'NEW',
+        movementLabel: '→',
         movementDirection: 'neutral',
-        movementDescription: 'New to the rankings',
+        movementDescription: 'No prior ranking comparison available',
       };
     }
 
