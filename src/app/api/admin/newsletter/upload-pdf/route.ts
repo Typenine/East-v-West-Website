@@ -201,6 +201,7 @@ export async function POST(req: NextRequest) {
           // existing publish-memory walker can consume uploaded issues unchanged.
           bot1_text: continuity?.masonText ?? '',
           bot2_text: continuity?.westyText ?? '',
+          powerRankings: continuity?.powerRankings ?? null,
           players: (continuity?.playerNames ?? []).map(playerName => ({ playerName })),
           continuityExtraction: {
             status: continuity ? 'extracted' : 'unavailable',

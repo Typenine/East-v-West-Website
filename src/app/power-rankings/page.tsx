@@ -4,13 +4,9 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
 import { BroadcastTeamLogo } from '@/components/ui/BroadcastPanel';
-import { CURRENT_SEASON, LEAGUE_IDS, TEAM_NAMES } from '@/lib/constants/league';
+import { CURRENT_SEASON, LEAGUE_IDS } from '@/lib/constants/league';
 import { TEAM_COLORS } from '@/lib/constants/team-colors';
-import type { NewsletterData, NewsletterMeta } from '@/components/newsletter/types';
-import type {
-  IndependentPowerRankingsSection,
-  IndependentRankingItem,
-} from '@/lib/newsletter/weekly-recap-types';
+import type { NewsletterMeta } from '@/components/newsletter/types';
 
 type DisplayRankingItem = {
   rank: number;
@@ -33,7 +29,6 @@ type DisplayPowerRankings = {
 
 type RankingIssue = {
   meta: NewsletterMeta;
-  data: NewsletterData;
   rankings: DisplayPowerRankings;
 };
 
@@ -56,161 +51,6 @@ function formatPublished(meta: NewsletterMeta) {
     day: 'numeric',
     year: 'numeric',
   });
-}
-
-function movement(item: IndependentRankingItem) {
-  if (item.movement === 'new') {
-    return { label: 'NEW', direction: 'neutral' as const, description: 'New to the rankings' };
-  }
-  if (item.movement === 'same') {
-    return { label: '→', direction: 'neutral' as const, description: 'No change from the previous ranking' };
-  }
-  return {
-    label: `${item.movement === 'up' ? '↑' : '↓'}${item.movementAmount}`,
-    direction: item.movement,
-    description: `Moved ${item.movement} ${item.movementAmount} spot${item.movementAmount === 1 ? '' : 's'}`,
-  };
-}
-
-function displayStructuredRankings(data: IndependentPowerRankingsSection): DisplayPowerRankings {
-  const convert = (items: IndependentRankingItem[]): DisplayRankingItem[] => items.map((item) => {
-    const move = movement(item);
-    return {
-      rank: item.rank,
-      team: item.team,
-      blurb: item.blurb,
-      movementLabel: move.label,
-      movementDirection: move.direction,
-      movementDescription: move.description,
-      record: item.record,
-      pointsFor: item.pointsFor,
-    };
-  });
-
-  return {
-    masonRankings: convert(data.masonRankings),
-    westyRankings: convert(data.westyRankings),
-    bot1_intro: data.bot1_intro,
-    bot2_intro: data.bot2_intro,
-    source: 'structured',
-  };
-}
-
-function stripContinuityMarkers(value: string): string {
-  return value
-    .replace(/\[\[(?:SECTION|TEAM):[^\]]+\]\]\s*/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function parsePdfMovement(blurb: string): {
-  blurb: string;
-  label?: string;
-  direction?: 'up' | 'down' | 'neutral';
-  description?: string;
-} {
-  const up = blurb.match(/^Up\s+(\d+)\s+from\s+(\d+)\.\s*/i);
-  if (up) {
-    const amount = Number(up[1]);
-    return {
-      blurb: blurb.slice(up[0].length).trim(),
-      label: `↑${amount}`,
-      direction: 'up',
-      description: `Moved up ${amount} spot${amount === 1 ? '' : 's'} from No. ${up[2]}`,
-    };
-  }
-
-  const down = blurb.match(/^Down\s+(\d+)\s+from\s+(\d+)\.\s*/i);
-  if (down) {
-    const amount = Number(down[1]);
-    return {
-      blurb: blurb.slice(down[0].length).trim(),
-      label: `↓${amount}`,
-      direction: 'down',
-      description: `Moved down ${amount} spot${amount === 1 ? '' : 's'} from No. ${down[2]}`,
-    };
-  }
-
-  const hold = blurb.match(/^Holds?\s+at\s+(\d+)\.\s*/i);
-  if (hold) {
-    return {
-      blurb: blurb.slice(hold[0].length).trim(),
-      label: '→',
-      direction: 'neutral',
-      description: `No change from No. ${hold[1]}`,
-    };
-  }
-
-  return { blurb };
-}
-
-function parsePdfRankingTurns(value: unknown): DisplayRankingItem[] {
-  if (typeof value !== 'string' || !value.trim()) return [];
-
-  const teams = [...TEAM_NAMES].sort((a, b) => b.length - a.length);
-  const turns = value
-    .split(/\n\s*\n/)
-    .filter((turn) => /\[\[SECTION:POWER RANKINGS\]\]/i.test(turn));
-
-  const parsed: DisplayRankingItem[] = [];
-  const seen = new Set<string>();
-
-  for (const turn of turns) {
-    const text = stripContinuityMarkers(turn);
-    const lower = text.toLowerCase();
-    const team = teams.find((name) => lower.startsWith(name.toLowerCase()));
-    if (!team || seen.has(team)) continue;
-
-    const remainder = text.slice(team.length).trim();
-    if (!/^[|.:]/.test(remainder)) continue;
-
-    const rawBlurb = remainder
-      .replace(/^[|.:]\s*/, '')
-      .replace(/\s+No\.\s*\d+\s*$/i, '')
-      .trim();
-    if (!rawBlurb) continue;
-
-    const move = parsePdfMovement(rawBlurb);
-    seen.add(team);
-    parsed.push({
-      rank: parsed.length + 1,
-      team,
-      blurb: move.blurb,
-      movementLabel: move.label,
-      movementDirection: move.direction,
-      movementDescription: move.description,
-    });
-  }
-
-  return parsed;
-}
-
-function displayUploadedPdfRankings(sectionData: unknown): DisplayPowerRankings | null {
-  if (!sectionData || typeof sectionData !== 'object') return null;
-  const data = sectionData as Record<string, unknown>;
-  const masonRankings = parsePdfRankingTurns(data.bot1_text);
-  const westyRankings = parsePdfRankingTurns(data.bot2_text);
-
-  if (!masonRankings.length || !westyRankings.length) return null;
-
-  return {
-    masonRankings,
-    westyRankings,
-    source: 'uploaded-pdf',
-  };
-}
-
-function rankingsFromNewsletter(data: NewsletterData): DisplayPowerRankings | null {
-  const structuredSection = data.newsletter.sections.find((item) => item.type === 'PowerRankings');
-  if (structuredSection?.data) {
-    const rankings = structuredSection.data as IndependentPowerRankingsSection;
-    if (Array.isArray(rankings.masonRankings) && Array.isArray(rankings.westyRankings)) {
-      return displayStructuredRankings(rankings);
-    }
-  }
-
-  const uploadedPdf = data.newsletter.sections.find((item) => item.type === 'UploadedPdf');
-  return displayUploadedPdfRankings(uploadedPdf?.data);
 }
 
 function fillMissingMovement(
@@ -415,16 +255,18 @@ export default function PowerRankingsPage() {
 
         const loaded = await Promise.all(
           published.map(async (meta): Promise<RankingIssue | null> => {
-            const issueRes = await fetch(`/api/newsletter?id=${encodeURIComponent(meta.id)}`, { cache: 'no-store' });
-            if (!issueRes.ok) return null;
+            const rankingsRes = await fetch(
+              `/api/newsletter/power-rankings?id=${encodeURIComponent(meta.id)}`,
+            );
+            if (!rankingsRes.ok) return null;
 
-            const data = await issueRes.json() as NewsletterData & { success?: boolean };
-            if (data.success === false) return null;
+            const payload = await rankingsRes.json() as {
+              success?: boolean;
+              rankings?: DisplayPowerRankings;
+            };
+            if (payload.success === false || !payload.rankings) return null;
 
-            const rankings = rankingsFromNewsletter(data);
-            if (!rankings) return null;
-
-            return { meta, data, rankings };
+            return { meta, rankings: payload.rankings };
           }),
         );
 
