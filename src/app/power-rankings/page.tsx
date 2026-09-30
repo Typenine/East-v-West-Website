@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
-import { CURRENT_SEASON, LEAGUE_IDS } from '@/lib/constants/league';
+import { CURRENT_SEASON, LEAGUE_IDS, TEAM_NAMES } from '@/lib/constants/league';
 import { TEAM_COLORS } from '@/lib/constants/team-colors';
 import type { NewsletterData, NewsletterMeta } from '@/components/newsletter/types';
 import type {
@@ -11,10 +11,28 @@ import type {
   IndependentRankingItem,
 } from '@/lib/newsletter/weekly-recap-types';
 
+type DisplayRankingItem = {
+  rank: number;
+  team: string;
+  blurb: string;
+  movementLabel?: string;
+  movementDirection?: 'up' | 'down' | 'neutral';
+  record?: string;
+  pointsFor?: number;
+};
+
+type DisplayPowerRankings = {
+  masonRankings: DisplayRankingItem[];
+  westyRankings: DisplayRankingItem[];
+  bot1_intro?: string;
+  bot2_intro?: string;
+  source: 'structured' | 'uploaded-pdf';
+};
+
 type RankingIssue = {
   meta: NewsletterMeta;
   data: NewsletterData;
-  rankings: IndependentPowerRankingsSection;
+  rankings: DisplayPowerRankings;
 };
 
 const SEASONS = [CURRENT_SEASON, ...Object.keys(LEAGUE_IDS.PREVIOUS)]
@@ -42,6 +60,98 @@ function movement(item: IndependentRankingItem) {
   if (item.movement === 'new') return 'NEW';
   if (item.movement === 'same') return '—';
   return `${item.movement === 'up' ? '▲' : '▼'} ${item.movementAmount}`;
+}
+
+function displayStructuredRankings(data: IndependentPowerRankingsSection): DisplayPowerRankings {
+  const convert = (items: IndependentRankingItem[]): DisplayRankingItem[] => items.map((item) => ({
+    rank: item.rank,
+    team: item.team,
+    blurb: item.blurb,
+    movementLabel: movement(item),
+    movementDirection: item.movement === 'up' ? 'up' : item.movement === 'down' ? 'down' : 'neutral',
+    record: item.record,
+    pointsFor: item.pointsFor,
+  }));
+
+  return {
+    masonRankings: convert(data.masonRankings),
+    westyRankings: convert(data.westyRankings),
+    bot1_intro: data.bot1_intro,
+    bot2_intro: data.bot2_intro,
+    source: 'structured',
+  };
+}
+
+function stripContinuityMarkers(value: string): string {
+  return value
+    .replace(/\[\[(?:SECTION|TEAM):[^\]]+\]\]\s*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parsePdfRankingTurns(value: unknown): DisplayRankingItem[] {
+  if (typeof value !== 'string' || !value.trim()) return [];
+
+  const teams = [...TEAM_NAMES].sort((a, b) => b.length - a.length);
+  const turns = value
+    .split(/\n\s*\n/)
+    .filter((turn) => /\[\[SECTION:POWER RANKINGS\]\]/i.test(turn));
+
+  const parsed: DisplayRankingItem[] = [];
+  const seen = new Set<string>();
+
+  for (const turn of turns) {
+    const text = stripContinuityMarkers(turn);
+    const lower = text.toLowerCase();
+    const team = teams.find((name) => lower.startsWith(name.toLowerCase()));
+    if (!team || seen.has(team)) continue;
+
+    const remainder = text.slice(team.length).trim();
+    if (!/^[|.:]/.test(remainder)) continue;
+
+    const blurb = remainder
+      .replace(/^[|.:]\s*/, '')
+      .replace(/\s+No\.\s*\d+\s*$/i, '')
+      .trim();
+    if (!blurb) continue;
+
+    seen.add(team);
+    parsed.push({
+      rank: parsed.length + 1,
+      team,
+      blurb,
+    });
+  }
+
+  return parsed;
+}
+
+function displayUploadedPdfRankings(sectionData: unknown): DisplayPowerRankings | null {
+  if (!sectionData || typeof sectionData !== 'object') return null;
+  const data = sectionData as Record<string, unknown>;
+  const masonRankings = parsePdfRankingTurns(data.bot1_text);
+  const westyRankings = parsePdfRankingTurns(data.bot2_text);
+
+  if (!masonRankings.length || !westyRankings.length) return null;
+
+  return {
+    masonRankings,
+    westyRankings,
+    source: 'uploaded-pdf',
+  };
+}
+
+function rankingsFromNewsletter(data: NewsletterData): DisplayPowerRankings | null {
+  const structuredSection = data.newsletter.sections.find((item) => item.type === 'PowerRankings');
+  if (structuredSection?.data) {
+    const rankings = structuredSection.data as IndependentPowerRankingsSection;
+    if (Array.isArray(rankings.masonRankings) && Array.isArray(rankings.westyRankings)) {
+      return displayStructuredRankings(rankings);
+    }
+  }
+
+  const uploadedPdf = data.newsletter.sections.find((item) => item.type === 'UploadedPdf');
+  return displayUploadedPdfRankings(uploadedPdf?.data);
 }
 
 function teamColor(team: string) {
@@ -84,14 +194,14 @@ function RankingCard({
   item,
   speaker,
 }: {
-  item: IndependentRankingItem;
+  item: DisplayRankingItem;
   speaker: 'Mason Reed' | 'Westy';
 }) {
   const accent = speaker === 'Mason Reed' ? '#be161e' : '#0b5f98';
   const moveColor =
-    item.movement === 'up'
+    item.movementDirection === 'up'
       ? '#047857'
-      : item.movement === 'down'
+      : item.movementDirection === 'down'
         ? '#b91c1c'
         : '#6b7280';
 
@@ -110,9 +220,11 @@ function RankingCard({
         <div className="font-serif text-[32px] font-extrabold leading-none text-[#111827]">
           #{item.rank}
         </div>
-        <div className="mt-1 text-[11px] font-bold" style={{ color: moveColor }}>
-          {movement(item)}
-        </div>
+        {item.movementLabel ? (
+          <div className="mt-1 text-[11px] font-bold" style={{ color: moveColor }}>
+            {item.movementLabel}
+          </div>
+        ) : null}
       </div>
 
       <div className="min-w-0">
@@ -123,9 +235,11 @@ function RankingCard({
             aria-hidden="true"
           />
           <strong className="font-serif text-xl text-[#111827]">{item.team}</strong>
-          <span className="text-xs text-[#6b7280]">
-            {item.record} · {item.pointsFor.toFixed(1)} PF
-          </span>
+          {item.record && typeof item.pointsFor === 'number' ? (
+            <span className="text-xs text-[#6b7280]">
+              {item.record} · {item.pointsFor.toFixed(1)} PF
+            </span>
+          ) : null}
         </div>
         <div className="font-serif text-[15px] leading-7 text-[#374151]">{item.blurb}</div>
       </div>
@@ -173,13 +287,8 @@ export default function PowerRankingsPage() {
             const data = await issueRes.json() as NewsletterData & { success?: boolean };
             if (data.success === false) return null;
 
-            const section = data.newsletter.sections.find((item) => item.type === 'PowerRankings');
-            if (!section?.data) return null;
-
-            const rankings = section.data as IndependentPowerRankingsSection;
-            if (!Array.isArray(rankings.masonRankings) || !Array.isArray(rankings.westyRankings)) {
-              return null;
-            }
+            const rankings = rankingsFromNewsletter(data);
+            if (!rankings) return null;
 
             return { meta, data, rankings };
           }),
@@ -217,7 +326,7 @@ export default function PowerRankingsPage() {
 
   const interleaved = useMemo(() => {
     if (!selected) return [];
-    const output: Array<{ key: string; item: IndependentRankingItem; speaker: 'Mason Reed' | 'Westy' }> = [];
+    const output: Array<{ key: string; item: DisplayRankingItem; speaker: 'Mason Reed' | 'Westy' }> = [];
     for (let rank = 1; rank <= 12; rank += 1) {
       const mason = selected.rankings.masonRankings.find((item) => item.rank === rank);
       const westy = selected.rankings.westyRankings.find((item) => item.rank === rank);
@@ -274,7 +383,7 @@ export default function PowerRankingsPage() {
           Newsletter synced
         </div>
         <p className="mt-1.5 max-w-4xl text-sm leading-6 text-[var(--muted)]">
-          Publishing a newsletter with a Power Rankings section automatically makes that issue the current ranking here. The page uses the exact published orders, introductions, movement, records, PF totals, and team blurbs.
+          Publishing a newsletter with Power Rankings automatically makes that issue the current ranking here. Structured newsletters are read directly, and uploaded PDF issues use the Mason and Westy ranking text extracted from the published PDF.
         </p>
       </div>
 
@@ -307,7 +416,7 @@ export default function PowerRankingsPage() {
         <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--surface-strong)] p-8 text-center">
           <div className="text-lg font-black">No published Power Rankings for {season}</div>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            They will appear here automatically after a newsletter containing Power Rankings is published.
+            They will appear here automatically after a published newsletter contains a Power Rankings section or an uploaded PDF with extractable Power Rankings.
           </p>
         </div>
       ) : selected ? (
