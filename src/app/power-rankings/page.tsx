@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import SectionHeader from '@/components/ui/SectionHeader';
+import { BroadcastTeamLogo } from '@/components/ui/BroadcastPanel';
 import { CURRENT_SEASON, LEAGUE_IDS, TEAM_NAMES } from '@/lib/constants/league';
 import { TEAM_COLORS } from '@/lib/constants/team-colors';
 import type { NewsletterData, NewsletterMeta } from '@/components/newsletter/types';
@@ -17,6 +18,7 @@ type DisplayRankingItem = {
   blurb: string;
   movementLabel?: string;
   movementDirection?: 'up' | 'down' | 'neutral';
+  movementDescription?: string;
   record?: string;
   pointsFor?: number;
 };
@@ -57,21 +59,33 @@ function formatPublished(meta: NewsletterMeta) {
 }
 
 function movement(item: IndependentRankingItem) {
-  if (item.movement === 'new') return 'NEW';
-  if (item.movement === 'same') return '—';
-  return `${item.movement === 'up' ? '▲' : '▼'} ${item.movementAmount}`;
+  if (item.movement === 'new') {
+    return { label: 'NEW', direction: 'neutral' as const, description: 'New to the rankings' };
+  }
+  if (item.movement === 'same') {
+    return { label: '—', direction: 'neutral' as const, description: 'No change from the previous ranking' };
+  }
+  return {
+    label: `${item.movement === 'up' ? '▲' : '▼'}${item.movementAmount}`,
+    direction: item.movement,
+    description: `Moved ${item.movement} ${item.movementAmount} spot${item.movementAmount === 1 ? '' : 's'}`,
+  };
 }
 
 function displayStructuredRankings(data: IndependentPowerRankingsSection): DisplayPowerRankings {
-  const convert = (items: IndependentRankingItem[]): DisplayRankingItem[] => items.map((item) => ({
-    rank: item.rank,
-    team: item.team,
-    blurb: item.blurb,
-    movementLabel: movement(item),
-    movementDirection: item.movement === 'up' ? 'up' : item.movement === 'down' ? 'down' : 'neutral',
-    record: item.record,
-    pointsFor: item.pointsFor,
-  }));
+  const convert = (items: IndependentRankingItem[]): DisplayRankingItem[] => items.map((item) => {
+    const move = movement(item);
+    return {
+      rank: item.rank,
+      team: item.team,
+      blurb: item.blurb,
+      movementLabel: move.label,
+      movementDirection: move.direction,
+      movementDescription: move.description,
+      record: item.record,
+      pointsFor: item.pointsFor,
+    };
+  });
 
   return {
     masonRankings: convert(data.masonRankings),
@@ -87,6 +101,47 @@ function stripContinuityMarkers(value: string): string {
     .replace(/\[\[(?:SECTION|TEAM):[^\]]+\]\]\s*/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function parsePdfMovement(blurb: string): {
+  blurb: string;
+  label?: string;
+  direction?: 'up' | 'down' | 'neutral';
+  description?: string;
+} {
+  const up = blurb.match(/^Up\s+(\d+)\s+from\s+(\d+)\.\s*/i);
+  if (up) {
+    const amount = Number(up[1]);
+    return {
+      blurb: blurb.slice(up[0].length).trim(),
+      label: `▲${amount}`,
+      direction: 'up',
+      description: `Moved up ${amount} spot${amount === 1 ? '' : 's'} from No. ${up[2]}`,
+    };
+  }
+
+  const down = blurb.match(/^Down\s+(\d+)\s+from\s+(\d+)\.\s*/i);
+  if (down) {
+    const amount = Number(down[1]);
+    return {
+      blurb: blurb.slice(down[0].length).trim(),
+      label: `▼${amount}`,
+      direction: 'down',
+      description: `Moved down ${amount} spot${amount === 1 ? '' : 's'} from No. ${down[2]}`,
+    };
+  }
+
+  const hold = blurb.match(/^Holds?\s+at\s+(\d+)\.\s*/i);
+  if (hold) {
+    return {
+      blurb: blurb.slice(hold[0].length).trim(),
+      label: '—',
+      direction: 'neutral',
+      description: `No change from No. ${hold[1]}`,
+    };
+  }
+
+  return { blurb };
 }
 
 function parsePdfRankingTurns(value: unknown): DisplayRankingItem[] {
@@ -109,17 +164,21 @@ function parsePdfRankingTurns(value: unknown): DisplayRankingItem[] {
     const remainder = text.slice(team.length).trim();
     if (!/^[|.:]/.test(remainder)) continue;
 
-    const blurb = remainder
+    const rawBlurb = remainder
       .replace(/^[|.:]\s*/, '')
       .replace(/\s+No\.\s*\d+\s*$/i, '')
       .trim();
-    if (!blurb) continue;
+    if (!rawBlurb) continue;
 
+    const move = parsePdfMovement(rawBlurb);
     seen.add(team);
     parsed.push({
       rank: parsed.length + 1,
       team,
-      blurb,
+      blurb: move.blurb,
+      movementLabel: move.label,
+      movementDirection: move.direction,
+      movementDescription: move.description,
     });
   }
 
@@ -161,89 +220,108 @@ function teamColor(team: string) {
   return key ? TEAM_COLORS[key].primary : '#374151';
 }
 
-function IntroBlock({
+function PunditIntro({
   name,
   text,
-  accent,
 }: {
   name: string;
   text?: string;
-  accent: string;
 }) {
   if (!text?.trim()) return null;
 
   return (
-    <div
-      className="my-3 bg-white px-6 py-5 shadow-sm"
-      style={{ borderLeft: `4px solid ${accent}` }}
-    >
-      <div
-        className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.13em]"
-        style={{ color: accent }}
-      >
-        {name}
-      </div>
-      <div className="whitespace-pre-wrap font-serif text-base leading-7 text-[#374151]">
-        {text}
-      </div>
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3">
+      <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[var(--muted)]">{name}</div>
+      <p className="mt-1.5 text-sm leading-6 text-[var(--muted)]">{text}</p>
     </div>
   );
 }
 
-function RankingCard({
-  item,
-  speaker,
-}: {
-  item: DisplayRankingItem;
-  speaker: 'Mason Reed' | 'Westy';
-}) {
-  const accent = speaker === 'Mason Reed' ? '#be161e' : '#0b5f98';
-  const moveColor =
+function MovementBadge({ item }: { item: DisplayRankingItem }) {
+  if (!item.movementLabel) return null;
+
+  const className =
     item.movementDirection === 'up'
-      ? '#047857'
+      ? 'text-emerald-300'
       : item.movementDirection === 'down'
-        ? '#b91c1c'
-        : '#6b7280';
+        ? 'text-rose-300'
+        : 'text-[var(--muted)]';
 
   return (
-    <div
-      className="mb-3 grid grid-cols-[70px_1fr] gap-4 border border-[#e5e7eb] bg-white px-5 py-4 sm:gap-[18px]"
-      style={{ borderLeft: `5px solid ${accent}` }}
+    <span
+      className={`text-xs font-black tabular-nums ${className}`}
+      title={item.movementDescription}
+      aria-label={item.movementDescription}
     >
-      <div>
-        <div
-          className="text-[11px] font-extrabold uppercase tracking-[0.1em]"
-          style={{ color: accent }}
-        >
-          {speaker}
-        </div>
-        <div className="font-serif text-[32px] font-extrabold leading-none text-[#111827]">
-          #{item.rank}
-        </div>
-        {item.movementLabel ? (
-          <div className="mt-1 text-[11px] font-bold" style={{ color: moveColor }}>
-            {item.movementLabel}
+      {item.movementLabel}
+    </span>
+  );
+}
+
+function RankingRow({ item }: { item: DisplayRankingItem }) {
+  const accent = teamColor(item.team);
+
+  return (
+    <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-3.5 sm:p-4">
+      <div className="flex items-start gap-3">
+        <div className="w-12 shrink-0 pt-0.5 text-center">
+          <div className="text-xl font-black tabular-nums text-[var(--text)]">#{item.rank}</div>
+          <div className="mt-0.5 flex justify-center">
+            <MovementBadge item={item} />
           </div>
-        ) : null}
+        </div>
+
+        <BroadcastTeamLogo team={item.team} accent={accent} size="md" />
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <h3 className="text-sm font-black text-[var(--text)] sm:text-base">{item.team}</h3>
+            {item.record && typeof item.pointsFor === 'number' ? (
+              <span className="text-[11px] font-semibold tabular-nums text-[var(--muted)]">
+                {item.record} · {item.pointsFor.toFixed(1)} PF
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1.5 text-sm leading-6 text-[var(--muted)]">{item.blurb}</p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function RankingBoard({
+  name,
+  label,
+  intro,
+  rankings,
+}: {
+  name: string;
+  label: string;
+  intro?: string;
+  rankings: DisplayRankingItem[];
+}) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)]">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 sm:px-5">
+        <div>
+          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-[var(--muted)]">{label}</div>
+          <h2 className="mt-0.5 text-lg font-black text-[var(--text)]">{name}</h2>
+        </div>
+        <div className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-[var(--muted)]">
+          1–12
+        </div>
       </div>
 
-      <div className="min-w-0">
-        <div className="mb-2 flex flex-wrap items-center gap-x-2.5 gap-y-1">
-          <span
-            className="inline-block h-[9px] w-[9px] rounded-full"
-            style={{ background: teamColor(item.team) }}
-            aria-hidden="true"
-          />
-          <strong className="font-serif text-xl text-[#111827]">{item.team}</strong>
-          {item.record && typeof item.pointsFor === 'number' ? (
-            <span className="text-xs text-[#6b7280]">
-              {item.record} · {item.pointsFor.toFixed(1)} PF
-            </span>
-          ) : null}
-        </div>
-        <div className="font-serif text-[15px] leading-7 text-[#374151]">{item.blurb}</div>
+      <div className="space-y-3 p-3 sm:p-4">
+        <PunditIntro name={name} text={intro} />
+        {rankings
+          .slice()
+          .sort((a, b) => a.rank - b.rank)
+          .map((item) => (
+            <RankingRow key={`${name}-${item.rank}-${item.team}`} item={item} />
+          ))}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -324,18 +402,6 @@ export default function PowerRankingsPage() {
     [issues, selectedId],
   );
 
-  const interleaved = useMemo(() => {
-    if (!selected) return [];
-    const output: Array<{ key: string; item: DisplayRankingItem; speaker: 'Mason Reed' | 'Westy' }> = [];
-    for (let rank = 1; rank <= 12; rank += 1) {
-      const mason = selected.rankings.masonRankings.find((item) => item.rank === rank);
-      const westy = selected.rankings.westyRankings.find((item) => item.rank === rank);
-      if (mason) output.push({ key: `mason-${rank}`, item: mason, speaker: 'Mason Reed' });
-      if (westy) output.push({ key: `westy-${rank}`, item: westy, speaker: 'Westy' });
-    }
-    return output;
-  }, [selected]);
-
   const chooseIssue = (id: string) => {
     setSelectedId(id);
     const url = new URL(window.location.href);
@@ -383,7 +449,7 @@ export default function PowerRankingsPage() {
           Newsletter synced
         </div>
         <p className="mt-1.5 max-w-4xl text-sm leading-6 text-[var(--muted)]">
-          Publishing a newsletter with Power Rankings automatically makes that issue the current ranking here. Structured newsletters are read directly, and uploaded PDF issues use the Mason and Westy ranking text extracted from the published PDF.
+          The rankings and commentary come directly from the published newsletter. New published rankings become current automatically, while this page presents them in the same visual style as the rest of the league site.
         </p>
       </div>
 
@@ -448,41 +514,39 @@ export default function PowerRankingsPage() {
             </div>
           </div>
 
-          <section className="mt-5 overflow-hidden rounded-2xl border border-[var(--border)] bg-[#f7f7f5] p-4 sm:p-6">
-            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <section className="mt-5">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 sm:px-5">
               <div>
-                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[#6b7280]">
+                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[var(--muted)]">
                   {issueLabel(selected.meta)} · Published {formatPublished(selected.meta)}
                 </div>
-                <h2 className="mt-1 text-xl font-black text-[#111827]">
+                <h2 className="mt-1 text-lg font-black text-[var(--text)]">
                   {selected.meta.title || `${season} ${issueLabel(selected.meta)} Newsletter`}
                 </h2>
               </div>
               <Link
                 href={`/newsletter?season=${season}&issue=${encodeURIComponent(selected.meta.id)}`}
-                className="text-xs font-bold text-[#be161e] hover:underline"
+                className="text-xs font-bold text-[var(--accent)] hover:underline"
               >
                 Open full newsletter →
               </Link>
             </div>
 
-            <div className="mb-7 overflow-hidden rounded-md border-t-4 border-[#be161e] bg-[#0d0d0d] px-8 py-6">
-              <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.3em] text-[#be161e]">
-                East v. West
-              </div>
-              <h3 className="font-serif text-3xl font-bold text-white">WEEKLY POWER RANKINGS</h3>
-              <div className="mt-2 text-[13px] text-white/55">Independent lists, interleaved by rank</div>
+            <div className="grid gap-5 xl:grid-cols-2">
+              <RankingBoard
+                name="Mason Reed"
+                label="Mason's rankings"
+                intro={selected.rankings.bot1_intro}
+                rankings={selected.rankings.masonRankings}
+              />
+              <RankingBoard
+                name="Westy"
+                label="Westy's rankings"
+                intro={selected.rankings.bot2_intro}
+                rankings={selected.rankings.westyRankings}
+              />
             </div>
-
-            <IntroBlock name="Mason Reed" text={selected.rankings.bot1_intro} accent="#be161e" />
-            <IntroBlock name="Westy" text={selected.rankings.bot2_intro} accent="#0b5f98" />
-
-            <div className="mt-[22px]">
-              {interleaved.map(({ key, item, speaker }) => (
-                <RankingCard key={key} item={item} speaker={speaker} />
-              ))}
-            </div>
-          </section>
+          </section>>
         </>
       ) : null}
     </div>
