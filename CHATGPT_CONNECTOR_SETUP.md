@@ -280,9 +280,10 @@ Highlight the biggest FAAB spend and most surprising adds. Keep it punchy.
 
 **Power rankings**
 ```
-Get my weekly content context, then draft power rankings for all 12 teams.
-Base them on record, PF, and recent trends. Add a one-line blurb per team.
+Show me the current East v. West power rankings.
 ```
+
+The connector returns the published Mason and Westy rankings from the league Power Rankings page. It does not calculate or draft a separate ranking.
 
 **Playoff race update**
 ```

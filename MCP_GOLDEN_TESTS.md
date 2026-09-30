@@ -33,7 +33,7 @@ Each section below lists the question a user/ChatGPT might ask, the tool it maps
 | What is the champion payout? | `{}` | Returns `payouts.champion: 365` |
 | What is the total prize pool? | `{}` | Returns `payouts.totalPrizePool: 1200` |
 | When is the trade deadline? | `{}` | Returns `importantDates.TRADE_DEADLINE: "2026-11-30T..."` |
-| When is the next draft? | `{}` | Returns `importantDates.NEXT_DRAFT: "2026-07-18T..."` |
+| When is the next draft? | `{}` | Returns the next upcoming league draft date (currently `importantDates.NEXT_DRAFT: "2027-07-10T..."`) |
 | Who won the championship in 2025? | `{}` | Returns `champions["2025"].champion: "BeerNeverBrokeMyHeart"` |
 | Who won in 2023? | `{}` | Returns `champions["2023"].champion: "Double Trouble"` |
 | What scoring format? | `{}` | Returns `scoring: "0.5 PPR SuperFlex"` |

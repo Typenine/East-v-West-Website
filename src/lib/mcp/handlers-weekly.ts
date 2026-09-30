@@ -45,26 +45,5 @@ export async function handleGetWeeklyContext(): Promise<Awaited<ReturnType<typeo
     } as typeof data.playoffRace,
     suggestedStorylines,
     suggestedHeadlines,
-    weeklyRecapFormat: {
-      canonical: true,
-      order: [
-        'Opening Exchange',
-        'Transactions Since the Last Issue',
-        'All Six Completed Matchup Reviews',
-        'Weekly Power Rankings',
-        'League Pulse',
-        'Stock Watch',
-        "Clancy's Receipt Desk",
-        'All Six Upcoming Matchup Previews',
-        'Final Word',
-      ],
-      transactionsSecond: true,
-      equalMatchupReviewWeightEarlySeason: true,
-      forceGameOfWeekEarlySeason: false,
-      showPlayoffRace,
-      playoffSpots,
-      firstRoundByes: WEEKLY_CONTENT_FIRST_ROUND_BYES,
-      byeSeed: 1,
-    },
   } as Awaited<ReturnType<typeof core.handleGetWeeklyContext>>;
 }
