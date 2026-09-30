@@ -934,13 +934,15 @@ describe('answer_rule_question', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('get_weekly_content_context', () => {
-  it('returns week, season, matchups, standings, recentTransactions', async () => {
+  it('returns the current league snapshot without newsletter-format metadata', async () => {
     const res = await handleGetWeeklyContext();
     expect(res).toHaveProperty('week');
     expect(res).toHaveProperty('season');
     expect(res).toHaveProperty('matchups');
     expect(res).toHaveProperty('standings');
-    expect(res).toHaveProperty('recentTransactions');
+    expect(res).toHaveProperty('recentTrades');
+    expect(res).toHaveProperty('recentWaivers');
+    expect(res).not.toHaveProperty('weeklyRecapFormat');
   });
 
   it('week is current week from Sleeper state', async () => {
@@ -975,11 +977,6 @@ describe('get_weekly_content_context', () => {
       expect(TEAM_NAMES).toContain(m.home.team);
       expect(TEAM_NAMES).toContain(m.away.team);
     }
-  });
-
-  it('meta note says designed for content creation', async () => {
-    const res = await handleGetWeeklyContext();
-    expect(res.meta.note).toContain('content');
   });
 
   it('meta distinguishes live Sleeper data from static', async () => {
