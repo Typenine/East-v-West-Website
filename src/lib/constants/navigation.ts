@@ -30,8 +30,15 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
       { id: 'league.teams', label: 'Teams', href: '/teams' },
       { id: 'league.hall-of-fame', label: 'Team Hall of Fame', href: '/hall-of-fame' },
       { id: 'league.rosters', label: 'Rosters', href: '/rosters' },
-      { id: 'league.standings', label: 'Standings', href: '/standings' },
-      { id: 'league.playoff-lab', label: 'Playoff Lab', href: '/playoff-lab' },
+      {
+        id: 'league.standings',
+        label: 'Standings',
+        href: '/standings',
+        children: [
+          { id: 'league.standings.playoff-lab', label: 'Playoff Lab', href: '/playoff-lab' },
+          { id: 'league.standings.power-rankings', label: 'Power Rankings', href: '/power-rankings' },
+        ],
+      },
       { id: 'league.rules', label: 'Rules', href: '/rules' },
       { id: 'league.rivalries', label: 'Rivalries', href: '/rivalries' },
       { id: 'league.votes', label: 'Votes', href: '/votes' },

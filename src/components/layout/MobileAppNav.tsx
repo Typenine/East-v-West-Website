@@ -61,13 +61,20 @@ const HISTORY_ITEMS = USER_NAV_CONFIG.find((item) => item.id === 'history')?.chi
 const MEDIA_ITEMS = USER_NAV_CONFIG.find((item) => item.id === 'media')?.children ?? [];
 const SUGGESTIONS_ITEM = USER_NAV_CONFIG.find((item) => item.id === 'suggestions');
 
-const LEAGUE_PATHS = LEAGUE_ITEMS.flatMap((item) => (item.href ? [item.href.split('?')[0]] : []));
-const TRANSACTION_PATHS = TRANSACTION_ITEMS.flatMap((item) => (item.href ? [item.href.split('?')[0]] : []));
-const MORE_PATHS = [
+function collectNavPaths(items: UserNavItem[]): string[] {
+  return items.flatMap((item) => [
+    ...(item.href ? [item.href.split('?')[0]] : []),
+    ...collectNavPaths(item.children || []),
+  ]);
+}
+
+const LEAGUE_PATHS = collectNavPaths(LEAGUE_ITEMS);
+const TRANSACTION_PATHS = collectNavPaths(TRANSACTION_ITEMS);
+const MORE_PATHS = collectNavPaths([
   ...HISTORY_ITEMS,
   ...MEDIA_ITEMS,
   ...(SUGGESTIONS_ITEM ? [SUGGESTIONS_ITEM] : []),
-].flatMap((item) => (item.href ? [item.href.split('?')[0]] : []));
+]);
 
 const ADMIN_ITEMS: UserNavItem[] = [
   { id: 'admin.newsletter', label: 'Newsletter Admin', href: '/admin/newsletter' },
@@ -206,6 +213,44 @@ function MenuLink({ item, onClose }: { item: UserNavItem; onClose: () => void })
   );
 }
 
+function MenuBranch({ item, onClose }: { item: UserNavItem; onClose: () => void }) {
+  if (!item.href) return null;
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-strong)]">
+      <Link
+        href={item.href}
+        onClick={onClose}
+        className="flex min-h-14 items-center justify-between gap-3 px-4 py-3 text-left transition active:bg-accent-soft"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-bold text-[var(--text)]">{item.label}</span>
+          {item.description ? (
+            <span className="mt-0.5 block text-xs leading-5 text-[var(--muted)]">{item.description}</span>
+          ) : null}
+        </span>
+        <NavIcon>
+          <path d="m9 18 6-6-6-6" />
+        </NavIcon>
+      </Link>
+      <div className="grid grid-cols-2 gap-2 border-t border-[var(--border)] p-2">
+        {(item.children || []).map((child) => (
+          child.href ? (
+            <Link
+              key={child.id}
+              href={child.href}
+              onClick={onClose}
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm font-bold text-[var(--text)] transition active:bg-accent-soft"
+            >
+              {child.label}
+            </Link>
+          ) : null
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SectionSheet({
   items,
   onClose,
@@ -221,7 +266,9 @@ function SectionSheet({
     <SheetFrame id={`mobile-${section}-menu`} onClose={onClose} title={title}>
       <div className="grid gap-2 pt-3">
         {items.map((item) => (
-          <MenuLink key={item.id} item={item} onClose={onClose} />
+          item.children && item.children.length > 0
+            ? <MenuBranch key={item.id} item={item} onClose={onClose} />
+            : <MenuLink key={item.id} item={item} onClose={onClose} />
         ))}
       </div>
     </SheetFrame>

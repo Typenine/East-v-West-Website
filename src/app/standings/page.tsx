@@ -115,12 +115,20 @@ export default function StandingsPage() {
         </Chip>
       ))}
       {selectedYear === CURRENT_SEASON && (
-        <Link
-          href="/playoff-lab"
-          className="ml-0 rounded-full border border-[var(--accent)] px-3 py-1.5 text-xs font-bold text-[var(--accent)] transition hover:bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] sm:ml-2"
-        >
-          Playoff Lab
-        </Link>
+        <>
+          <Link
+            href="/playoff-lab"
+            className="ml-0 rounded-full border border-[var(--accent)] px-3 py-1.5 text-xs font-bold text-[var(--accent)] transition hover:bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] sm:ml-2"
+          >
+            Playoff Lab
+          </Link>
+          <Link
+            href="/power-rankings"
+            className="rounded-full border border-[var(--accent)] px-3 py-1.5 text-xs font-bold text-[var(--accent)] transition hover:bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
+          >
+            Power Rankings
+          </Link>
+        </>
       )}
     </div>
   );
