@@ -245,7 +245,7 @@ export default function PowerRankingsPage() {
       setError(null);
 
       try {
-        const listRes = await fetch(`/api/newsletter?list=true&season=${season}`, { cache: 'no-store' });
+        const listRes = await fetch(`/api/newsletter/power-rankings?season=${season}`, { cache: 'no-store' });
         const listJson = await listRes.json() as { items?: NewsletterMeta[]; error?: string };
         if (!listRes.ok) throw new Error(listJson.error || 'Failed to load newsletter catalog.');
 

@@ -9,7 +9,7 @@ import type {
   IndependentPowerRankingsSection,
   IndependentRankingItem,
 } from '@/lib/newsletter/weekly-recap-types';
-import { loadNewsletterById } from '@/server/db/newsletter-queries';
+import { listNewslettersMeta, loadNewsletterById } from '@/server/db/newsletter-queries';
 import { presignGet } from '@/server/storage/r2';
 
 export const runtime = 'nodejs';
@@ -147,7 +147,27 @@ function isStoredPdfRankings(value: unknown): value is UploadedPdfPowerRankings 
 
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id')?.trim();
-  if (!id) return Response.json({ error: 'Newsletter id is required.' }, { status: 400 });
+
+  if (!id) {
+    const seasonValue = req.nextUrl.searchParams.get('season')?.trim();
+    const season = Number(seasonValue);
+    if (!seasonValue || !Number.isFinite(season)) {
+      return Response.json({ error: 'Newsletter id or season is required.' }, { status: 400 });
+    }
+
+    const items = (await listNewslettersMeta(season, { includeDrafts: true }))
+      .filter((item) => item.status === 'published')
+      .sort((a, b) => {
+        const aTime = Date.parse(a.publishedAt || a.generatedAt) || 0;
+        const bTime = Date.parse(b.publishedAt || b.generatedAt) || 0;
+        return bTime - aTime;
+      });
+
+    return Response.json(
+      { success: true, season, items },
+      { headers: { 'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=3600' } },
+    );
+  }
 
   const item = await loadNewsletterById(id);
   if (!item) return Response.json({ error: 'Newsletter not found.' }, { status: 404 });
