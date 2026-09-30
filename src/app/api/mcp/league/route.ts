@@ -53,7 +53,10 @@ export async function GET(request: Request) {
       TRADE_DEADLINE: IMPORTANT_DATES.TRADE_DEADLINE.toISOString(),
       PLAYOFFS_START: IMPORTANT_DATES.PLAYOFFS_START.toISOString(),
       NEW_LEAGUE_YEAR: IMPORTANT_DATES.NEW_LEAGUE_YEAR.toISOString(),
-      NEXT_DRAFT: IMPORTANT_DATES.NEXT_DRAFT.toISOString(),
+      NEXT_DRAFT: (IMPORTANT_DATES.NEXT_DRAFT.getTime() > Date.now()
+        ? IMPORTANT_DATES.NEXT_DRAFT
+        : IMPORTANT_DATES.NEXT_LEAGUE_YEAR_DRAFT
+      ).toISOString(),
     },
     structure: {
       regularSeasonWeeks: 14,
@@ -64,8 +67,8 @@ export async function GET(request: Request) {
       rosterSize: 17,
       starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, SUPERFLEX: 1, K: 1, DST: 1 },
       benchSlots: 7,
-      irSlots: 3,
-      taxiSlots: 3,
+      irSlots: 4,
+      taxiSlots: 4,
     },
     payouts: {
       champion: 365,
