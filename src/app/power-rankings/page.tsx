@@ -63,10 +63,10 @@ function movement(item: IndependentRankingItem) {
     return { label: 'NEW', direction: 'neutral' as const, description: 'New to the rankings' };
   }
   if (item.movement === 'same') {
-    return { label: '—', direction: 'neutral' as const, description: 'No change from the previous ranking' };
+    return { label: '→', direction: 'neutral' as const, description: 'No change from the previous ranking' };
   }
   return {
-    label: `${item.movement === 'up' ? '▲' : '▼'}${item.movementAmount}`,
+    label: `${item.movement === 'up' ? '↑' : '↓'}${item.movementAmount}`,
     direction: item.movement,
     description: `Moved ${item.movement} ${item.movementAmount} spot${item.movementAmount === 1 ? '' : 's'}`,
   };
@@ -114,7 +114,7 @@ function parsePdfMovement(blurb: string): {
     const amount = Number(up[1]);
     return {
       blurb: blurb.slice(up[0].length).trim(),
-      label: `▲${amount}`,
+      label: `↑${amount}`,
       direction: 'up',
       description: `Moved up ${amount} spot${amount === 1 ? '' : 's'} from No. ${up[2]}`,
     };
@@ -125,7 +125,7 @@ function parsePdfMovement(blurb: string): {
     const amount = Number(down[1]);
     return {
       blurb: blurb.slice(down[0].length).trim(),
-      label: `▼${amount}`,
+      label: `↓${amount}`,
       direction: 'down',
       description: `Moved down ${amount} spot${amount === 1 ? '' : 's'} from No. ${down[2]}`,
     };
@@ -135,7 +135,7 @@ function parsePdfMovement(blurb: string): {
   if (hold) {
     return {
       blurb: blurb.slice(hold[0].length).trim(),
-      label: '—',
+      label: '→',
       direction: 'neutral',
       description: `No change from No. ${hold[1]}`,
     };
@@ -211,6 +211,62 @@ function rankingsFromNewsletter(data: NewsletterData): DisplayPowerRankings | nu
 
   const uploadedPdf = data.newsletter.sections.find((item) => item.type === 'UploadedPdf');
   return displayUploadedPdfRankings(uploadedPdf?.data);
+}
+
+function fillMissingMovement(
+  current: DisplayRankingItem[],
+  previous?: DisplayRankingItem[],
+): DisplayRankingItem[] {
+  return current.map((item) => {
+    if (item.movementLabel) return item;
+
+    const prior = previous?.find((candidate) => candidate.team === item.team);
+    if (!prior) {
+      return {
+        ...item,
+        movementLabel: 'NEW',
+        movementDirection: 'neutral',
+        movementDescription: 'New to the rankings',
+      };
+    }
+
+    const delta = prior.rank - item.rank;
+    if (delta > 0) {
+      return {
+        ...item,
+        movementLabel: `↑${delta}`,
+        movementDirection: 'up',
+        movementDescription: `Moved up ${delta} spot${delta === 1 ? '' : 's'} from No. ${prior.rank}`,
+      };
+    }
+    if (delta < 0) {
+      const amount = Math.abs(delta);
+      return {
+        ...item,
+        movementLabel: `↓${amount}`,
+        movementDirection: 'down',
+        movementDescription: `Moved down ${amount} spot${amount === 1 ? '' : 's'} from No. ${prior.rank}`,
+      };
+    }
+
+    return {
+      ...item,
+      movementLabel: '→',
+      movementDirection: 'neutral',
+      movementDescription: `No change from No. ${prior.rank}`,
+    };
+  });
+}
+
+function completeMovement(
+  current: DisplayPowerRankings,
+  previous?: DisplayPowerRankings,
+): DisplayPowerRankings {
+  return {
+    ...current,
+    masonRankings: fillMissingMovement(current.masonRankings, previous?.masonRankings),
+    westyRankings: fillMissingMovement(current.westyRankings, previous?.westyRankings),
+  };
 }
 
 function teamColor(team: string) {
@@ -374,7 +430,11 @@ export default function PowerRankingsPage() {
 
         if (cancelled) return;
 
-        const rankingIssues = loaded.filter((item): item is RankingIssue => item !== null);
+        const baseIssues = loaded.filter((item): item is RankingIssue => item !== null);
+        const rankingIssues = baseIssues.map((issue, index) => ({
+          ...issue,
+          rankings: completeMovement(issue.rankings, baseIssues[index + 1]?.rankings),
+        }));
         setIssues(rankingIssues);
 
         setSelectedId((current) => {
