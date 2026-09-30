@@ -546,7 +546,7 @@ export default function PowerRankingsPage() {
                 rankings={selected.rankings.westyRankings}
               />
             </div>
-          </section>>
+          </section>
         </>
       ) : null}
     </div>
