@@ -39,6 +39,7 @@ export const USER_NAV_CONFIG: UserNavItem[] = [
           { id: 'league.standings.power-rankings', label: 'Power Rankings', href: '/power-rankings' },
         ],
       },
+      { id: 'league.calendar', label: 'League Calendar', href: '/calendar', description: 'Key dates and your weekly matchups' },
       { id: 'league.rules', label: 'Rules', href: '/rules' },
       { id: 'league.rivalries', label: 'Rivalries', href: '/rivalries' },
       { id: 'league.votes', label: 'Votes', href: '/votes' },
