@@ -5,7 +5,7 @@ import {
   type PlayerProjectionCandidate,
 } from '@/lib/fantasy/projection-opportunity';
 import type { NflverseTeamWeek } from '@/lib/fantasy/nflverse-team-stats';
-import type { WeeklyProjectedPlayer } from '@/lib/fantasy/lineup-types';
+import type { ProjectedStatLine, WeeklyProjectedPlayer } from '@/lib/fantasy/lineup-types';
 import type { SleeperPlayer } from '@/lib/utils/sleeper-api';
 
 const scoring = { pass_yd: 0.04, pass_td: 4, pass_int: -2, rush_yd: 0.1, rush_td: 6, rec: 0.5, rec_yd: 0.1, rec_td: 6 };
@@ -42,7 +42,7 @@ function player(id: string, position: string, overrides: Partial<SleeperPlayer &
 }
 
 function projected(id: string, position: string, args: Partial<WeeklyProjectedPlayer> = {}): WeeklyProjectedPlayer {
-  const statLine = position === 'QB'
+  const statLine: ProjectedStatLine = position === 'QB'
     ? { pass_att: 30, pass_cmp: 19, pass_yd: 210, pass_td: 1.3, pass_int: 0.7, rush_att: 3, rush_yd: 14, rush_td: 0.1 }
     : { rec_tgt: position === 'WR' ? 6 : 3, rec: position === 'WR' ? 4 : 2, rec_yd: position === 'WR' ? 52 : 18, rec_td: 0.25, rush_att: position === 'RB' ? 10 : 0.2, rush_yd: position === 'RB' ? 43 : 1, rush_td: position === 'RB' ? 0.25 : 0 };
   return {
