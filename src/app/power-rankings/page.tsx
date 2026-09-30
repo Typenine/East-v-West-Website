@@ -18,7 +18,7 @@ function paramValue(value: string | string[] | undefined) {
 
 function issueLabel(issue: PublishedPowerRankingIssue) {
   if (issue.episodeType === 'preseason' || issue.week === 900) return 'Preseason';
-  if (issue.week >= 900) return issue.episodeType?.replaceAll('_', ' ') || 'Special';
+  if (issue.week >= 900) return issue.episodeType?.replace(/_/g, ' ') || 'Special';
   return `Week ${issue.week}`;
 }
 
@@ -35,7 +35,7 @@ export default async function PowerRankingsPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const sp = await (searchParams ?? Promise.resolve({}));
+  const sp = (await (searchParams ?? Promise.resolve({}))) as Record<string, string | string[] | undefined>;
   const requestedSeason = paramValue(sp.season);
   const season = requestedSeason && SEASONS.includes(requestedSeason)
     ? requestedSeason
