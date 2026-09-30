@@ -264,9 +264,9 @@ function RankingRow({ item }: { item: DisplayRankingItem }) {
   return (
     <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-3.5 sm:p-4">
       <div className="flex items-start gap-3">
-        <div className="w-12 shrink-0 pt-0.5 text-center">
-          <div className="text-xl font-black tabular-nums text-[var(--text)]">#{item.rank}</div>
-          <div className="mt-0.5 flex justify-center">
+        <div className="w-16 shrink-0 pt-0.5">
+          <div className="flex items-center justify-center gap-1.5">
+            <span className="text-xl font-black tabular-nums text-[var(--text)]">#{item.rank}</span>
             <MovementBadge item={item} />
           </div>
         </div>
