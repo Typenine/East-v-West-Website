@@ -2931,22 +2931,23 @@ export function formatTradeBlockMarkdown(data: ReturnType<typeof handleGetTradeB
 
 const POWER_RANKINGS_BASE = 'https://east-v-west-website.vercel.app';
 
-type PublishedRankingItem = {
+type PowerRankingsPageItem = {
   rank: number;
   team: string;
-  record: string;
-  pointsFor: number;
-  previousRank?: number;
-  movement: 'up' | 'down' | 'same' | 'new';
-  movementAmount: number;
   blurb: string;
+  movementLabel?: string;
+  movementDirection?: 'up' | 'down' | 'neutral';
+  movementDescription?: string;
+  record?: string;
+  pointsFor?: number;
 };
 
-type PublishedPowerRankingsSection = {
-  masonRankings?: PublishedRankingItem[];
-  westyRankings?: PublishedRankingItem[];
+type PowerRankingsPageData = {
+  masonRankings?: PowerRankingsPageItem[];
+  westyRankings?: PowerRankingsPageItem[];
   bot1_intro?: string;
   bot2_intro?: string;
+  source?: 'structured' | 'uploaded-pdf';
 };
 
 type PublishedNewsletterMeta = {
@@ -2966,7 +2967,7 @@ export async function handleGetPowerRankings() {
     { cache: 'no-store', signal: AbortSignal.timeout(12_000) },
   );
   if (!listRes.ok) {
-    throw new McpError('upstream_error', `Power Rankings source returned ${listRes.status}`);
+    throw new McpError('upstream_error', `Power Rankings catalog returned ${listRes.status}`);
   }
 
   const listJson = (await listRes.json()) as {
@@ -2983,33 +2984,32 @@ export async function handleGetPowerRankings() {
     });
 
   for (const meta of published) {
-    const issueRes = await fetch(
-      `${POWER_RANKINGS_BASE}/api/newsletter?id=${encodeURIComponent(meta.id)}`,
-      { cache: 'no-store', signal: AbortSignal.timeout(12_000) },
+    const rankingsRes = await fetch(
+      `${POWER_RANKINGS_BASE}/api/newsletter/power-rankings?id=${encodeURIComponent(meta.id)}`,
+      { cache: 'no-store', signal: AbortSignal.timeout(30_000) },
     );
-    if (!issueRes.ok) continue;
+    if (!rankingsRes.ok) continue;
 
-    const issueJson = (await issueRes.json()) as {
+    const rankingsJson = (await rankingsRes.json()) as {
       success?: boolean;
-      newsletter?: {
-        sections?: Array<{ type: string; data?: unknown }>;
-      };
+      rankings?: PowerRankingsPageData;
     };
-    if (issueJson.success === false) continue;
+    if (rankingsJson.success === false || !rankingsJson.rankings) continue;
 
-    const section = issueJson.newsletter?.sections?.find((item) => item.type === 'PowerRankings');
-    if (!section?.data) continue;
-
-    const rankings = section.data as PublishedPowerRankingsSection;
+    const rankings = rankingsJson.rankings;
     const masonRankings = Array.isArray(rankings.masonRankings) ? rankings.masonRankings : [];
     const westyRankings = Array.isArray(rankings.westyRankings) ? rankings.westyRankings : [];
-    if (masonRankings.length === 0 && westyRankings.length === 0) continue;
+
+    // The Power Rankings page itself requires complete 1-12 lists. The connector
+    // should expose that same canonical result rather than inventing or re-ranking.
+    if (masonRankings.length !== 12 || westyRankings.length !== 12) continue;
 
     return {
       ok: true,
       data: {
         fetchedAt: new Date().toISOString(),
         source: 'published-power-rankings-page',
+        rankingsSource: rankings.source ?? null,
         pageUrl: `${POWER_RANKINGS_BASE}/power-rankings?season=${CURRENT_SEASON}&issue=${encodeURIComponent(meta.id)}`,
         season: String(meta.season ?? CURRENT_SEASON),
         week: meta.week,
@@ -3027,7 +3027,7 @@ export async function handleGetPowerRankings() {
 
   throw new McpError(
     'not_found',
-    `No published Power Rankings are available on the ${CURRENT_SEASON} Power Rankings page.`,
+    `No complete published Power Rankings are available on the ${CURRENT_SEASON} Power Rankings page.`,
   );
 }
 
@@ -3039,30 +3039,33 @@ export function formatPowerRankingsMarkdown(data: ReturnType<typeof handleGetPow
     masonRankings, westyRankings,
   } = data.data;
 
-  const movement = (item: PublishedRankingItem) => {
-    if (item.movement === 'new') return 'NEW';
-    if (item.movement === 'same') return '—';
-    return `${item.movement === 'up' ? '▲' : '▼'} ${item.movementAmount}`;
-  };
-
   const lines: string[] = [
     `## ⚡ Power Rankings — ${season}${week < 900 ? ` Week ${week}` : ''}`,
     issueTitle ? `*${issueTitle} · Published ${new Date(publishedAt).toLocaleDateString('en-US')}*` : `*Published ${new Date(publishedAt).toLocaleDateString('en-US')}*`,
     '',
   ];
 
-  const addTable = (label: string, rankings: PublishedRankingItem[]) => {
+  const addTable = (label: string, rankings: PowerRankingsPageItem[]) => {
+    const hasRecordData = rankings.some((item) => item.record && typeof item.pointsFor === 'number');
     lines.push(`### ${label}`);
-    lines.push('| Rank | Team | Movement | Record | PF |');
-    lines.push('|---:|---|---:|---|---:|');
+    lines.push(hasRecordData ? '| Rank | Team | Movement | Record | PF |' : '| Rank | Team | Movement |');
+    lines.push(hasRecordData ? '|---:|---|---:|---|---:|' : '|---:|---|---:|');
+
     for (const item of [...rankings].sort((a, b) => a.rank - b.rank)) {
-      lines.push(`| **${item.rank}** | ${item.team} | ${movement(item)} | ${item.record} | ${item.pointsFor.toFixed(1)} |`);
+      const move = item.movementLabel || '—';
+      if (hasRecordData) {
+        const record = item.record ?? '—';
+        const pf = typeof item.pointsFor === 'number' ? item.pointsFor.toFixed(1) : '—';
+        lines.push(`| **${item.rank}** | ${item.team} | ${move} | ${record} | ${pf} |`);
+      } else {
+        lines.push(`| **${item.rank}** | ${item.team} | ${move} |`);
+      }
     }
     lines.push('');
   };
 
-  if (masonRankings.length > 0) addTable('Mason Reed', masonRankings);
-  if (westyRankings.length > 0) addTable('Westy', westyRankings);
+  addTable('Mason Reed', masonRankings);
+  addTable('Westy', westyRankings);
 
   lines.push(`*Source: published Power Rankings page · ${FRESHNESS()}*`);
   return lines.join('\n');
