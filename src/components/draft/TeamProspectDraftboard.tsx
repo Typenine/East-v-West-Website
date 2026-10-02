@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronUp, Eye, EyeOff, RotateCcw, Save, Search, Tag, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Eye, EyeOff, GripVertical, Plus, RotateCcw, Save, Search, Tag, X } from 'lucide-react';
 
 const BOARD_API_URL = '/api/team-prospect-draftboard';
-const BOARD_VERSION = '2027-regular-season-v1';
-const COMPATIBLE_BOARD_VERSIONS = new Set([BOARD_VERSION]);
+const BOARD_VERSION = '2027-regular-season-v2';
+const COMPATIBLE_BOARD_VERSIONS = new Set(['2027-regular-season-v1', BOARD_VERSION]);
 const BOARD_LABEL = '2027 Prospect Draftboard';
 
 const C = {
@@ -37,9 +37,12 @@ type BoardPlayer = {
   userNote?: string;
 };
 
+type BoardTier = { id: string; label: string; startRank: number };
+
 type SavedBoard = {
   boardVersion?: string;
   orderIds?: string[];
+  tiers?: BoardTier[];
   unlikely?: Record<string, boolean>;
   noFit?: Record<string, boolean>;
   target?: Record<string, boolean>;
@@ -178,7 +181,26 @@ const INITIAL: BoardPlayer[] = [...ALL_PROSPECTS].sort((a, b) => {
   return ai - bi;
 });
 
-const TIER_LABELS: Record<number,string> = { 1:'Blue-chip', 2:'Early 1st-round core', 3:'1st-round depth', 4:'Day 2 watch', 5:'Developmental watchlist' };
+const DEFAULT_TIERS: BoardTier[] = [
+  { id:'tier-1', label:'Blue Chip', startRank:1 },
+  { id:'tier-2', label:'Early 1st', startRank:6 },
+  { id:'tier-3', label:'Mid / Late 1st', startRank:16 },
+  { id:'tier-4', label:'2nd Round', startRank:31 },
+  { id:'tier-5', label:'3rd / 4th Round', startRank:51 },
+  { id:'watchlist', label:'Watchlist', startRank:76 },
+];
+
+function cloneTiers() { return DEFAULT_TIERS.map((tier) => ({ ...tier })); }
+function normalizeTiers(tiers: BoardTier[]) {
+  const used = new Set<number>();
+  return tiers
+    .map((tier) => ({ ...tier, startRank:Math.max(1,Math.min(100,Math.round(Number(tier.startRank)||1))), label:tier.label.trim() || 'Untitled Tier' }))
+    .sort((a,b)=>a.startRank-b.startRank)
+    .filter((tier) => { if(used.has(tier.startRank)) return false; used.add(tier.startRank); return true; });
+}
+function applySavedTiers(saved: SavedBoard | null) {
+  return saved?.tiers?.length ? normalizeTiers(saved.tiers) : cloneTiers();
+}
 
 function cloneInitial() { return INITIAL.map((p) => ({ ...p, strengths:[...p.strengths], concerns:[...p.concerns] })); }
 
@@ -195,16 +217,32 @@ function applySavedBoard(saved: SavedBoard | null): BoardPlayer[] {
   return players.map((p) => ({ ...p, target:!!saved.target?.[p.id], unlikely:!!saved.unlikely?.[p.id], noFit:!!saved.noFit?.[p.id], userNote:saved.notes?.[p.id] || '' }));
 }
 
-function serialize(players: BoardPlayer[]) {
+function serialize(players: BoardPlayer[], tiers: BoardTier[]) {
   const target:Record<string,boolean> = {}, unlikely:Record<string,boolean> = {}, noFit:Record<string,boolean> = {}, notes:Record<string,string> = {};
   players.forEach((p) => { if(p.target) target[p.id]=true; if(p.unlikely) unlikely[p.id]=true; if(p.noFit) noFit[p.id]=true; if(p.userNote?.trim()) notes[p.id]=p.userNote.trim(); });
-  return { boardVersion:BOARD_VERSION, orderIds:players.map((p)=>p.id), target, unlikely, noFit, notes };
+  return { boardVersion:BOARD_VERSION, orderIds:players.map((p)=>p.id), tiers:normalizeTiers(tiers), target, unlikely, noFit, notes };
 }
 
 function Trend({trend}:{trend:ProspectTrend}) {
   if(trend==='up') return <span className="font-bold text-emerald-400">↑ Rising</span>;
   if(trend==='down') return <span className="font-bold text-red-300">↓ Falling</span>;
   return <span className="text-[var(--muted)]">→ Baseline</span>;
+}
+
+
+function RankEditor({rank,onCommit}:{rank:number;onCommit:(rank:number)=>void}) {
+  const [value,setValue]=useState(String(rank));
+  useEffect(()=>setValue(String(rank)),[rank]);
+  const commit=()=>{ const next=Math.max(1,Math.min(100,Math.round(Number(value)||rank))); setValue(String(next)); onCommit(next); };
+  return <input
+    aria-label={`Rank ${rank}`}
+    inputMode="numeric"
+    value={value}
+    onChange={(e)=>setValue(e.target.value.replace(/\D/g,'').slice(0,3))}
+    onBlur={commit}
+    onKeyDown={(e)=>{ if(e.key==='Enter'){ e.currentTarget.blur(); } if(e.key==='Escape'){ setValue(String(rank)); e.currentTarget.blur(); } }}
+    className="w-11 rounded border border-[var(--border)] bg-[var(--surface-strong)] px-1.5 py-1 text-center text-sm font-black tabular-nums outline-none focus:border-[var(--accent)]"
+  />;
 }
 
 function flagStyle(p:BoardPlayer) {
@@ -223,44 +261,52 @@ export default function TeamProspectDraftboard() {
   const [position,setPosition] = useState('ALL');
   const [poolView,setPoolView] = useState<'ranked'|'watchlist'|'all'>('ranked');
   const [hideNoFit,setHideNoFit] = useState(false);
+  const [tiers,setTiers] = useState<BoardTier[]>(cloneTiers);
+  const [showTierEditor,setShowTierEditor] = useState(false);
+  const [draggedId,setDraggedId] = useState<string|null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>|null>(null);
 
   useEffect(() => {
     let cancelled=false;
-    (async()=>{ try { const r=await fetch(BOARD_API_URL,{cache:'no-store'}); if(!r.ok) throw new Error(); const body=await r.json(); if(!cancelled) setPlayers(applySavedBoard((body?.data||null) as SavedBoard|null)); } catch { if(!cancelled) setPlayers(cloneInitial()); } finally { if(!cancelled) setLoading(false); } })();
+    (async()=>{ try { const r=await fetch(BOARD_API_URL,{cache:'no-store'}); if(!r.ok) throw new Error(); const body=await r.json(); const saved=(body?.data||null) as SavedBoard|null; if(!cancelled){ setPlayers(applySavedBoard(saved)); setTiers(applySavedTiers(saved)); } } catch { if(!cancelled){ setPlayers(cloneInitial()); setTiers(cloneTiers()); } } finally { if(!cancelled) setLoading(false); } })();
     return()=>{cancelled=true;};
   },[]);
 
   useEffect(() => {
     if(loading) return;
     if(saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current=setTimeout(async()=>{ try { const r=await fetch(BOARD_API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:serialize(players)})}); setSaveStatus(r.ok?'Saved':'Local view only'); } catch { setSaveStatus('Local view only'); } setTimeout(()=>setSaveStatus(''),1600); },700);
+    saveTimeoutRef.current=setTimeout(async()=>{ try { const r=await fetch(BOARD_API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data:serialize(players,tiers)})}); setSaveStatus(r.ok?'Saved':'Local view only'); } catch { setSaveStatus('Local view only'); } setTimeout(()=>setSaveStatus(''),1600); },700);
     return()=>{ if(saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  },[players,loading]);
+  },[players,tiers,loading]);
 
   const filtered=useMemo(()=>{ const q=search.trim().toLowerCase(); return players.filter((p,idx)=>{ if(poolView==='ranked'&&idx>=RANKED_LIMIT) return false; if(poolView==='watchlist'&&idx<RANKED_LIMIT) return false; if(hideNoFit&&p.noFit) return false; if(position!=='ALL'&&p.pos!==position) return false; return !q || `${p.name} ${p.college} ${p.pos}`.toLowerCase().includes(q); }); },[players,position,poolView,search,hideNoFit]);
   const rankById=useMemo(()=>new Map(players.map((p,i)=>[p.id,i+1])),[players]);
 
+  const moveToRank=(id:string,targetRank:number)=>setPlayers((current)=>{ const from=current.findIndex((p)=>p.id===id); if(from<0) return current; const to=Math.max(0,Math.min(current.length-1,targetRank-1)); if(from===to) return current; const next=[...current]; const [player]=next.splice(from,1); next.splice(to,0,player); return next; });
   const move=(id:string,direction:-1|1)=>setPlayers((current)=>{ const i=current.findIndex((p)=>p.id===id), n=i+direction; if(i<0||n<0||n>=current.length) return current; const next=[...current]; [next[i],next[n]]=[next[n],next[i]]; return next; });
+  const addTier=()=>setTiers((current)=>normalizeTiers([...current,{id:`tier-${Date.now()}`,label:'New Tier',startRank:Math.min(100,(current[current.length-1]?.startRank||1)+5)}]));
+  const updateTier=(id:string,patch:Partial<BoardTier>)=>setTiers((current)=>normalizeTiers(current.map((tier)=>tier.id===id?{...tier,...patch}:tier)));
+  const deleteTier=(id:string)=>setTiers((current)=>current.length<=1?current:current.filter((tier)=>tier.id!==id));
+  const tierForRank=(rank:number)=>{ const sorted=normalizeTiers(tiers); return [...sorted].reverse().find((tier)=>tier.startRank<=rank) || sorted[0]; };
   const setFlag=(id:string,flag:'target'|'unlikely'|'noFit')=>setPlayers((current)=>current.map((p)=>{ if(p.id!==id) return p; const v=!p[flag]; return {...p,target:flag==='target'?v:false,unlikely:flag==='unlikely'?v:false,noFit:flag==='noFit'?v:false}; }));
-  const reset=()=>{ if(!window.confirm('Reset your 2027 prospect board to the current 75-player ranking plus 25-player watchlist baseline?')) return; setPlayers(cloneInitial()); setExpandedId(null); };
+  const reset=()=>{ if(!window.confirm('Reset your 2027 prospect board to the current 75-player ranking plus 25-player watchlist baseline?')) return; setPlayers(cloneInitial()); setTiers(cloneTiers()); setExpandedId(null); };
 
   if(loading) return <div className="rounded-xl border border-[var(--border)] p-8 text-center text-sm text-[var(--muted)]">Loading 2027 prospect board...</div>;
 
   return <div className="space-y-4">
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div><div className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--accent)]">East v. West · Superflex</div><h2 className="mt-1 text-2xl font-black">{BOARD_LABEL}</h2><p className="mt-2 max-w-3xl text-sm leading-relaxed text-[var(--muted)]">Expanded in-season board with 75 ranked prospects plus a 25-player watchlist. The broader pool prevents breakout players from disappearing just because they are not ready for a precise rank yet.</p></div>
+        <div><div className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--accent)]">East v. West · Superflex</div><h2 className="mt-1 text-2xl font-black">{BOARD_LABEL}</h2><p className="mt-2 max-w-3xl text-sm leading-relaxed text-[var(--muted)]">75 prospects receive the site baseline ranking and 25 more remain on the watchlist. Your personal board can reorder all 100 by dragging, using the arrows, or typing any rank from 1-100, and you can define your own tier boundaries.</p></div>
         <div className="flex flex-wrap items-center gap-2">{saveStatus?<span className="text-xs text-[var(--muted)]"><Save className="mr-1 inline h-3.5 w-3.5" />{saveStatus}</span>:null}<span className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-bold text-[var(--muted)]">{RANKED_LIMIT} ranked · {Math.max(0,players.length-RANKED_LIMIT)} watchlist</span><button type="button" onClick={reset} className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold hover:bg-white/5"><RotateCcw className="h-3.5 w-3.5" /> Reset</button></div>
       </div>
-      <div className="mt-4 flex flex-col gap-2"><div className="flex flex-wrap gap-1">{([['ranked','Ranked 75'],['watchlist','Watchlist 25'],['all','All 100']] as const).map(([value,label])=><button key={value} type="button" onClick={()=>setPoolView(value)} className="rounded-lg border px-3 py-2 text-xs font-bold" style={poolView===value?{borderColor:'var(--accent)',color:'var(--accent)'}:{borderColor:'var(--border)',color:'var(--muted)'}}>{label}</button>)}</div><div className="flex flex-col gap-2 sm:flex-row"><label className="relative flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--muted)]" /><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search player or college" className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-strong)] py-2 pl-9 pr-3 text-sm outline-none focus:border-[var(--accent)]" /></label><div className="flex gap-1 overflow-x-auto">{['ALL','QB','RB','WR','TE'].map((pos)=><button key={pos} type="button" onClick={()=>setPosition(pos)} className="rounded-lg border px-3 py-2 text-xs font-bold" style={position===pos?{borderColor:'var(--accent)',color:'var(--accent)'}:{borderColor:'var(--border)',color:'var(--muted)'}}>{pos}</button>)}<button type="button" onClick={()=>setHideNoFit((v)=>!v)} className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--muted)]">{hideNoFit?<Eye className="h-3.5 w-3.5"/>:<EyeOff className="h-3.5 w-3.5"/>}{hideNoFit?'Show no-fit':'Hide no-fit'}</button></div></div></div>
+      <div className="mt-4 flex flex-col gap-2"><div className="flex flex-wrap items-center gap-1">{([['ranked','Ranked 75'],['watchlist','Watchlist 25'],['all','All 100']] as const).map(([value,label])=><button key={value} type="button" onClick={()=>setPoolView(value)} className="rounded-lg border px-3 py-2 text-xs font-bold" style={poolView===value?{borderColor:'var(--accent)',color:'var(--accent)'}:{borderColor:'var(--border)',color:'var(--muted)'}}>{label}</button>)}<button type="button" onClick={()=>setShowTierEditor((v)=>!v)} className="ml-auto rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--muted)]">{showTierEditor?'Close Tiers':'Edit Tiers'}</button></div>{showTierEditor?<div className="rounded-xl border border-[var(--border)] bg-black/10 p-3"><div className="mb-2 flex items-center justify-between"><div><div className="text-xs font-black uppercase tracking-wide text-[var(--accent)]">Your tiers</div><div className="text-[11px] text-[var(--muted)]">Set the first rank for each tier. Tiers can start anywhere from 1-100.</div></div><button type="button" onClick={addTier} className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-bold"><Plus className="h-3.5 w-3.5"/> Add tier</button></div><div className="space-y-2">{normalizeTiers(tiers).map((tier)=><div key={tier.id} className="grid grid-cols-[64px_minmax(0,1fr)_36px] items-center gap-2"><input type="number" min={1} max={100} value={tier.startRank} onChange={(e)=>updateTier(tier.id,{startRank:Number(e.target.value)})} className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-1.5 text-xs outline-none focus:border-[var(--accent)]"/><input value={tier.label} onChange={(e)=>updateTier(tier.id,{label:e.target.value})} className="rounded border border-[var(--border)] bg-[var(--surface-strong)] px-2 py-1.5 text-xs outline-none focus:border-[var(--accent)]"/><button type="button" onClick={()=>deleteTier(tier.id)} className="rounded border border-[var(--border)] p-1.5 text-[var(--muted)] hover:text-red-300" aria-label={`Delete ${tier.label}`}><X className="h-3.5 w-3.5"/></button></div>)}</div></div>:null}<div className="flex flex-col gap-2 sm:flex-row"><label className="relative flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--muted)]" /><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search player or college" className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-strong)] py-2 pl-9 pr-3 text-sm outline-none focus:border-[var(--accent)]" /></label><div className="flex gap-1 overflow-x-auto">{['ALL','QB','RB','WR','TE'].map((pos)=><button key={pos} type="button" onClick={()=>setPosition(pos)} className="rounded-lg border px-3 py-2 text-xs font-bold" style={position===pos?{borderColor:'var(--accent)',color:'var(--accent)'}:{borderColor:'var(--border)',color:'var(--muted)'}}>{pos}</button>)}<button type="button" onClick={()=>setHideNoFit((v)=>!v)} className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--muted)]">{hideNoFit?<Eye className="h-3.5 w-3.5"/>:<EyeOff className="h-3.5 w-3.5"/>}{hideNoFit?'Show no-fit':'Hide no-fit'}</button></div></div></div>
     </div>
 
     <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)]">
-      <div className="hidden grid-cols-[56px_minmax(220px,1.5fr)_90px_170px_130px_110px_92px] gap-2 border-b border-[var(--border)] bg-black/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-[var(--muted)] md:grid"><div>Rank</div><div>Prospect</div><div>Pos</div><div>College</div><div>Proj. NFL</div><div>Trend</div><div></div></div>
-      {filtered.map((p,visibleIndex)=>{ const previous=filtered[visibleIndex-1]; const rank=rankById.get(p.id)||0; const previousRank=previous?(rankById.get(previous.id)||0):0; const showTier=rank===1||rank===RANKED_LIMIT+1||(rank<=RANKED_LIMIT&&(!previous||previousRank>RANKED_LIMIT||previous.tier!==p.tier)); const expanded=expandedId===p.id; return <React.Fragment key={p.id}>{showTier?<div className="border-y border-[var(--border)] bg-black/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-[var(--accent)]">{rank>RANKED_LIMIT?'Watchlist':`Tier ${p.tier}: ${TIER_LABELS[p.tier]||'Watchlist'}`}</div>:null}<div style={flagStyle(p)} className="border-b border-[var(--border)] last:border-b-0"><div className="grid gap-2 px-3 py-3 md:grid-cols-[56px_minmax(220px,1.5fr)_90px_170px_130px_110px_92px] md:items-center"><div className="flex items-center gap-1 md:block"><span className="text-sm font-black tabular-nums">{rank<=RANKED_LIMIT?`#${rank}`:'Watch'}</span><div className="inline-flex md:mt-1 md:flex"><button type="button" onClick={()=>move(p.id,-1)} disabled={rank<=1} className="p-0.5 disabled:opacity-20"><ChevronUp className="h-3.5 w-3.5"/></button><button type="button" onClick={()=>move(p.id,1)} disabled={rank>=players.length} className="p-0.5 disabled:opacity-20"><ChevronDown className="h-3.5 w-3.5"/></button></div></div><button type="button" onClick={()=>setExpandedId(expanded?null:p.id)} className="min-w-0 text-left"><div className="flex flex-wrap items-center gap-2"><span className="font-black">{p.name}</span>{p.target?<span className="text-[10px] font-black uppercase text-emerald-400">Target</span>:null}{p.unlikely?<span className="text-[10px] font-black uppercase text-amber-300">Unlikely</span>:null}{p.noFit?<span className="text-[10px] font-black uppercase text-red-300">No Fit</span>:null}</div><div className="mt-0.5 text-xs text-[var(--muted)] md:hidden">{p.college} · {p.draftRange}</div></button><div><span className="rounded px-2 py-1 text-[10px] font-black" style={{background:`${POS_COLORS[p.pos]}22`,color:POS_COLORS[p.pos],border:`1px solid ${POS_COLORS[p.pos]}55`}}>{p.pos}</span></div><div className="hidden text-xs text-[var(--muted)] md:block">{p.college}</div><div className="hidden text-xs font-semibold md:block">{p.draftRange}</div><div className="hidden text-xs md:block"><Trend trend={p.trend}/></div><button type="button" onClick={()=>setExpandedId(expanded?null:p.id)} className="justify-self-start rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-bold md:justify-self-end">{expanded?'Close':'Scout'}</button></div>
+      <div className="hidden grid-cols-[92px_minmax(220px,1.5fr)_90px_170px_130px_110px_92px] gap-2 border-b border-[var(--border)] bg-black/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-[var(--muted)] md:grid"><div>Rank</div><div>Prospect</div><div>Pos</div><div>College</div><div>Proj. NFL</div><div>Trend</div><div></div></div>
+      {filtered.map((p,visibleIndex)=>{ const previous=filtered[visibleIndex-1]; const rank=rankById.get(p.id)||0; const tier=tierForRank(rank); const previousTier=previous?tierForRank(rankById.get(previous.id)||0):null; const showTier=!previous||previousTier?.id!==tier?.id; const expanded=expandedId===p.id; return <React.Fragment key={p.id}>{showTier&&tier?<div className="border-y border-[var(--border)] bg-black/10 px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-[var(--accent)]">{tier.label} · starts #{tier.startRank}</div>:null}<div draggable onDragStart={()=>setDraggedId(p.id)} onDragEnd={()=>setDraggedId(null)} onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>{e.preventDefault(); if(draggedId&&draggedId!==p.id) moveToRank(draggedId,rank); setDraggedId(null);}} style={flagStyle(p)} className={`border-b border-[var(--border)] last:border-b-0 ${draggedId===p.id?'opacity-50':''}`}><div className="grid gap-2 px-3 py-3 md:grid-cols-[92px_minmax(220px,1.5fr)_90px_170px_130px_110px_92px] md:items-center"><div className="flex items-center gap-1"><GripVertical className="h-3.5 w-3.5 cursor-grab text-[var(--muted)]"/><RankEditor rank={rank} onCommit={(next)=>moveToRank(p.id,next)}/><div className="inline-flex"><button type="button" onClick={()=>move(p.id,-1)} disabled={rank<=1} className="p-0.5 disabled:opacity-20"><ChevronUp className="h-3.5 w-3.5"/></button><button type="button" onClick={()=>move(p.id,1)} disabled={rank>=players.length} className="p-0.5 disabled:opacity-20"><ChevronDown className="h-3.5 w-3.5"/></button></div></div><button type="button" onClick={()=>setExpandedId(expanded?null:p.id)} className="min-w-0 text-left"><div className="flex flex-wrap items-center gap-2"><span className="font-black">{p.name}</span>{p.target?<span className="text-[10px] font-black uppercase text-emerald-400">Target</span>:null}{p.unlikely?<span className="text-[10px] font-black uppercase text-amber-300">Unlikely</span>:null}{p.noFit?<span className="text-[10px] font-black uppercase text-red-300">No Fit</span>:null}</div><div className="mt-0.5 text-xs text-[var(--muted)] md:hidden">{p.college} · {p.draftRange}</div></button><div><span className="rounded px-2 py-1 text-[10px] font-black" style={{background:`${POS_COLORS[p.pos]}22`,color:POS_COLORS[p.pos],border:`1px solid ${POS_COLORS[p.pos]}55`}}>{p.pos}</span></div><div className="hidden text-xs text-[var(--muted)] md:block">{p.college}</div><div className="hidden text-xs font-semibold md:block">{p.draftRange}</div><div className="hidden text-xs md:block"><Trend trend={p.trend}/></div><button type="button" onClick={()=>setExpandedId(expanded?null:p.id)} className="justify-self-start rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-bold md:justify-self-end">{expanded?'Close':'Scout'}</button></div>
         {expanded?<div className="border-t border-[var(--border)] bg-black/10 px-4 py-4"><div className="rounded-xl border border-[var(--border)] bg-black/10 p-3"><div className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--accent)]">2025 production / baseline</div><div className="mt-1 text-sm font-semibold text-[var(--text)]">{p.statLine}</div></div><div className="mt-3 grid gap-3 md:grid-cols-2"><div className="rounded-xl border border-[var(--border)] p-3"><div className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-400">Strengths</div><ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-relaxed text-[var(--muted)]">{p.strengths.map((x)=><li key={x}>{x}</li>)}</ul></div><div className="rounded-xl border border-[var(--border)] p-3"><div className="text-[10px] font-black uppercase tracking-[0.14em] text-red-300">Concerns</div><ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-relaxed text-[var(--muted)]">{p.concerns.map((x)=><li key={x}>{x}</li>)}</ul></div></div><div className="mt-3 grid gap-3 md:grid-cols-2"><div className="rounded-xl border border-[var(--border)] p-3"><div className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--accent)]">Fantasy / Superflex outlook</div><p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">{p.fantasy}</p></div><div className="rounded-xl border border-[var(--border)] p-3"><div className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--accent)]">2026 watch</div><p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">{p.watch}</p></div></div><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={()=>setFlag(p.id,'target')} className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-bold" style={{borderColor:`${C.target}66`,color:C.target,background:p.target?C.targetBg:'transparent'}}><Check className="h-3.5 w-3.5"/> Target</button><button type="button" onClick={()=>setFlag(p.id,'unlikely')} className="rounded-lg border px-2.5 py-1.5 text-xs font-bold" style={{borderColor:`${C.unlikely}66`,color:C.unlikely,background:p.unlikely?C.unlikelyBg:'transparent'}}>Unlikely</button><button type="button" onClick={()=>setFlag(p.id,'noFit')} className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-bold" style={{borderColor:`${C.noFit}66`,color:C.noFit,background:p.noFit?C.noFitBg:'transparent'}}><X className="h-3.5 w-3.5"/> No Fit</button></div><div className="mt-4"><label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-[var(--muted)]"><Tag className="h-3.5 w-3.5"/> Your note</label><textarea value={p.userNote||''} onChange={(e)=>setPlayers((current)=>current.map((entry)=>entry.id===p.id?{...entry,userNote:e.target.value}:entry))} rows={2} placeholder="Add your scouting note, concern or target range…" className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"/></div></div>:null}</div></React.Fragment>; })}
     </div>
-    <p className="text-[11px] leading-relaxed text-[var(--muted)]">Baseline refreshed October 2, 2026 with a 75-player ranked board and 25-player watchlist, using current 2027 dynasty/devy consensus and 2026 production. Saved flags and notes carry forward; the baseline ranking refreshes when the board version changes.</p>
+    <p className="text-[11px] leading-relaxed text-[var(--muted)]">Baseline refreshed October 2, 2026 with 75 auto-ranked prospects plus a 25-player watchlist. Personal ordering can span all 100 players, and custom tiers, flags and notes are saved to your team board.</p>
   </div>;
 }
