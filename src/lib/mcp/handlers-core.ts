@@ -3095,12 +3095,14 @@ export async function handleAnalyzeRoster(input: { name?: string }) {
   const r = rosters.find((ros) => ros.roster_id === team.rosterId);
   const irSet = new Set<string>(r?.reserve ?? []);
   const taxiSet = new Set<string>(r?.taxi ?? []);
-  const activeIds = (r?.players ?? team.players ?? []).filter((pid) => pid && !irSet.has(pid) && !taxiSet.has(pid));
+  // Dynasty roster strength includes every rostered asset. Sleeper keeps IR and
+  // taxi players in players[], so classify them instead of filtering them out.
+  const allIds = (r?.players ?? team.players ?? []).filter(Boolean);
 
-  const byPos: Record<string, Array<{ name: string; value: number | null; rank: number | null; trend: number | null; nflTeam: string | null }>> = {};
+  const byPos: Record<string, Array<{ name: string; value: number | null; rank: number | null; trend: number | null; nflTeam: string | null; slot: 'active' | 'ir' | 'taxi' }>> = {};
   let totalValue = 0;
 
-  for (const pid of activeIds) {
+  for (const pid of allIds) {
     const p = allPlayers[pid] as SleeperPlayer | undefined;
     const pos = p?.position ?? 'UNKN';
     if (!SKILL_POS.includes(pos)) continue;
@@ -3112,8 +3114,9 @@ export async function handleAnalyzeRoster(input: { name?: string }) {
         ?? (fuzzyFindValue(name, values) ?? undefined);
     }
 
+    const slot: 'active' | 'ir' | 'taxi' = irSet.has(pid) ? 'ir' : taxiSet.has(pid) ? 'taxi' : 'active';
     if (!byPos[pos]) byPos[pos] = [];
-    byPos[pos].push({ name, value: val?.value ?? null, rank: val?.rank ?? null, trend: val?.trend ?? null, nflTeam: p?.team ?? null });
+    byPos[pos].push({ name, value: val?.value ?? null, rank: val?.rank ?? null, trend: val?.trend ?? null, nflTeam: p?.team ?? null, slot });
     totalValue += val?.value ?? 0;
   }
 
@@ -3132,7 +3135,7 @@ export async function handleAnalyzeRoster(input: { name?: string }) {
     ok: true,
     data: {
       fetchedAt: new Date().toISOString(),
-      source: 'sleeper-live + trade-values',
+      source: 'sleeper-live full roster + trade-values',
       teamName: matchedTeam,
       totalDynastyValue: Math.round(totalValue),
       positionSummary: posSum,
@@ -3152,7 +3155,7 @@ export function formatAnalyzeRosterMarkdown(data: ReturnType<typeof handleAnalyz
 
   const lines: string[] = [
     `## 🏈 Roster Analysis — ${teamName}`,
-    `*Total dynasty value: **${totalDynastyValue.toLocaleString()}** pts · ${valuesAvailable ? 'FC + KTC avg' : 'values unavailable'} · ${FRESHNESS()}*`,
+    `*Total dynasty value: **${totalDynastyValue.toLocaleString()}** pts · full roster (active + IR + taxi) · ${valuesAvailable ? 'FC + KTC avg' : 'values unavailable'} · ${FRESHNESS()}*`,
     '',
     '### Position Breakdown',
     '| Position | # Players | Total Value | Top Player |',
@@ -3177,7 +3180,8 @@ export function formatAnalyzeRosterMarkdown(data: ReturnType<typeof handleAnalyz
     for (const p of players) {
       const valStr = p.value != null ? ` — ${p.value.toLocaleString()}${trendStr(p.trend)}` : '';
       const rankStr = p.rank != null ? ` (#${p.rank} overall)` : '';
-      lines.push(`- **${p.name}**${p.nflTeam ? ` (${p.nflTeam})` : ''}${valStr}${rankStr}`);
+      const slotStr = p.slot === 'ir' ? ' · IR' : p.slot === 'taxi' ? ' · Taxi' : '';
+      lines.push(`- **${p.name}**${p.nflTeam ? ` (${p.nflTeam})` : ''}${slotStr}${valStr}${rankStr}`);
     }
     lines.push('');
   }
