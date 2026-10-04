@@ -27,11 +27,11 @@ export const ROSTER_STRENGTH_HTML = `<!DOCTYPE html>
   function teamColor(name){var c=COLOR_MAP[name]||{primary:'#4f8cff'};return c.primary}
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
   function fmtNum(n){return Math.round(n||0).toLocaleString()}
-  function shellHeader(){return'<div class="widget-topline"><div class="league-lockup"><span class="league-mark"><span></span><span></span></span><div><div class="widget-eyebrow">East v. West</div><div class="widget-title">Roster Strength</div><div class="widget-subtitle">Dynasty value by position with strengths and needs</div></div></div><span class="status-pill"><span class="pulse"></span>Live values</span></div>'}
+  function shellHeader(){return'<div class="widget-topline"><div class="league-lockup"><span class="league-mark"><span></span><span></span></span><div><div class="widget-eyebrow">East v. West</div><div class="widget-title">Roster Strength</div><div class="widget-subtitle">Full dynasty roster by position · IR + taxi included</div></div></div><span class="status-pill"><span class="pulse"></span>Live values</span></div>'}
   function statusFor(pos,d){if((d.strengths||[]).indexOf(pos)!==-1)return{label:'Strength',cls:'strong'};if((d.weaknesses||[]).indexOf(pos)!==-1)return{label:'Need',cls:'need'};return{label:'Stable',cls:'stable'}}
   function renderPlayers(players){
-    if(!players||!players.length)return'<div class="player-row"><span class="meta">No active values</span></div>';
-    return players.slice(0,5).map(function(p){var meta=(p.nflTeam?esc(p.nflTeam):'FA')+(p.rank?' · #'+p.rank:'');return'<div class="player-row"><div><span class="name">'+esc(p.name)+'</span><span class="meta"> · '+meta+'</span></div><span class="value">'+(p.value==null?'—':fmtNum(p.value))+'</span></div>'}).join('');
+    if(!players||!players.length)return'<div class="player-row"><span class="meta">No rostered values</span></div>';
+    return players.map(function(p){var slot=p.slot==='ir'?'IR':p.slot==='taxi'?'Taxi':'';var meta=(p.nflTeam?esc(p.nflTeam):'FA')+(slot?' · '+slot:'')+(p.rank?' · #'+p.rank:'');return'<div class="player-row"><div><span class="name">'+esc(p.name)+'</span><span class="meta"> · '+meta+'</span></div><span class="value">'+(p.value==null?'—':fmtNum(p.value))+'</span></div>'}).join('');
   }
   function renderPosition(pos,summary,players,maxValue,d){
     var pct=maxValue>0?Math.max(4,Math.round((summary.totalValue/maxValue)*100)):0,status=statusFor(pos,d);
@@ -41,7 +41,7 @@ export const ROSTER_STRENGTH_HTML = `<!DOCTYPE html>
     var d=data&&data.data;
     if(!d||!d.positionSummary){document.getElementById('state-loading').style.display='none';document.getElementById('state-empty').style.display='flex';return}
     var maxValue=POS_ORDER.reduce(function(m,pos){var s=d.positionSummary[pos];return s&&s.totalValue>m?s.totalValue:m},1);
-    var hero='<div class="roster-hero"><span class="team-logo-frame"><img src="'+esc(logoSrc(d.teamName))+'" alt="'+esc(d.teamName)+' logo" onerror="this.classList.add(\'hidden\')"></span><div><div class="roster-team">'+esc(d.teamName)+'</div><div class="roster-sub">Position-by-position dynasty portfolio</div></div><div class="total-value"><div class="num">'+fmtNum(d.totalDynastyValue)+'</div><div class="label">Total dynasty value</div></div></div>';
+    var hero='<div class="roster-hero"><span class="team-logo-frame"><img src="'+esc(logoSrc(d.teamName))+'" alt="'+esc(d.teamName)+' logo" onerror="this.classList.add(\'hidden\')"></span><div><div class="roster-team">'+esc(d.teamName)+'</div><div class="roster-sub">Position-by-position dynasty portfolio · full roster</div></div><div class="total-value"><div class="num">'+fmtNum(d.totalDynastyValue)+'</div><div class="label">Total dynasty value</div></div></div>';
     var tags='<div class="profile-tags">'+(d.strengths||[]).map(function(p){return'<span class="tag strength">'+esc(p)+' strength</span>'}).join('')+(d.weaknesses||[]).map(function(p){return'<span class="tag weakness">'+esc(p)+' need</span>'}).join('')+'</div>';
     var cards='<div class="position-grid">'+POS_ORDER.map(function(pos){var summary=d.positionSummary[pos]||{count:0,totalValue:0,topPlayer:null};var players=(d.positions&&d.positions[pos])||[];return renderPosition(pos,summary,players,maxValue,d)}).join('')+'</div>';
     var fetchedAt=d.fetchedAt?new Date(d.fetchedAt).toLocaleTimeString():'';
