@@ -2049,13 +2049,62 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number, o
   points: number;
   opponent: number;
   opponentPoints: number;
-  // result is null for scheduled/unplayed games
+  // result is null until Sleeper has finalized the matchup
   result: 'W' | 'L' | 'T' | null;
   opponentRosterId: number;
-  // whether the game has been played (any side scored > 0)
+  // whether the matchup has been finalized
   played: boolean;
+  // whether scoring has begun, even if the matchup is still live
+  started: boolean;
 }[]> {
   try {
+    // For the active league, Sleeper roster W/L/T is the safest signal for
+    // finalized regular-season games. A non-zero score alone only means a
+    // matchup has started and must not be treated as a final result.
+    let completedRegularGames: number | null = null;
+    let currentWeek: number | null = null;
+    let playoffStartWeek = 15;
+    let stateMatchesLeagueSeason = true;
+
+    if (leagueId === LEAGUE_IDS.CURRENT) {
+      const [rostersResult, stateResult, leagueResult] = await Promise.allSettled([
+        getLeagueRosters(leagueId, options),
+        getNFLState(undefined, options),
+        getLeague(leagueId, options),
+      ]);
+
+      if (rostersResult.status === 'fulfilled') {
+        const roster = rostersResult.value.find((entry) => entry.roster_id === rosterId);
+        if (roster) {
+          completedRegularGames =
+            Number(roster.settings?.wins ?? 0) +
+            Number(roster.settings?.losses ?? 0) +
+            Number(roster.settings?.ties ?? 0);
+        }
+      }
+
+      if (leagueResult.status === 'fulfilled') {
+        const settings = (leagueResult.value?.settings || {}) as {
+          playoff_week_start?: number;
+          playoff_start_week?: number;
+        };
+        playoffStartWeek = Number(
+          settings.playoff_week_start ?? settings.playoff_start_week ?? 15
+        ) || 15;
+      }
+
+      if (stateResult.status === 'fulfilled') {
+        const week = Number(stateResult.value?.week ?? NaN);
+        if (Number.isFinite(week) && week > 0) currentWeek = Math.floor(week);
+
+        if (leagueResult.status === 'fulfilled') {
+          const leagueSeason = String((leagueResult.value as { season?: string | number })?.season ?? '');
+          const stateSeason = String((stateResult.value as { season?: string | number })?.season ?? '');
+          if (leagueSeason && stateSeason) stateMatchesLeagueSeason = leagueSeason === stateSeason;
+        }
+      }
+    }
+
     // Fantasy season uses Weeks 1–17 (exclude NFL Week 18)
     const weekPromises = Array.from({ length: 17 }, (_, i) => i + 1).map((week) =>
       getLeagueMatchups(leagueId, week, options)
@@ -2065,18 +2114,33 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number, o
     const teamResults = [];
     
     for (let week = 0; week < allWeekMatchups.length; week++) {
+      const weekNumber = week + 1;
       const weekMatchups = allWeekMatchups[week];
       const teamMatchup = weekMatchups.find(m => m.roster_id === rosterId);
       
       if (teamMatchup) {
-        // Find opponent
         const matchupId = teamMatchup.matchup_id;
         const opponent = weekMatchups.find(m => m.matchup_id === matchupId && m.roster_id !== rosterId);
         
         if (opponent) {
-          const teamPts = teamMatchup.custom_points ?? teamMatchup.points ?? 0;
-          const oppPts = opponent.custom_points ?? opponent.points ?? 0;
-          const played = ((teamPts ?? 0) > 0) || ((oppPts ?? 0) > 0);
+          const teamPts = Number(teamMatchup.custom_points ?? teamMatchup.points ?? 0);
+          const oppPts = Number(opponent.custom_points ?? opponent.points ?? 0);
+          const started = teamPts !== 0 || oppPts !== 0;
+
+          let played = started;
+          if (leagueId === LEAGUE_IDS.CURRENT && stateMatchesLeagueSeason) {
+            if (weekNumber < playoffStartWeek && completedRegularGames !== null) {
+              // Sleeper increments roster W/L/T only after the matchup is final.
+              played = weekNumber <= completedRegularGames;
+            } else if (weekNumber >= playoffStartWeek) {
+              // Postseason results are final only after Sleeper advances past that week.
+              played = currentWeek !== null ? weekNumber < currentWeek : false;
+            } else {
+              // Fail closed if finalization data is unavailable.
+              played = false;
+            }
+          }
+
           const result: {
             week: number;
             points: number;
@@ -2085,14 +2149,16 @@ export async function getTeamWeeklyResults(leagueId: string, rosterId: number, o
             opponentRosterId: number;
             result: 'W' | 'L' | 'T' | null;
             played: boolean;
+            started: boolean;
           } = {
-            week: week + 1,
+            week: weekNumber,
             points: teamPts,
             opponent: opponent.roster_id,
             opponentPoints: oppPts,
             opponentRosterId: opponent.roster_id,
             result: played ? (teamPts > oppPts ? 'W' : teamPts < oppPts ? 'L' : 'T') : null,
             played,
+            started,
           };
           
           teamResults.push(result);
