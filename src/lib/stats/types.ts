@@ -25,6 +25,17 @@ export interface StatsPlayerSeasonRow {
   bestGameFranchise: string | null;
 }
 
+export interface StatsRookieLeaderRow {
+  playerId: string;
+  name: string;
+  position: string;
+  nflTeam: string | null;
+  points: number;
+  gamesPlayed: number;
+  ppg: number;
+  ownerTeam: string | null;
+}
+
 export interface StatsPlayerCareerRow {
   playerId: string;
   name: string;
