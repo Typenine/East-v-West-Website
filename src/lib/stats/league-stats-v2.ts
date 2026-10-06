@@ -39,7 +39,7 @@ import type {
  * Sleeper renewals preserve roster slots while owners may rename teams, so this keeps old
  * display names from fragmenting one franchise into several entries in the reference book.
  */
-const STATS_CACHE_VERSION = 'v2';
+const STATS_CACHE_VERSION = 'v2-rookie-meta-1';
 const MEMORY_TTL_MS = 5 * 60 * 1000;
 const CURRENT_SEASON_TTL_MS = 15 * 60 * 1000;
 const PAST_SEASON_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -274,11 +274,18 @@ function canonicalNameForRoster(
 function playerIdentity(
   players: Record<string, SleeperPlayer>,
   playerId: string,
-): { name: string; position: string; nflTeam: string | null } {
+): { name: string; position: string; nflTeam: string | null; rookieYear: number | null; yearsExp: number | null } {
   const player = players[playerId];
-  if (!player) return { name: playerId, position: 'UNK', nflTeam: null };
+  if (!player) return { name: playerId, position: 'UNK', nflTeam: null, rookieYear: null, yearsExp: null };
   const name = `${player.first_name || ''} ${player.last_name || ''}`.trim() || playerId;
-  return { name, position: player.position || 'UNK', nflTeam: player.team || null };
+  const rookieYearRaw = Number(player.rookie_year ?? NaN);
+  return {
+    name,
+    position: player.position || 'UNK',
+    nflTeam: player.team || null,
+    rookieYear: Number.isFinite(rookieYearRaw) && rookieYearRaw > 0 ? rookieYearRaw : null,
+    yearsExp: Number.isFinite(Number(player.years_exp)) ? Number(player.years_exp) : null,
+  };
 }
 
 async function buildCurrentRosterNameMap(): Promise<Map<number, string>> {
@@ -505,6 +512,10 @@ async function buildSeasonSnapshot(
       name: meta.name,
       position: meta.position,
       nflTeam: meta.nflTeam,
+      rookieYear: meta.rookieYear,
+      isRookie:
+        meta.rookieYear === Number(season) ||
+        (season === CURRENT_SEASON && meta.rookieYear == null && meta.yearsExp === 0),
       points: round2(row.points),
       rosteredWeeks: row.rosteredWeeks,
       starts: row.starts,

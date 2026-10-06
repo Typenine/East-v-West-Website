@@ -13,6 +13,8 @@ export interface StatsPlayerSeasonRow {
   name: string;
   position: string;
   nflTeam: string | null;
+  rookieYear?: number | null;
+  isRookie?: boolean;
   points: number;
   rosteredWeeks: number;
   starts: number;
