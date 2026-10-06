@@ -71,8 +71,8 @@ function HeaderCell({ children, className = '' }: { children: React.ReactNode; c
   return <th className={`whitespace-nowrap border-b border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-[var(--muted)] ${className}`}>{children}</th>;
 }
 
-function Cell({ children, className = '', title }: { children: React.ReactNode; className?: string; title?: string }) {
-  return <td title={title} className={`whitespace-nowrap border-b border-[var(--border)] px-3 py-2 align-middle text-sm text-[var(--text)] ${className}`}>{children}</td>;
+function Cell({ children, className = '', title, colSpan }: { children: React.ReactNode; className?: string; title?: string; colSpan?: number }) {
+  return <td title={title} colSpan={colSpan} className={`whitespace-nowrap border-b border-[var(--border)] px-3 py-2 align-middle text-sm text-[var(--text)] ${className}`}>{children}</td>;
 }
 
 function SortHeader({ label, active, direction, onClick, align = 'right' }: { label: string; active: boolean; direction: SortDirection; onClick: () => void; align?: 'left' | 'right' }) {
