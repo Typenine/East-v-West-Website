@@ -11,12 +11,12 @@ import {
 import {
   getLeague,
   getLeagueMatchups,
-  getRosterIdToTeamNameMap,
   getTeamsData,
   type SleeperMatchup,
 } from '@/lib/utils/sleeper-api';
 
-export const revalidate = 180;
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -36,12 +36,16 @@ function sampleVariance(values: number[]) {
 export default async function PlayoffLabPage() {
   const leagueId = LEAGUE_IDS.CURRENT;
   const sleeperOptions = { timeoutMs: 3500, retries: 1, retryDelayMs: 150 } as const;
+  const liveStandingsOptions = { ...sleeperOptions, forceFresh: true } as const;
 
-  const [teamsData, league, nameMap] = await Promise.all([
-    getTeamsData(leagueId, sleeperOptions),
+  // The scenario start week depends on Sleeper's finalized W/L/T records.
+  // Always refresh those records on page load so a newly completed week does
+  // not remain in the simulator because of ISR or the roster cache.
+  const [teamsData, league] = await Promise.all([
+    getTeamsData(leagueId, liveStandingsOptions),
     getLeague(leagueId, sleeperOptions).catch(() => null),
-    getRosterIdToTeamNameMap(leagueId, sleeperOptions).catch(() => new Map<number, string>()),
   ]);
+  const nameMap = new Map(teamsData.map((team) => [team.rosterId, team.teamName] as const));
 
   const settings = (league?.settings || {}) as {
     playoff_teams?: number;

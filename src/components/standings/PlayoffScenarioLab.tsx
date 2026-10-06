@@ -149,7 +149,7 @@ export default function PlayoffScenarioLab({
             </div>
             {selectedCount > 0 ? (
               <div className="text-xs font-bold text-[var(--accent)]">
-                {selectedCount} result{selectedCount === 1 ? '' : 's'} locked
+                {selectedCount} scenario override{selectedCount === 1 ? '' : 's'} selected
               </div>
             ) : null}
           </div>
@@ -325,8 +325,8 @@ export default function PlayoffScenarioLab({
 
               <div className="mt-3 text-xs text-[var(--muted)]">
                 {activeLocked > 0
-                  ? String(activeLocked) + ' Week ' + String(activeWeek) + ' result' + (activeLocked === 1 ? '' : 's') + ' locked.'
-                  : 'No Week ' + String(activeWeek) + ' results are locked.'}
+                  ? String(activeLocked) + ' Week ' + String(activeWeek) + ' scenario override' + (activeLocked === 1 ? '' : 's') + ' selected.'
+                  : 'No Week ' + String(activeWeek) + ' scenario overrides selected.'}
                 {' '}The playoff outlook above updates automatically.
               </div>
             </>
