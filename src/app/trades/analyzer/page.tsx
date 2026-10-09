@@ -1456,7 +1456,7 @@ function TradeAnalyzerContent() {
 
   return (
     <>
-    <div className={`container mx-auto px-4 py-8${showSuggestions ? ' pb-24' : ''}`}>
+    <div className={`container mx-auto px-4 py-8${showSuggestions ? ' pb-44 sm:pb-36' : ''}`}>
       <SectionHeader
         title="Trade Analyzer"
         subtitle="Dynasty · Superflex · 12-Team · PPR"
@@ -1597,16 +1597,34 @@ function TradeAnalyzerContent() {
         style={{ ...PANEL_SHELL_STYLE, borderTopColor: PANEL.border, backdropFilter: 'blur(12px)' }}
       >
         <div className="h-[2px] w-full" style={{ background: 'var(--accent)' }} aria-hidden="true" />
-        <div className="container mx-auto px-4 py-2.5 flex items-center gap-3">
-          <div className="shrink-0 hidden sm:block">
-            <div className="text-[10px] font-bold uppercase tracking-[0.22em]" style={broadcastFaintTextStyle}>
-              {suggestionMode === 'balance' ? 'Balance trade' : 'Compare'}
+
+        {/* Keep filters above suggestions so mobile cards get the full screen width. */}
+        <div className="container mx-auto flex items-center justify-between gap-2 px-3 sm:px-4 pt-2 pb-1.5">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-wider" style={broadcastFaintTextStyle}>
+              {suggestionMode === 'balance' ? 'Balance trade' : 'Compare'} · {suggestions.length} suggestions
             </div>
+            <div className="text-[10px] sm:hidden" style={broadcastMutedTextStyle}>Swipe to see more</div>
             {suggestionMode === 'balance' && needsSide && (
-              <div className="text-[9px] mt-0.5" style={broadcastFaintTextStyle}>add to Side {needsSide}</div>
+              <div className="hidden sm:block text-[10px]" style={broadcastFaintTextStyle}>Add to Side {needsSide}</div>
             )}
           </div>
-          <div className="flex gap-2 flex-1 overflow-x-auto pb-0.5">
+          <div className="flex shrink-0 items-center justify-end gap-1.5">
+            <select value={suggestionPosition} onChange={(e) => setSuggestionPosition(e.target.value as DiscoveryPosition)}
+              aria-label="Filter quick trade suggestions by position"
+              className="min-h-10 max-w-[88px] rounded-md border px-2 text-xs" style={ANALYZER_FIELD_STYLE}>
+              {DISCOVERY_POSITIONS.map((p) => <option key={p.key} value={p.key}>{p.key === 'PICK' ? 'Picks' : p.key === 'ALL' ? 'All' : p.label}</option>)}
+            </select>
+            <button type="button" onClick={() => setSuggestionsOpen(true)}
+              className="min-h-10 rounded-md border px-3 text-xs font-bold whitespace-nowrap"
+              style={{ borderColor: PANEL.border, color: PANEL.text, background: PANEL.tintStrong }}>View all</button>
+            <button type="button" onClick={() => setSuggestDismissed(true)}
+              className="min-h-10 min-w-8 p-1 text-xl leading-none transition-opacity hover:opacity-80"
+              style={broadcastFaintTextStyle} aria-label="Dismiss suggestions">×</button>
+          </div>
+        </div>
+        <div className="container mx-auto px-3 sm:px-4 pb-2">
+          <div className="flex w-full min-w-0 gap-2 overflow-x-auto overscroll-x-contain snap-x snap-proximity pb-1" aria-label="Trade suggestions, scroll horizontally for more">
             {suggestions.length === 0 && (
               <span className="text-xs py-2 whitespace-nowrap" style={broadcastMutedTextStyle}>No matches for this position</span>
             )}
@@ -1615,19 +1633,19 @@ function TradeAnalyzerContent() {
               return (
                 <div
                   key={v.sleeperId}
-                  className="flex items-center gap-2 rounded border px-2.5 py-1.5 shrink-0"
+                  className="flex w-[46vw] sm:w-auto items-center justify-between gap-2 rounded border px-2.5 py-1.5 shrink-0 snap-start"
                   style={{ background: PANEL.tint, borderColor: PANEL.hairline }}
                 >
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold whitespace-nowrap" style={broadcastBodyTextStyle}>
+                    <div className="text-sm font-semibold truncate" title={v.name} style={broadcastBodyTextStyle}>
                       {v.isPick ? v.name.replace(/^\d{4}\s*/, '') : v.name}
                     </div>
-                    <div className="text-xs whitespace-nowrap tabular-nums" style={broadcastMutedTextStyle}>
+                    <div className="text-xs truncate tabular-nums" style={broadcastMutedTextStyle}>
                       {v.isPick ? 'Pick' : `${v.position}${v.team ? ` · ${v.team}` : ''}`}
                       {' · '}<span className="text-accent">{formatValue(val)}</span>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-0.5 ml-1">
+                  <div className="flex flex-col gap-0.5 ml-1 shrink-0">
                     <div style={{ opacity: needsSide === 'B' ? 0.25 : 1 }}>
                       <BroadcastSubmitButton
                         accent="var(--accent)"
@@ -1651,26 +1669,6 @@ function TradeAnalyzerContent() {
               );
             })}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <select value={suggestionPosition} onChange={(e) => setSuggestionPosition(e.target.value as DiscoveryPosition)}
-              aria-label="Filter quick trade suggestions by position"
-              className="min-h-10 max-w-[90px] rounded-md border px-1.5 text-xs"
-              style={ANALYZER_FIELD_STYLE}>
-              {DISCOVERY_POSITIONS.map((p) => <option key={p.key} value={p.key}>{p.key === 'PICK' ? 'Picks' : p.key === 'ALL' ? 'All' : p.label}</option>)}
-            </select>
-            <button type="button" onClick={() => setSuggestionsOpen(true)}
-              className="min-h-10 rounded-md border px-2 text-xs font-bold whitespace-nowrap"
-              style={{ borderColor: PANEL.border, color: PANEL.text, background: PANEL.tintStrong }}>
-              View all
-            </button>
-          </div>
-          <button
-            onClick={() => setSuggestDismissed(true)}
-            className="transition-opacity hover:opacity-80 text-xl leading-none shrink-0 p-1"
-            style={broadcastFaintTextStyle}
-            aria-label="Dismiss suggestions">
-            ×
-          </button>
         </div>
       </div>
     )}
