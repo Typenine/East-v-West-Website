@@ -1,12 +1,12 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import type { LeagueStatsDataset } from '@/lib/stats/types';
+import type { LeagueStatsDataset, StatsRookieLeaderRow } from '@/lib/stats/types';
 import StatsReferenceClient from './StatsReferenceClient';
 import StatsRecordsViewV2 from './StatsRecordsViewV2';
 import StatsPostseasonView from './StatsPostseasonView';
 
-export default function StatsReferenceRouter({ dataset }: { dataset: LeagueStatsDataset }) {
+export default function StatsReferenceRouter({ dataset, currentSeasonRookies }: { dataset: LeagueStatsDataset; currentSeasonRookies: StatsRookieLeaderRow[] }) {
   const searchParams = useSearchParams();
   const tab = searchParams.get('tab') || 'overview';
 
@@ -18,5 +18,5 @@ export default function StatsReferenceRouter({ dataset }: { dataset: LeagueStats
     return <StatsRecordsViewV2 dataset={dataset} />;
   }
 
-  return <StatsReferenceClient dataset={dataset} />;
+  return <StatsReferenceClient dataset={dataset} currentSeasonRookies={currentSeasonRookies} />;
 }

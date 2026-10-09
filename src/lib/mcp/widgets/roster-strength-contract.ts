@@ -10,7 +10,7 @@ const positionSummarySchema = {
 } as const;
 const positionPlayerSchema = {
   type: 'object', additionalProperties: false,
-  properties: { name: { type: 'string' }, value: nullableNumberSchema, rank: nullableIntegerSchema, trend: nullableNumberSchema, nflTeam: nullableStringSchema },
+  properties: { name: { type: 'string' }, value: nullableNumberSchema, rank: nullableIntegerSchema, trend: nullableNumberSchema, nflTeam: nullableStringSchema, slot: { type: 'string', enum: ['active', 'ir', 'taxi'] } },
   required: ['name', 'value', 'rank', 'trend', 'nflTeam'],
 } as const;
 export const ROSTER_STRENGTH_OUTPUT_SCHEMA = {
@@ -33,5 +33,5 @@ export const ROSTER_STRENGTH_OUTPUT_SCHEMA = {
 export const ROSTER_STRENGTH_TOOL_META = { 'openai/outputTemplate': ROSTER_STRENGTH_WIDGET_URI, ui: { resourceUri: ROSTER_STRENGTH_WIDGET_URI } } as const;
 export const ROSTER_STRENGTH_RESOURCE_META = {
   ui: { prefersBorder: true, domain: ROSTER_STRENGTH_BASE_URL, csp: { resourceDomains: [ROSTER_STRENGTH_BASE_URL] } },
-  'openai/widgetDescription': 'East v. West Roster Strength — dynasty value by position with strengths and weaknesses.',
+  'openai/widgetDescription': 'East v. West Roster Strength — full dynasty roster value by position, including active, IR, and taxi assets.',
 } as const;

@@ -50,7 +50,10 @@ export async function GET() {
       NFL_WEEK_1_START: IMPORTANT_DATES.NFL_WEEK_1_START.toISOString(),
       TRADE_DEADLINE: IMPORTANT_DATES.TRADE_DEADLINE.toISOString(),
       PLAYOFFS_START: IMPORTANT_DATES.PLAYOFFS_START.toISOString(),
-      NEXT_DRAFT: IMPORTANT_DATES.NEXT_DRAFT.toISOString(),
+      NEXT_DRAFT: (IMPORTANT_DATES.NEXT_DRAFT.getTime() > Date.now()
+        ? IMPORTANT_DATES.NEXT_DRAFT
+        : IMPORTANT_DATES.NEXT_LEAGUE_YEAR_DRAFT
+      ).toISOString(),
     };
 
     const rules = rulesHtmlSections.map((section) => ({
@@ -125,9 +128,9 @@ export async function GET() {
         DST: 1,
       },
       benchSize: 7,
-      irSlots: 3,
+      irSlots: 4,
       taxi: {
-        slots: 3,
+        slots: 4,
         maxQBs: 1,
         oneWayPromotion: true,
         intakeSources: ['freeAgency', 'trade', 'entryDraft'],

@@ -13,6 +13,8 @@ export interface StatsPlayerSeasonRow {
   name: string;
   position: string;
   nflTeam: string | null;
+  rookieYear?: number | null;
+  isRookie?: boolean;
   points: number;
   rosteredWeeks: number;
   starts: number;
@@ -21,6 +23,17 @@ export interface StatsPlayerSeasonRow {
   bestGamePoints: number | null;
   bestGameWeek: number | null;
   bestGameFranchise: string | null;
+}
+
+export interface StatsRookieLeaderRow {
+  playerId: string;
+  name: string;
+  position: string;
+  nflTeam: string | null;
+  points: number;
+  gamesPlayed: number;
+  ppg: number;
+  ownerTeam: string | null;
 }
 
 export interface StatsPlayerCareerRow {

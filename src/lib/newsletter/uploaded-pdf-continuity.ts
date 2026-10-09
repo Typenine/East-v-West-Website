@@ -1,10 +1,25 @@
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { extractText, getDocumentProxy } from 'unpdf';
 
+export interface UploadedPdfRankingItem {
+  rank: number;
+  team: string;
+  blurb: string;
+  movement: 'up' | 'down' | 'same' | 'new' | null;
+  movementAmount: number;
+  previousRank: number | null;
+}
+
+export interface UploadedPdfPowerRankings {
+  masonRankings: UploadedPdfRankingItem[];
+  westyRankings: UploadedPdfRankingItem[];
+}
+
 export interface UploadedPdfContinuity {
   masonText: string;
   westyText: string;
   playerNames: string[];
+  powerRankings: UploadedPdfPowerRankings | null;
   confidence: number;
   notes: string[];
   model: string;
@@ -32,6 +47,7 @@ const SECTION_PATTERNS: Array<[RegExp, string]> = [
   [/FINAL\s+RECEIPTS?/i, 'FINAL RECEIPTS'],
   [/THE\s+DISAGREEMENTS?/i, 'DISAGREEMENTS'],
   [/LEAGUE\s+PRESSURE/i, 'LEAGUE PRESSURE'],
+  [/LEAGUE\s+PULSE/i, 'LEAGUE PULSE'],
   [/FREE\s+AGENCY/i, 'FREE AGENCY'],
   [/TRADE\s+ANALYSIS/i, 'TRADE ANALYSIS'],
   [/OPENING\s+EXCHANGE/i, 'OPENING EXCHANGE'],
@@ -121,22 +137,36 @@ function speakerMarker(rawLine: string): { speaker: Speaker; remainder: string }
   const lower = line.toLowerCase();
   if (lower.includes('mason reed') && (lower.includes('westy') || lower.includes('trent weston'))) return null;
 
-  if (/^MASON REED$/i.test(line)) return { speaker: 'mason', remainder: '' };
-  let match = line.match(/^MASON REED\s*[:\-–—]\s*(.+)$/i) ?? line.match(/^MASON REED\s+(.+)$/i);
+  if (/^MASON REED$/i.test(line) || /^MASON REED\s*\/\s*No\.\s*\d{1,2}$/i.test(line)) {
+    return { speaker: 'mason', remainder: '' };
+  }
+  let match = line.match(/^MASON REED\s*[:\-–—]\s*(.+)$/i);
   if (match) {
     const remainder = normalizeLine(match[1]);
-    if (!isSourceOrSidebarLine(remainder) && !/POWER\s+RANKINGS?/i.test(remainder)) return { speaker: 'mason', remainder };
+    if (!isSourceOrSidebarLine(remainder) && !/POWER\s+RANKINGS?/i.test(remainder)) {
+      return { speaker: 'mason', remainder };
+    }
   }
 
-  if (/^WESTY$/i.test(line)) return { speaker: 'westy', remainder: '' };
-  match = line.match(/^WESTY\s*[:\-–—]\s*(.+)$/i) ?? line.match(/^WESTY\s+(.+)$/i);
+  if (/^WESTY$/i.test(line) || /^WESTY\s*\/\s*No\.\s*\d{1,2}$/i.test(line)) {
+    return { speaker: 'westy', remainder: '' };
+  }
+  match = line.match(/^WESTY\s*[:\-–—]\s*(.+)$/i);
   if (match) {
     const remainder = normalizeLine(match[1]);
-    if (!isSourceOrSidebarLine(remainder) && !/POWER\s+RANKINGS?/i.test(remainder)) return { speaker: 'westy', remainder };
+    if (!isSourceOrSidebarLine(remainder) && !/POWER\s+RANKINGS?/i.test(remainder)) {
+      return { speaker: 'westy', remainder };
+    }
   }
 
-  if (/^TRENT\s+["“”']?WESTY["“”']?\s+WESTON$/i.test(line) || /^TRENT WESTON$/i.test(line)) return { speaker: 'westy', remainder: '' };
-  match = line.match(/^TRENT\s+["“”']?WESTY["“”']?\s+WESTON\s*[:\-–—]\s*(.+)$/i) ?? line.match(/^TRENT\s+["“”']?WESTY["“”']?\s+WESTON\s+(.+)$/i);
+  if (
+    /^TRENT\s+["“”']?WESTY["“”']?\s+WESTON$/i.test(line)
+    || /^TRENT WESTON$/i.test(line)
+    || /^TRENT\s+["“”']?WESTY["“”']?\s+WESTON\s*\/\s*No\.\s*\d{1,2}$/i.test(line)
+  ) {
+    return { speaker: 'westy', remainder: '' };
+  }
+  match = line.match(/^TRENT\s+["“”']?WESTY["“”']?\s+WESTON\s*[:\-–—]\s*(.+)$/i);
   if (match) {
     const remainder = normalizeLine(match[1]);
     if (!isSourceOrSidebarLine(remainder)) return { speaker: 'westy', remainder };
@@ -392,6 +422,190 @@ function splitBySpeaker(rawText: string, title: string): { masonText: string; we
   };
 }
 
+
+function rankingTeamAtStart(value: string): string | null {
+  const normalized = normalizeLine(value);
+  const lower = normalized.toLowerCase();
+  for (const team of [...TEAM_NAMES].sort((a, b) => b.length - a.length)) {
+    const teamLower = team.toLowerCase();
+    if (!lower.startsWith(teamLower)) continue;
+    const next = normalized.slice(team.length, team.length + 1);
+    if (!next || /[\s|.:—–-]/.test(next)) return team;
+  }
+  return null;
+}
+
+function parseRankingMovement(
+  blurb: string,
+): Pick<UploadedPdfRankingItem, 'movement' | 'movementAmount' | 'previousRank'> & { blurb: string } {
+  const up = blurb.match(/^Up\s+(\d+)\s+from\s+(\d+)\.\s*/i);
+  if (up) {
+    return {
+      blurb: blurb.slice(up[0].length).trim(),
+      movement: 'up',
+      movementAmount: Number(up[1]),
+      previousRank: Number(up[2]),
+    };
+  }
+
+  const down = blurb.match(/^Down\s+(\d+)\s+from\s+(\d+)\.\s*/i);
+  if (down) {
+    return {
+      blurb: blurb.slice(down[0].length).trim(),
+      movement: 'down',
+      movementAmount: Number(down[1]),
+      previousRank: Number(down[2]),
+    };
+  }
+
+  const hold = blurb.match(/^Holds?\s+at\s+(\d+)\.\s*/i);
+  if (hold) {
+    return {
+      blurb: blurb.slice(hold[0].length).trim(),
+      movement: 'same',
+      movementAmount: 0,
+      previousRank: Number(hold[1]),
+    };
+  }
+
+  const newEntry = blurb.match(/^New(?:\s+at\s+\d+)?\.\s*/i);
+  if (newEntry) {
+    return {
+      blurb: blurb.slice(newEntry[0].length).trim(),
+      movement: 'new',
+      movementAmount: 0,
+      previousRank: null,
+    };
+  }
+
+  return { blurb, movement: null, movementAmount: 0, previousRank: null };
+}
+
+function parseRankingSpeakerBlock(
+  block: string[],
+  speaker: Speaker,
+  rank: number,
+  title: string,
+): UploadedPdfRankingItem | null {
+  let active = false;
+  const collected: string[] = [];
+
+  for (const rawLine of block) {
+    const line = normalizeLine(rawLine);
+    if (!line) continue;
+
+    const speakerLine = speakerMarker(line);
+    if (speakerLine) {
+      if (active) break;
+      if (speakerLine.speaker !== speaker) continue;
+      active = true;
+      if (speakerLine.remainder && !isNoiseLine(speakerLine.remainder, title)) {
+        collected.push(speakerLine.remainder);
+      }
+      continue;
+    }
+
+    if (!active) continue;
+    if (/^No\.\s*\d{1,2}\b/i.test(line)) break;
+
+    const section = sectionContextFromLine(line);
+    if (section && section !== 'POWER RANKINGS') break;
+
+    if (isPublicationFurnitureLine(line, title)) continue;
+    if (/^(?:WEEKLY\s+POWER\s+RANKINGS|CURRENT\s+COMPETITIVE\s+STRENGTH)\b/i.test(line)) continue;
+
+    collected.push(line);
+  }
+
+  if (!collected.length) return null;
+
+  const combined = normalizeLine(collected.join(' '));
+  const team = rankingTeamAtStart(combined);
+  if (!team) return null;
+
+  const remainder = combined.slice(team.length).trim();
+  if (!remainder || !/^[|.:—–-]/.test(remainder)) return null;
+
+  let blurb = remainder
+    .replace(/^[|.:—–-]\s*/, '')
+    .replace(/\s+No\.\s*\d+\s*$/i, '')
+    .trim();
+  if (!blurb) return null;
+
+  const moved = parseRankingMovement(blurb);
+  blurb = moved.blurb;
+  if (!blurb) return null;
+
+  return {
+    rank,
+    team,
+    blurb,
+    movement: moved.movement,
+    movementAmount: moved.movementAmount,
+    previousRank: moved.previousRank,
+  };
+}
+
+export function extractPowerRankingsFromPdfText(
+  rawText: string,
+  title: string,
+): UploadedPdfPowerRankings | null {
+  const lines = prepareRawText(rawText)
+    .split('\n')
+    .map(normalizeLine)
+    .filter(Boolean);
+
+  const weeklyHeading = lines.findIndex((line) => /^WEEKLY\s+POWER\s+RANKINGS$/i.test(line));
+  const genericHeading = lines.findIndex((line) => /^POWER\s+RANKINGS$/i.test(line));
+  const start = weeklyHeading >= 0 ? weeklyHeading : genericHeading;
+  if (start < 0) return null;
+
+  const markers: Array<{ rank: number; index: number }> = [];
+  let expectedRank = 1;
+
+  for (let index = start + 1; index < lines.length && expectedRank <= 12; index += 1) {
+    const match = lines[index].match(/^No\.\s*(\d{1,2})\s*$/i);
+    if (!match) continue;
+    const rank = Number(match[1]);
+    if (rank !== expectedRank) continue;
+    markers.push({ rank, index });
+    expectedRank += 1;
+  }
+
+  if (markers.length !== 12) return null;
+
+  const masonRankings: UploadedPdfRankingItem[] = [];
+  const westyRankings: UploadedPdfRankingItem[] = [];
+
+  for (let markerIndex = 0; markerIndex < markers.length; markerIndex += 1) {
+    const rankMarker = markers[markerIndex];
+    const next = markers[markerIndex + 1];
+    const hardEnd = next?.index ?? Math.min(lines.length, rankMarker.index + 100);
+    const block = lines.slice(rankMarker.index + 1, hardEnd);
+
+    const mason = parseRankingSpeakerBlock(block, 'mason', rankMarker.rank, title);
+    const westy = parseRankingSpeakerBlock(block, 'westy', rankMarker.rank, title);
+    if (mason) masonRankings.push(mason);
+    if (westy) westyRankings.push(westy);
+  }
+
+  if (masonRankings.length !== 12 || westyRankings.length !== 12) return null;
+  return { masonRankings, westyRankings };
+}
+
+export async function extractUploadedPdfPowerRankings(
+  bytes: Uint8Array,
+  title: string,
+): Promise<UploadedPdfPowerRankings | null> {
+  if (bytes.length === 0) return null;
+  const pdf = await withTimeout(getDocumentProxy(bytes, { maxImageSize: 16_777_216 }), PDF_TIMEOUT_MS);
+  if (pdf.numPages < 1 || pdf.numPages > MAX_PAGES) return null;
+  const extracted = await withTimeout(extractText(pdf, { mergePages: true }), PDF_TIMEOUT_MS);
+  const rawText = Array.isArray(extracted.text) ? extracted.text.join('\n') : extracted.text;
+  if (!rawText || rawText.trim().length < 100) return null;
+  return extractPowerRankingsFromPdfText(rawText, title);
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -422,6 +636,7 @@ export async function extractUploadedPdfContinuity(bytes: Uint8Array, title: str
     }
     const split = splitBySpeaker(rawText, title);
     const structured = extractStructuredSeasonPicks(rawText);
+    const powerRankings = extractPowerRankingsFromPdfText(rawText, title);
     const masonText = mergeStructuredPicks(split.masonText, structured.mason);
     const westyText = mergeStructuredPicks(split.westyText, structured.westy);
     if (masonText.length < 80 || westyText.length < 80) {
@@ -432,6 +647,7 @@ export async function extractUploadedPdfContinuity(bytes: Uint8Array, title: str
       masonText,
       westyText,
       playerNames: [...new Set([...explicitPredictionPlayerNames(rawText), ...structured.playerNames])],
+      powerRankings,
       confidence: 1,
       notes: [
         `Parsed ${pdf.numPages} PDF pages locally.`,

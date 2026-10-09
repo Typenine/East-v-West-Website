@@ -42,6 +42,7 @@ vi.mock('@/lib/constants/league', () => ({
     PLAYOFFS_START: new Date('2026-12-17T20:20:00-05:00'),
     NEW_LEAGUE_YEAR: new Date('2027-02-07T18:30:00-05:00'),
     NEXT_DRAFT: new Date('2026-07-18T13:00:00-04:00'),
+    NEXT_LEAGUE_YEAR_DRAFT: new Date('2027-07-10T13:00:00-04:00'),
   },
 }));
 
@@ -225,10 +226,16 @@ describe('get_league_info', () => {
     // Dates are returned as UTC ISO strings (.toISOString())
     // TRADE_DEADLINE: 2026-11-30 23:45 ET = 2026-12-01 04:45 UTC
     expect(res.importantDates.TRADE_DEADLINE).toMatch(/^2026-12-01/);
-    // NEXT_DRAFT: 2026-07-18 13:00 ET = 2026-07-18 17:00 UTC (still July 18)
-    expect(res.importantDates.NEXT_DRAFT).toMatch(/^2026-07-18/);
+    // The 2026 draft has passed, so the connector should expose the next upcoming draft.
+    expect(res.importantDates.NEXT_DRAFT).toMatch(/^2027-07-10/);
     // PLAYOFFS_START: 2026-12-17 20:20 ET = 2026-12-18 01:20 UTC
     expect(res.importantDates.PLAYOFFS_START).toMatch(/^2026-12-18/);
+  });
+
+  it('returns rulebook-aligned IR and taxi limits', async () => {
+    const res = await handleGetLeagueInfo();
+    expect(res.structure.irSlots).toBe(4);
+    expect(res.structure.taxiSlots).toBe(4);
   });
 
   it('returns rules sections with id, title, text', async () => {
@@ -927,13 +934,15 @@ describe('answer_rule_question', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('get_weekly_content_context', () => {
-  it('returns week, season, matchups, standings, recentTransactions', async () => {
+  it('returns the current league snapshot without newsletter-format metadata', async () => {
     const res = await handleGetWeeklyContext();
     expect(res).toHaveProperty('week');
     expect(res).toHaveProperty('season');
     expect(res).toHaveProperty('matchups');
     expect(res).toHaveProperty('standings');
-    expect(res).toHaveProperty('recentTransactions');
+    expect(res).toHaveProperty('recentTrades');
+    expect(res).toHaveProperty('recentWaivers');
+    expect(res).not.toHaveProperty('weeklyRecapFormat');
   });
 
   it('week is current week from Sleeper state', async () => {
@@ -968,11 +977,6 @@ describe('get_weekly_content_context', () => {
       expect(TEAM_NAMES).toContain(m.home.team);
       expect(TEAM_NAMES).toContain(m.away.team);
     }
-  });
-
-  it('meta note says designed for content creation', async () => {
-    const res = await handleGetWeeklyContext();
-    expect(res.meta.note).toContain('content');
   });
 
   it('meta distinguishes live Sleeper data from static', async () => {

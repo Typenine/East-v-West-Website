@@ -2,27 +2,16 @@
 
 import { useMemo, useState } from 'react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-
-export type PlayoffLabTeam = {
-  rosterId: number;
-  teamName: string;
-  wins: number;
-  losses: number;
-  ties: number;
-  pointsFor: number;
-  gamesPlayed: number;
-  ppg: number;
-  scoreStdDev: number;
-};
-
-export type PlayoffLabGame = {
-  id: string;
-  week: number;
-  aRosterId: number;
-  aTeam: string;
-  bRosterId: number;
-  bTeam: string;
-};
+import { BroadcastTeamLogo, teamAccent } from '@/components/ui/BroadcastPanel';
+import {
+  buildMathScenarios,
+  formatPlayoffProbability,
+  PLAYOFF_SIM_ITERATIONS,
+  PRIOR_PSEUDO_GAMES,
+  simulatePlayoffs,
+  type PlayoffLabGame,
+  type PlayoffLabTeam,
+} from '@/lib/fantasy/playoff-model';
 
 type Props = {
   teams: PlayoffLabTeam[];
@@ -31,362 +20,194 @@ type Props = {
   scenarioStartWeek: number;
   regularSeasonEnd: number;
   completedWeeks: number;
+  projectionSource: string;
+  scheduleCoverage: string | null;
 };
 
-type SimulationRow = PlayoffLabTeam & {
-  playoffPct: number;
-  avgSeed: number | null;
-};
+const CLINCHING_SCENARIO_START_WEEK = 11;
 
-type MathStatus = 'clinched' | 'eliminated' | 'alive';
-
-type TeamMathScenario = {
-  rosterId: number;
-  status: MathStatus;
-  clinchPaths: string[];
-  eliminationPaths: string[];
-};
-
-function hashString(value: string) {
-  let h = 2166136261;
-  for (let i = 0; i < value.length; i += 1) {
-    h ^= value.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
+function recordLabel(team: PlayoffLabTeam) {
+  return team.wins + '-' + team.losses + (team.ties ? '-' + team.ties : '');
 }
 
-function mulberry32(seed: number) {
-  return () => {
-    let t = seed += 0x6d2b79f5;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function sampleNormal(random: () => number) {
-  const u = Math.max(1e-9, random());
-  const v = Math.max(1e-9, random());
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
-
-function simulate(
-  teams: PlayoffLabTeam[],
-  games: PlayoffLabGame[],
-  picks: Record<string, number | null>,
-  playoffTeams: number,
-): SimulationRow[] {
-  const iterations = 3000;
-  const madePlayoffs = new Map<number, number>();
-  const seedTotal = new Map<number, number>();
-  const seedCount = new Map<number, number>();
-  const pickKey = Object.entries(picks).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}:${v ?? 'auto'}`).join('|');
-  const random = mulberry32(hashString(pickKey || 'baseline'));
-
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
-    const state = new Map(teams.map((team) => [team.rosterId, {
-      wins: team.wins,
-      losses: team.losses,
-      ties: team.ties,
-      pointsFor: team.pointsFor,
-    }]));
-    const profile = new Map(teams.map((team) => [team.rosterId, team]));
-
-    for (const game of games) {
-      const a = state.get(game.aRosterId);
-      const b = state.get(game.bRosterId);
-      const aProfile = profile.get(game.aRosterId);
-      const bProfile = profile.get(game.bRosterId);
-      if (!a || !b || !aProfile || !bProfile) continue;
-
-      let aScore = Math.max(0, aProfile.ppg + sampleNormal(random) * aProfile.scoreStdDev);
-      let bScore = Math.max(0, bProfile.ppg + sampleNormal(random) * bProfile.scoreStdDev);
-      const forced = picks[game.id] ?? null;
-
-      if (forced === game.aRosterId && aScore <= bScore) aScore = bScore + 0.1;
-      if (forced === game.bRosterId && bScore <= aScore) bScore = aScore + 0.1;
-
-      a.pointsFor += aScore;
-      b.pointsFor += bScore;
-      if (Math.abs(aScore - bScore) < 0.001) {
-        a.ties += 1;
-        b.ties += 1;
-      } else if (aScore > bScore) {
-        a.wins += 1;
-        b.losses += 1;
-      } else {
-        b.wins += 1;
-        a.losses += 1;
-      }
-    }
-
-    const ranked = [...teams].sort((left, right) => {
-      const a = state.get(left.rosterId)!;
-      const b = state.get(right.rosterId)!;
-      if (b.wins !== a.wins) return b.wins - a.wins;
-      if (b.ties !== a.ties) return b.ties - a.ties;
-      return b.pointsFor - a.pointsFor;
-    });
-
-    ranked.forEach((team, index) => {
-      const seed = index + 1;
-      if (seed <= playoffTeams) madePlayoffs.set(team.rosterId, (madePlayoffs.get(team.rosterId) || 0) + 1);
-      seedTotal.set(team.rosterId, (seedTotal.get(team.rosterId) || 0) + seed);
-      seedCount.set(team.rosterId, (seedCount.get(team.rosterId) || 0) + 1);
-    });
-  }
-
-  return teams
-    .map((team) => ({
-      ...team,
-      playoffPct: ((madePlayoffs.get(team.rosterId) || 0) / iterations) * 100,
-      avgSeed: seedCount.get(team.rosterId)
-        ? (seedTotal.get(team.rosterId) || 0) / (seedCount.get(team.rosterId) || 1)
-        : null,
-    }))
-    .sort((a, b) => b.playoffPct - a.playoffPct || (a.avgSeed ?? 99) - (b.avgSeed ?? 99));
-}
-
-function remainingGameCounts(games: PlayoffLabGame[]) {
-  const counts = new Map<number, number>();
-  for (const game of games) {
-    counts.set(game.aRosterId, (counts.get(game.aRosterId) || 0) + 1);
-    counts.set(game.bRosterId, (counts.get(game.bRosterId) || 0) + 1);
-  }
-  return counts;
-}
-
-function mathematicalStatus(
-  teamId: number,
-  teams: PlayoffLabTeam[],
-  wins: Map<number, number>,
-  futureGames: PlayoffLabGame[],
-  playoffTeams: number,
-): MathStatus {
-  const remaining = remainingGameCounts(futureGames);
-  const teamWins = wins.get(teamId) || 0;
-  const teamMaxWins = teamWins + (remaining.get(teamId) || 0);
-
-  const opponentsWhoCanMatchOrPass = teams.filter((team) =>
-    team.rosterId !== teamId &&
-    (wins.get(team.rosterId) || 0) + (remaining.get(team.rosterId) || 0) >= teamWins
-  ).length;
-
-  if (opponentsWhoCanMatchOrPass < playoffTeams) return 'clinched';
-
-  const opponentsAlreadyBeyondReach = teams.filter((team) =>
-    team.rosterId !== teamId &&
-    (wins.get(team.rosterId) || 0) > teamMaxWins
-  ).length;
-
-  if (opponentsAlreadyBeyondReach >= playoffTeams) return 'eliminated';
-  return 'alive';
-}
-
-function weekOutcomeWins(
-  teams: PlayoffLabTeam[],
-  weekGames: PlayoffLabGame[],
-  mask: number,
-) {
-  const wins = new Map(teams.map((team) => [team.rosterId, team.wins]));
-  weekGames.forEach((game, index) => {
-    const bWins = Boolean(mask & (1 << index));
-    const winnerId = bWins ? game.bRosterId : game.aRosterId;
-    wins.set(winnerId, (wins.get(winnerId) || 0) + 1);
-  });
-  return wins;
-}
-
-function indexCombinations(size: number, choose: number) {
-  const result: number[][] = [];
-  const walk = (start: number, current: number[]) => {
-    if (current.length === choose) {
-      result.push([...current]);
-      return;
-    }
-    for (let index = start; index < size; index += 1) {
-      current.push(index);
-      walk(index + 1, current);
-      current.pop();
-    }
-  };
-  walk(0, []);
-  return result;
-}
-
-function formatCondition(game: PlayoffLabGame, bWins: boolean, targetTeamId: number) {
-  const winnerId = bWins ? game.bRosterId : game.aRosterId;
-  const loserId = bWins ? game.aRosterId : game.bRosterId;
-  const winnerName = bWins ? game.bTeam : game.aTeam;
-  const loserName = bWins ? game.aTeam : game.bTeam;
-
-  if (game.aRosterId === targetTeamId || game.bRosterId === targetTeamId) {
-    const targetName = game.aRosterId === targetTeamId ? game.aTeam : game.bTeam;
-    return winnerId === targetTeamId ? `${targetName} wins` : `${targetName} loses`;
-  }
-
-  return `${winnerName} beats ${loserName}`;
-}
-
-function findGuaranteedPaths(
-  targetFlags: boolean[],
-  weekGames: PlayoffLabGame[],
-  targetTeamId: number,
-) {
-  if (!targetFlags.some(Boolean) || weekGames.length === 0) return [];
-  if (targetFlags.every(Boolean)) return ['regardless of the other results this week'];
-
-  const maxConditions = Math.min(4, weekGames.length);
-  for (let conditionCount = 1; conditionCount <= maxConditions; conditionCount += 1) {
-    const paths: string[] = [];
-    const combinations = indexCombinations(weekGames.length, conditionCount);
-
-    for (const indices of combinations) {
-      const assignmentCount = 1 << conditionCount;
-      for (let assignment = 0; assignment < assignmentCount; assignment += 1) {
-        let guaranteed = true;
-        let compatible = false;
-
-        for (let fullMask = 0; fullMask < targetFlags.length; fullMask += 1) {
-          const matches = indices.every((gameIndex, conditionIndex) => {
-            const expectedBWins = Boolean(assignment & (1 << conditionIndex));
-            const actualBWins = Boolean(fullMask & (1 << gameIndex));
-            return expectedBWins === actualBWins;
-          });
-          if (!matches) continue;
-          compatible = true;
-          if (!targetFlags[fullMask]) {
-            guaranteed = false;
-            break;
-          }
-        }
-
-        if (!compatible || !guaranteed) continue;
-
-        const phrase = indices
-          .map((gameIndex, conditionIndex) =>
-            formatCondition(
-              weekGames[gameIndex],
-              Boolean(assignment & (1 << conditionIndex)),
-              targetTeamId,
-            )
-          )
-          .join(' + ');
-
-        if (!paths.includes(phrase)) paths.push(phrase);
-        if (paths.length >= 3) return paths;
-      }
-    }
-
-    if (paths.length > 0) return paths;
-  }
-
-  return [];
-}
-
-function buildMathScenarios(
-  teams: PlayoffLabTeam[],
-  games: PlayoffLabGame[],
-  playoffTeams: number,
-  scenarioStartWeek: number,
-): TeamMathScenario[] {
-  const currentWins = new Map(teams.map((team) => [team.rosterId, team.wins]));
-  const weekGames = games.filter((game) => game.week === scenarioStartWeek);
-  const laterGames = games.filter((game) => game.week > scenarioStartWeek);
-  const outcomeCount = weekGames.length > 0 ? 1 << weekGames.length : 0;
-
-  return teams.map((team) => {
-    const status = mathematicalStatus(team.rosterId, teams, currentWins, games, playoffTeams);
-    if (status !== 'alive' || outcomeCount === 0) {
-      return { rosterId: team.rosterId, status, clinchPaths: [], eliminationPaths: [] };
-    }
-
-    const clinchFlags: boolean[] = [];
-    const eliminationFlags: boolean[] = [];
-
-    for (let mask = 0; mask < outcomeCount; mask += 1) {
-      const wins = weekOutcomeWins(teams, weekGames, mask);
-      const afterWeekStatus = mathematicalStatus(team.rosterId, teams, wins, laterGames, playoffTeams);
-      clinchFlags.push(afterWeekStatus === 'clinched');
-      eliminationFlags.push(afterWeekStatus === 'eliminated');
-    }
-
-    return {
-      rosterId: team.rosterId,
-      status,
-      clinchPaths: findGuaranteedPaths(clinchFlags, weekGames, team.rosterId),
-      eliminationPaths: findGuaranteedPaths(eliminationFlags, weekGames, team.rosterId),
-    };
-  });
-}
-
-export default function PlayoffScenarioLab({ teams, games, playoffTeams, scenarioStartWeek, regularSeasonEnd, completedWeeks }: Props) {
+export default function PlayoffScenarioLab({
+  teams,
+  games,
+  playoffTeams,
+  scenarioStartWeek,
+  regularSeasonEnd,
+  completedWeeks,
+  projectionSource,
+  scheduleCoverage,
+}: Props) {
   const [picks, setPicks] = useState<Record<string, number | null>>({});
-  const results = useMemo(() => simulate(teams, games, picks, playoffTeams), [teams, games, picks, playoffTeams]);
+  const weeks = useMemo(
+    () => Array.from(new Set(games.map((game) => game.week))).sort((a, b) => a - b),
+    [games],
+  );
+  const firstWeek = weeks[0] ?? scenarioStartWeek;
+  const [activeWeek, setActiveWeek] = useState(firstWeek);
+  const [activeTab, setActiveTab] = useState<'forecast' | 'clinching'>('forecast');
+
+  const results = useMemo(
+    () => simulatePlayoffs(teams, games, picks, playoffTeams),
+    [teams, games, picks, playoffTeams],
+  );
   const mathScenarios = useMemo(
     () => buildMathScenarios(teams, games, playoffTeams, scenarioStartWeek),
     [teams, games, playoffTeams, scenarioStartWeek],
   );
-  const teamByRoster = useMemo(() => new Map(teams.map((team) => [team.rosterId, team])), [teams]);
-  const mathHighlights = mathScenarios.filter(
-    (scenario) =>
-      scenario.status !== 'alive' ||
-      scenario.clinchPaths.length > 0 ||
-      scenario.eliminationPaths.length > 0,
+  const mathByRoster = useMemo(
+    () => new Map(mathScenarios.map((scenario) => [scenario.rosterId, scenario] as const)),
+    [mathScenarios],
   );
+  const teamByRoster = useMemo(
+    () => new Map(teams.map((team) => [team.rosterId, team] as const)),
+    [teams],
+  );
+  const clinchingRows = [...mathScenarios].sort((left, right) => {
+    const a = teamByRoster.get(left.rosterId);
+    const b = teamByRoster.get(right.rosterId);
+    if (!a || !b) return 0;
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    if (b.ties !== a.ties) return b.ties - a.ties;
+    return b.pointsFor - a.pointsFor;
+  });
 
-  const selectedCount = Object.values(picks).filter((value) => value !== null && value !== undefined).length;
-  const weeks = useMemo(() => Array.from(new Set(games.map((game) => game.week))).sort((a, b) => a - b), [games]);
-  const firstWeek = weeks[0] ?? scenarioStartWeek;
-  const [openWeeks, setOpenWeeks] = useState<Record<number, boolean>>(() => ({ [firstWeek]: true }));
+  const selectedCount = Object.values(picks).filter(
+    (value) => value !== null && value !== undefined,
+  ).length;
+  const activeGames = games.filter((game) => game.week === activeWeek);
+  const showClinchingScenarios = scenarioStartWeek >= CLINCHING_SCENARIO_START_WEEK;
+  const activeLocked = activeGames.filter(
+    (game) => picks[game.id] !== null && picks[game.id] !== undefined,
+  ).length;
 
   const choose = (gameId: string, rosterId: number | null) => {
     setPicks((current) => ({ ...current, [gameId]: rosterId }));
   };
 
-  const toggleWeek = (week: number) => {
-    setOpenWeeks((current) => ({ ...current, [week]: !current[week] }));
-  };
-
-  const setAllWeeks = (open: boolean) => {
-    setOpenWeeks(Object.fromEntries(weeks.map((week) => [week, open])));
+  const clearActiveWeek = () => {
+    const ids = new Set(activeGames.map((game) => game.id));
+    setPicks((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([gameId]) => !ids.has(gameId)),
+      ),
+    );
   };
 
   return (
     <div className="space-y-5">
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-4 sm:px-5">
+        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-[var(--muted)]">How the forecast works</div>
+        <p className="mt-1.5 max-w-4xl text-sm leading-6 text-[var(--muted)]">
+          The model blends each team&apos;s actual scoring with its current roster projection, giving the projection more weight early in the season and actual results more weight as the sample grows. It then simulates the remaining schedule {PLAYOFF_SIM_ITERATIONS.toLocaleString()} times, with more uncertainty early in the year and less as we learn more about each team.
+        </p>
+      </div>
+
+      {scheduleCoverage ? (
+        <div className="rounded-xl border border-amber-400/35 bg-amber-400/[0.07] px-4 py-3 text-sm text-amber-100/90">
+          {scheduleCoverage}
+        </div>
+      ) : null}
+
+      <div className="inline-flex rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab('forecast')}
+          className={
+            activeTab === 'forecast'
+              ? 'rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-black text-white'
+              : 'rounded-lg px-4 py-2 text-xs font-bold text-[var(--muted)] transition hover:text-[var(--text)]'
+          }
+        >
+          Forecast
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('clinching')}
+          className={
+            activeTab === 'clinching'
+              ? 'rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-black text-white'
+              : 'rounded-lg px-4 py-2 text-xs font-bold text-[var(--muted)] transition hover:text-[var(--text)]'
+          }
+        >
+          Clinching
+        </button>
+      </div>
+
+      {activeTab === 'forecast' ? (
+        <>
       <Card>
         <CardHeader>
-          <CardTitle>Playoff Picture</CardTitle>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <CardTitle>Playoff Outlook</CardTitle>
+              <div className="mt-1 text-xs text-[var(--muted)]">
+                Estimated chance to make the playoffs based on {PLAYOFF_SIM_ITERATIONS.toLocaleString()} simulations. Clinching status is tracked separately in the Clinching tab.
+              </div>
+            </div>
+            {selectedCount > 0 ? (
+              <div className="text-xs font-bold text-[var(--accent)]">
+                {selectedCount} scenario override{selectedCount === 1 ? '' : 's'} selected
+              </div>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {results.map((team) => {
-              const math = mathScenarios.find((scenario) => scenario.rosterId === team.rosterId);
+          <div className="space-y-2">
+            {results.map((team, index) => {
+              const scenario = mathByRoster.get(team.rosterId);
+              const status = scenario?.status ?? 'alive';
+              const probability = formatPlayoffProbability(team.playoffPct, status);
+              const accent = teamAccent(team.teamName);
+              const barWidth = status === 'clinched'
+                ? 100
+                : status === 'eliminated'
+                  ? 0
+                  : Math.max(1, Math.min(100, team.playoffPct));
+
               return (
-                <div key={team.rosterId} className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                <div
+                  key={team.rosterId}
+                  className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-3 sm:p-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="pt-1 text-xs font-black tabular-nums text-[var(--muted)]">
+                      {index + 1}
+                    </div>
+                    <BroadcastTeamLogo team={team.teamName} accent={accent} size="sm" />
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <div className="truncate text-sm font-bold">{team.teamName}</div>
-                        {math?.status === 'clinched' ? (
-                          <span className="rounded-full border border-emerald-400/35 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-300">Clinched</span>
+                        <div className="truncate text-sm font-black">{team.teamName}</div>
+                        {status === 'clinched' ? (
+                          <span className="rounded-full border border-emerald-400/35 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-300">Clinched</span>
                         ) : null}
-                        {math?.status === 'eliminated' ? (
-                          <span className="rounded-full border border-rose-400/35 bg-rose-400/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-300">Eliminated</span>
+                        {status === 'eliminated' ? (
+                          <span className="rounded-full border border-rose-400/35 bg-rose-400/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-300">Eliminated</span>
                         ) : null}
                       </div>
-                      <div className="mt-1 text-xs text-[var(--muted)]">{team.wins}-{team.losses}{team.ties ? `-${team.ties}` : ''} · {team.ppg.toFixed(1)} PPG</div>
+
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[var(--muted)]">
+                        <span>{recordLabel(team)}</span>
+                        <span>PF/G {team.actualPpg !== null ? team.actualPpg.toFixed(1) : '—'}</span>
+                        <span>Model {team.modelPpg.toFixed(1)}</span>
+                        <span>Avg seed {team.avgSeed?.toFixed(1) ?? '—'}</span>
+                      </div>
+
+                      <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-black/20">
+                        <div
+                          className="h-full rounded-full bg-[var(--accent)] transition-[width]"
+                          style={{ width: String(barWidth) + '%' }}
+                        />
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-lg font-black tabular-nums">{team.playoffPct.toFixed(0)}%</div>
-                      <div className="text-[10px] uppercase tracking-wider text-[var(--muted)]">playoffs</div>
+
+                    <div className="w-16 shrink-0 text-right">
+                      <div className="text-xl font-black tabular-nums">{probability}</div>
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">playoffs</div>
                     </div>
                   </div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/20">
-                    <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.max(1, team.playoffPct)}%` }} />
-                  </div>
-                  <div className="mt-2 text-[11px] text-[var(--muted)]">Average projected seed: {team.avgSeed?.toFixed(1) ?? '—'}</div>
                 </div>
               );
             })}
@@ -396,169 +217,230 @@ export default function PlayoffScenarioLab({ teams, games, playoffTeams, scenari
 
       <Card>
         <CardHeader>
-          <CardTitle>Clinching &amp; Elimination</CardTitle>
-          <div className="mt-1 text-xs text-[var(--muted)]">
-            Mathematical status and Week {scenarioStartWeek} paths. Win ties remain alive until the points-for tiebreak can no longer matter.
-          </div>
-        </CardHeader>
-        <CardContent>
-          {scenarioStartWeek > regularSeasonEnd ? (
-            <p className="text-sm text-[var(--muted)]">The regular season is complete. Final playoff qualification is locked.</p>
-          ) : mathHighlights.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">
-              No team can mathematically clinch a playoff berth or be eliminated in Week {scenarioStartWeek} yet.
-            </p>
-          ) : (
-            <div className="grid gap-3 lg:grid-cols-2">
-              {mathHighlights.map((scenario) => {
-                const team = teamByRoster.get(scenario.rosterId);
-                if (!team) return null;
-
-                return (
-                  <div key={scenario.rosterId} className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-sm font-black">{team.teamName}</div>
-                      {scenario.status === 'clinched' ? (
-                        <span className="rounded-full border border-emerald-400/35 bg-emerald-400/10 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-emerald-300">Clinched</span>
-                      ) : scenario.status === 'eliminated' ? (
-                        <span className="rounded-full border border-rose-400/35 bg-rose-400/10 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-rose-300">Eliminated</span>
-                      ) : (
-                        <span className="rounded-full border border-[var(--border)] px-2 py-1 text-[9px] font-black uppercase tracking-wider text-[var(--muted)]">Still live</span>
-                      )}
-                    </div>
-
-                    {scenario.status === 'clinched' ? (
-                      <p className="mt-2 text-xs text-emerald-200/90">Playoff berth mathematically secured.</p>
-                    ) : null}
-                    {scenario.status === 'eliminated' ? (
-                      <p className="mt-2 text-xs text-rose-200/90">Mathematically eliminated from the top {playoffTeams}.</p>
-                    ) : null}
-
-                    {scenario.clinchPaths.length > 0 ? (
-                      <div className="mt-3">
-                        <div className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-300">Can clinch this week</div>
-                        <ul className="mt-1 space-y-1 text-xs text-[var(--muted)]">
-                          {scenario.clinchPaths.map((path) => <li key={path}>• {path}</li>)}
-                        </ul>
-                      </div>
-                    ) : null}
-
-                    {scenario.eliminationPaths.length > 0 ? (
-                      <div className="mt-3">
-                        <div className="text-[10px] font-black uppercase tracking-[0.14em] text-rose-300">Can be eliminated this week</div>
-                        <ul className="mt-1 space-y-1 text-xs text-[var(--muted)]">
-                          {scenario.eliminationPaths.map((path) => <li key={path}>• {path}</li>)}
-                        </ul>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <CardTitle>Scenario Lab</CardTitle>
+              <CardTitle>Scenario Simulator</CardTitle>
               <div className="mt-1 text-xs text-[var(--muted)]">
-                {completedWeeks > 0 ? `${completedWeeks} completed week${completedWeeks === 1 ? '' : 's'} already baked into the odds.` : 'Preseason baseline. Week 1 is the first scenario week.'}
+                Choose winners only where you want to override the model. Everything else stays simulated.
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              {weeks.length > 1 && (
-                <>
-                  <button type="button" onClick={() => setAllWeeks(true)} className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold hover:bg-white/5">
-                    Expand all
-                  </button>
-                  <button type="button" onClick={() => setAllWeeks(false)} className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold hover:bg-white/5">
-                    Collapse all
-                  </button>
-                </>
-              )}
-              <button type="button" onClick={() => setPicks({})} className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold hover:bg-white/5">
-                Reset scenarios
+              <button
+                type="button"
+                onClick={clearActiveWeek}
+                disabled={activeLocked === 0}
+                className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Clear Week {activeWeek}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPicks({})}
+                disabled={selectedCount === 0}
+                className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Reset all
               </button>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <p className="mb-4 text-sm text-[var(--muted)]">
-            Pick winners for any remaining games. Unselected games are simulated from each team&apos;s current scoring profile. {selectedCount} result{selectedCount === 1 ? '' : 's'} locked.
-          </p>
           {weeks.length === 0 ? (
             <p className="text-sm text-[var(--muted)]">No remaining regular-season matchups are available.</p>
           ) : (
-            <div className="space-y-3">
-              {weeks.map((week) => {
-                const weekGames = games.filter((game) => game.week === week);
-                const lockedInWeek = weekGames.filter((game) => picks[game.id] !== null && picks[game.id] !== undefined).length;
-                const open = Boolean(openWeeks[week]);
-                return (
-                  <section key={week} className="overflow-hidden rounded-xl border border-[var(--border)]">
+            <>
+              <div className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-1">
+                {weeks.map((week) => {
+                  const locked = games.filter(
+                    (game) =>
+                      game.week === week &&
+                      picks[game.id] !== null &&
+                      picks[game.id] !== undefined,
+                  ).length;
+                  const active = week === activeWeek;
+                  return (
                     <button
+                      key={week}
                       type="button"
-                      onClick={() => toggleWeek(week)}
-                      aria-expanded={open}
-                      className="flex w-full items-center justify-between gap-3 bg-[var(--surface-strong)] px-4 py-3 text-left transition hover:bg-white/[0.04]"
+                      onClick={() => setActiveWeek(week)}
+                      className={
+                        active
+                          ? 'shrink-0 rounded-full border border-[var(--accent)] bg-[var(--accent)] px-3 py-1.5 text-xs font-black text-white'
+                          : 'shrink-0 rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--muted)] transition hover:text-[var(--text)]'
+                      }
                     >
-                      <div>
-                        <div className="text-xs font-black uppercase tracking-[0.16em]">Week {week}</div>
-                        <div className="mt-0.5 text-[11px] text-[var(--muted)]">
-                          {weekGames.length} matchup{weekGames.length === 1 ? '' : 's'}{lockedInWeek ? ` · ${lockedInWeek} locked` : ''}
-                        </div>
-                      </div>
-                      <span className="text-lg font-bold text-[var(--muted)]" aria-hidden="true">{open ? '−' : '+'}</span>
+                      Week {week}{locked ? ' · ' + locked : ''}
                     </button>
-                    {open && (
-                      <div className="grid gap-2 border-t border-[var(--border)] p-3 lg:grid-cols-2">
-                        {weekGames.map((game) => {
-                          const selected = picks[game.id] ?? null;
-                          return (
-                            <div key={game.id} className="rounded-xl border border-[var(--border)] p-3">
-                              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => choose(game.id, game.aRosterId)}
-                                  className="rounded-lg px-3 py-2 text-left text-xs font-bold transition"
-                                  style={selected === game.aRosterId ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--surface-strong)' }}
-                                >
-                                  {game.aTeam}
-                                </button>
-                                <span className="text-[10px] font-black text-[var(--muted)]">VS</span>
-                                <button
-                                  type="button"
-                                  onClick={() => choose(game.id, game.bRosterId)}
-                                  className="rounded-lg px-3 py-2 text-right text-xs font-bold transition"
-                                  style={selected === game.bRosterId ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--surface-strong)' }}
-                                >
-                                  {game.bTeam}
-                                </button>
-                              </div>
-                              {selected !== null && (
-                                <button type="button" onClick={() => choose(game.id, null)} className="mt-2 text-[11px] text-[var(--muted)] hover:text-[var(--text)]">
-                                  Return to simulation
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
+                  );
+                })}
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                {activeGames.map((game) => {
+                  const selected = picks[game.id] ?? null;
+                  return (
+                    <div key={game.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-3">
+                      <div className="mb-2 text-[9px] font-black uppercase tracking-[0.14em] text-[var(--muted)]">
+                        Week {game.week}
                       </div>
-                    )}
-                  </section>
-                );
-              })}
-            </div>
+                      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => choose(game.id, game.aRosterId)}
+                          className={
+                            selected === game.aRosterId
+                              ? 'rounded-lg bg-[var(--accent)] px-3 py-2.5 text-left text-xs font-black text-white'
+                              : 'rounded-lg border border-[var(--border)] px-3 py-2.5 text-left text-xs font-bold transition hover:border-[var(--accent)]'
+                          }
+                        >
+                          {game.aTeam}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => choose(game.id, null)}
+                          className={
+                            selected === null
+                              ? 'rounded-full border border-[var(--border)] bg-black/10 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-[var(--muted)]'
+                              : 'rounded-full border border-[var(--border)] px-2 py-1 text-[9px] font-black uppercase tracking-wider text-[var(--muted)] hover:text-[var(--text)]'
+                          }
+                        >
+                          Auto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => choose(game.id, game.bRosterId)}
+                          className={
+                            selected === game.bRosterId
+                              ? 'rounded-lg bg-[var(--accent)] px-3 py-2.5 text-right text-xs font-black text-white'
+                              : 'rounded-lg border border-[var(--border)] px-3 py-2.5 text-right text-xs font-bold transition hover:border-[var(--accent)]'
+                          }
+                        >
+                          {game.bTeam}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-3 text-xs text-[var(--muted)]">
+                {activeLocked > 0
+                  ? String(activeLocked) + ' Week ' + String(activeWeek) + ' scenario override' + (activeLocked === 1 ? '' : 's') + ' selected.'
+                  : 'No Week ' + String(activeWeek) + ' scenario overrides selected.'}
+                {' '}The playoff outlook above updates automatically.
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
 
-      <div className="text-xs text-[var(--muted)]">
-        Current data: Sleeper. Completed East v. West results are baked into each team&apos;s live record, points for, and scoring profile, so odds update as results are recorded. Only Weeks {scenarioStartWeek <= regularSeasonEnd ? `${scenarioStartWeek}-${regularSeasonEnd}` : 'complete'} are simulated; {playoffTeams} playoff spots.
-      </div>
+      <details className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)]">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-black">How the model works</summary>
+        <div className="border-t border-[var(--border)] px-4 py-4 text-sm leading-6 text-[var(--muted)]">
+          <p>
+            Early results are deliberately shrunk toward the current roster projection. The projection carries the weight of {PRIOR_PSEUDO_GAMES} prior games, so three real games no longer dominate the forecast.
+          </p>
+          <p className="mt-2">
+            Each simulated season also samples uncertainty in every team&apos;s underlying strength before simulating weekly scoring. That uncertainty is widest early in the year and narrows as more real games are played.
+          </p>
+          <p className="mt-2">
+            Future weeks add additional volatility to account for the fact that injuries, roles, byes, waivers, and roster changes become harder to predict farther out. The projection baseline comes from {projectionSource}.
+          </p>
+          <p className="mt-2">
+            Forecast odds never display 100% unless the mathematical engine says the team has clinched. Likewise, a team is not shown at 0% unless it is mathematically eliminated.
+          </p>
+        </div>
+      </details>
+        </>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Clinching Status</CardTitle>
+            <div className="mt-1 text-xs text-[var(--muted)]">
+              Mathematical playoff status only. Beginning in Week {CLINCHING_SCENARIO_START_WEEK}, the Lab also shows exact combinations of upcoming results that would clinch a berth or eliminate a team.
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--muted)]">
+              {scenarioStartWeek > regularSeasonEnd
+                ? 'The regular season is complete, so playoff qualification is final.'
+                : showClinchingScenarios
+                  ? 'Week ' + String(scenarioStartWeek) + ' scenarios are based on every possible combination of this week\'s results. Points-for tiebreak possibilities stay alive until they can no longer affect qualification.'
+                  : 'Clinching and elimination scenarios will activate in Week ' + String(CLINCHING_SCENARIO_START_WEEK) + '. Until then, this tab tracks only whether a team is mathematically alive, clinched, or eliminated.'}
+            </div>
+
+            <div className="space-y-2">
+              {clinchingRows.map((scenario) => {
+                const team = teamByRoster.get(scenario.rosterId);
+                if (!team) return null;
+                const accent = teamAccent(team.teamName);
+
+                return (
+                  <div
+                    key={scenario.rosterId}
+                    className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-3 sm:p-4"
+                  >
+                    <div className="flex items-start gap-3">
+                      <BroadcastTeamLogo team={team.teamName} accent={accent} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="truncate text-sm font-black">{team.teamName}</div>
+                          <span
+                            className={
+                              scenario.status === 'clinched'
+                                ? 'rounded-full border border-emerald-400/35 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-300'
+                                : scenario.status === 'eliminated'
+                                  ? 'rounded-full border border-rose-400/35 bg-rose-400/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-rose-300'
+                                  : 'rounded-full border border-[var(--border)] px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-[var(--muted)]'
+                            }
+                          >
+                            {scenario.status === 'alive' ? 'Alive' : scenario.status}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[11px] text-[var(--muted)]">
+                          {recordLabel(team)} · PF/G {team.actualPpg !== null ? team.actualPpg.toFixed(1) : '—'}
+                        </div>
+
+                        {scenario.status === 'clinched' ? (
+                          <div className="mt-2 text-xs font-semibold text-emerald-300">
+                            Playoff berth mathematically secured.
+                          </div>
+                        ) : null}
+
+                        {scenario.status === 'eliminated' ? (
+                          <div className="mt-2 text-xs font-semibold text-rose-300">
+                            Mathematically eliminated from the top {playoffTeams}.
+                          </div>
+                        ) : null}
+
+                        {showClinchingScenarios && scenario.status === 'alive' && scenario.clinchPaths.length === 0 && scenario.eliminationPaths.length === 0 ? (
+                          <div className="mt-2 text-xs text-[var(--muted)]">
+                            No Week {scenarioStartWeek} clinching or elimination path yet.
+                          </div>
+                        ) : null}
+
+                        {showClinchingScenarios && scenario.clinchPaths.length > 0 ? (
+                          <div className="mt-2 text-xs text-[var(--muted)]">
+                            <span className="font-bold text-emerald-300">Can clinch in Week {scenarioStartWeek}:</span>{' '}
+                            {scenario.clinchPaths.join(' OR ')}
+                          </div>
+                        ) : null}
+
+                        {showClinchingScenarios && scenario.eliminationPaths.length > 0 ? (
+                          <div className="mt-2 text-xs text-[var(--muted)]">
+                            <span className="font-bold text-rose-300">Can be eliminated in Week {scenarioStartWeek}:</span>{' '}
+                            {scenario.eliminationPaths.join(' OR ')}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

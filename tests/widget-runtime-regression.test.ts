@@ -28,9 +28,9 @@ describe('widget runtime regression guard', () => {
 
   it('uses the same versioned URI in tool descriptors and resource registration', () => {
     const resourceUris = new Set(WIDGET_ENTRIES.map((entry) => entry.resource.uri));
-    const widgetTools = MCP_TOOLS.filter((tool) => '_meta' in tool && tool._meta);
 
-    for (const tool of widgetTools) {
+    for (const tool of MCP_TOOLS) {
+      if (!('_meta' in tool) || !tool._meta) continue;
       const meta = withVersionedWidgetMeta(tool._meta as Record<string, unknown>)!;
       const outputTemplate = meta['openai/outputTemplate'];
       const ui = meta.ui as Record<string, unknown>;

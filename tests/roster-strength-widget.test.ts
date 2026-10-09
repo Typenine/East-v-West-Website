@@ -17,8 +17,8 @@ const { ROSTER_STRENGTH_PAYLOAD } = vi.hoisted(() => ({
         TE: { count: 1, totalValue: 3000, topPlayer: 'Trey McBride' },
       },
       positions: {
-        QB: [{ name: 'Lamar Jackson', value: 8000, rank: 1, trend: 120, nflTeam: 'BAL' }],
-        WR: [{ name: 'Puka Nacua', value: 8000, rank: 2, trend: -50, nflTeam: 'LAR' }],
+        QB: [{ name: 'Lamar Jackson', value: 8000, rank: 1, trend: 120, nflTeam: 'BAL', slot: 'active' }],
+        WR: [{ name: 'Puka Nacua', value: 8000, rank: 2, trend: -50, nflTeam: 'LAR', slot: 'taxi' }],
       },
       strengths: ['WR', 'RB'],
       weaknesses: ['TE', 'QB'],
@@ -90,6 +90,8 @@ describe('Roster Strength widget result initialization', () => {
     expect(harness.elements.card.style.display).toBe('block');
     expect(harness.elements.card.innerHTML).toContain('Belltown Raptors');
     expect(harness.elements.card.innerHTML).toContain('Lamar Jackson');
+    expect(harness.elements.card.innerHTML).toContain('Puka Nacua');
+    expect(harness.elements.card.innerHTML).toContain('Taxi');
     expect(harness.elements.card.innerHTML).toContain('WR strength');
     expect(harness.elements['state-error'].style.display).toBe('none');
   });

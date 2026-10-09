@@ -10,6 +10,7 @@ import type {
   LeagueStatsDataset,
   StatsFranchiseRow,
   StatsGameRow,
+  StatsRookieLeaderRow,
 } from '@/lib/stats/types';
 
 const TABS = [
@@ -71,8 +72,8 @@ function HeaderCell({ children, className = '' }: { children: React.ReactNode; c
   return <th className={`whitespace-nowrap border-b border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-left text-xs font-bold uppercase tracking-wide text-[var(--muted)] ${className}`}>{children}</th>;
 }
 
-function Cell({ children, className = '', title }: { children: React.ReactNode; className?: string; title?: string }) {
-  return <td title={title} className={`whitespace-nowrap border-b border-[var(--border)] px-3 py-2 align-middle text-sm text-[var(--text)] ${className}`}>{children}</td>;
+function Cell({ children, className = '', title, colSpan }: { children: React.ReactNode; className?: string; title?: string; colSpan?: number }) {
+  return <td title={title} colSpan={colSpan} className={`whitespace-nowrap border-b border-[var(--border)] px-3 py-2 align-middle text-sm text-[var(--text)] ${className}`}>{children}</td>;
 }
 
 function SortHeader({ label, active, direction, onClick, align = 'right' }: { label: string; active: boolean; direction: SortDirection; onClick: () => void; align?: 'left' | 'right' }) {
@@ -99,7 +100,7 @@ function NamedFranchiseButton({ name, franchises, onOpen }: { name: string; fran
   return <FranchiseButton franchise={franchise} onOpen={onOpen} />;
 }
 
-export default function StatsReferenceClient({ dataset }: { dataset: LeagueStatsDataset }) {
+export default function StatsReferenceClient({ dataset, currentSeasonRookies }: { dataset: LeagueStatsDataset; currentSeasonRookies: StatsRookieLeaderRow[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedTab = searchParams.get('tab') || 'overview';
@@ -116,15 +117,19 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
   const defaultSeason = dataset.latestSeasonWithGames || dataset.seasons[0] || '';
   const [season, setSeason] = useState(defaultSeason);
   const [seasonPosition, setSeasonPosition] = useState('ALL');
+  const [seasonRookiesOnly, setSeasonRookiesOnly] = useState(false);
   const [gameSeason, setGameSeason] = useState('ALL');
   const [gameTeam, setGameTeam] = useState('ALL');
   const [gameType, setGameType] = useState('ALL');
 
   const positions = useMemo(() => {
     const order = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
-    const available = new Set(dataset.players.map((row) => row.position).filter(Boolean));
+    const available = new Set([
+      ...dataset.players.map((row) => row.position),
+      ...currentSeasonRookies.map((row) => row.position),
+    ].filter(Boolean));
     return [...order.filter((position) => available.has(position)), ...Array.from(available).filter((position) => !order.includes(position)).sort()];
-  }, [dataset.players]);
+  }, [currentSeasonRookies, dataset.players]);
 
   const franchiseNames = useMemo(() => dataset.franchises.map((row) => row.teamName).sort(), [dataset.franchises]);
 
@@ -180,8 +185,18 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
 
   const seasonTeams = useMemo(() => dataset.seasonTeams.filter((row) => row.season === season), [dataset.seasonTeams, season]);
   const seasonPlayers = useMemo(() => dataset.playerSeasons
-    .filter((row) => row.season === season && (seasonPosition === 'ALL' || row.position === seasonPosition))
-    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name)), [dataset.playerSeasons, season, seasonPosition]);
+    .filter((row) =>
+      row.season === season &&
+      (seasonPosition === 'ALL' || row.position === seasonPosition) &&
+      (!seasonRookiesOnly || row.isRookie === true)
+    )
+    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name)), [dataset.playerSeasons, season, seasonPosition, seasonRookiesOnly]);
+
+  const currentRookieRows = useMemo(() => currentSeasonRookies
+    .filter((row) => seasonPosition === 'ALL' || row.position === seasonPosition)
+    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name)), [currentSeasonRookies, seasonPosition]);
+
+  const useFullRookiePool = seasonRookiesOnly && season === dataset.latestSeasonWithGames;
   const seasonGames = useMemo(() => dataset.games.filter((row) => row.season === season), [dataset.games, season]);
 
   const filteredGames = useMemo(() => dataset.games.filter((row) => {
@@ -195,6 +210,9 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
     .filter((row) => row.season === dataset.latestSeasonWithGames)
     .sort((a, b) => b.points - a.points)
     .slice(0, 10), [dataset.latestSeasonWithGames, dataset.playerSeasons]);
+
+  const latestSeasonRookies = useMemo(() => currentSeasonRookies
+    .slice(0, 10), [currentSeasonRookies]);
 
   return (
     <div className="container mx-auto max-w-[1500px] px-4 py-8">
@@ -251,12 +269,21 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
             </div>
 
             {dataset.latestSeasonWithGames ? (
-              <ReferenceSection title={`${dataset.latestSeasonWithGames} Player Leaders`} subtitle="Most recent season with completed East v. West scoring.">
-                <TableWrap>
-                  <table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">PPG</HeaderCell></tr></thead>
-                    <tbody>{latestSeasonRows.map((row, index) => <tr key={`${row.season}-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.position}</Cell><Cell>{row.franchises.map((split) => split.teamName).join(' / ')}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.ppg, 1)}</Cell></tr>)}</tbody></table>
-                </TableWrap>
-              </ReferenceSection>
+              <div className="grid gap-8 xl:grid-cols-2">
+                <ReferenceSection title={`${dataset.latestSeasonWithGames} Scoring Leaders`} subtitle="Top East v. West scorers this season through the latest completed week.">
+                  <TableWrap>
+                    <table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell>Owner</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">PPG</HeaderCell></tr></thead>
+                      <tbody>{latestSeasonRows.map((row, index) => <tr key={`${row.season}-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.position}</Cell><Cell>{row.franchises.map((split) => split.teamName).join(' / ')}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.ppg, 1)}</Cell></tr>)}</tbody></table>
+                  </TableWrap>
+                </ReferenceSection>
+
+                <ReferenceSection title={`${dataset.latestSeasonWithGames} Rookie Scoring Leaders`} subtitle="Full NFL rookie pool under East v. West scoring, including free agents and kickers.">
+                  <TableWrap>
+                    <table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">PPG</HeaderCell></tr></thead>
+                      <tbody>{latestSeasonRookies.length ? latestSeasonRookies.map((row, index) => <tr key={`rookie-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.position}</Cell><Cell>{row.ownerTeam || <span className="text-[var(--muted)]">Free Agent</span>}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.ppg, 1)}</Cell></tr>) : <tr><Cell className="text-[var(--muted)]" colSpan={6}>No rookie scoring data is available yet.</Cell></tr>}</tbody></table>
+                  </TableWrap>
+                </ReferenceSection>
+              </div>
             ) : null}
           </>
         ) : null}
@@ -302,9 +329,18 @@ export default function StatsReferenceClient({ dataset }: { dataset: LeagueStats
               <TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell>W</HeaderCell><HeaderCell>L</HeaderCell><HeaderCell>T</HeaderCell><HeaderCell className="text-right">Pct</HeaderCell><HeaderCell className="text-right">PF</HeaderCell><HeaderCell className="text-right">PA</HeaderCell><HeaderCell className="text-right">Avg</HeaderCell></tr></thead><tbody>{seasonTeams.map((row, index) => <tr key={`${row.season}-${row.teamName}`}><Cell>{index + 1}</Cell><Cell><NamedFranchiseButton name={row.teamName} franchises={dataset.franchises} onOpen={setSelectedFranchise} /></Cell><Cell>{row.wins}</Cell><Cell>{row.losses}</Cell><Cell>{row.ties}</Cell><Cell className="text-right">{pct(row.winPct)}</Cell><Cell className="text-right tabular-nums">{fmt(row.pointsFor, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.pointsAgainst, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.avgScore, 1)}</Cell></tr>)}</tbody></table></TableWrap>
             </ReferenceSection>
 
-            <ReferenceSection title={`${season} Player Leaders`} subtitle="Sortable season production remains available in Explorer; this table is the quick top-100 reference.">
-              <div className="mb-3 flex flex-wrap gap-2">{['ALL', ...positions].map((position) => <button key={position} type="button" onClick={() => setSeasonPosition(position)} className={`rounded-md border px-3 py-1.5 text-xs font-bold ${seasonPosition === position ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]'}`}>{position === 'ALL' ? 'All' : position}</button>)}</div>
-              <TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell className="text-right">Wks</HeaderCell><HeaderCell className="text-right">Starts</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">PPG</HeaderCell><HeaderCell className="text-right">Best Game</HeaderCell></tr></thead><tbody>{seasonPlayers.slice(0, 100).map((row, index) => <tr key={`${row.season}-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><PlayerLink playerId={row.playerId} name={row.name} /></Cell><Cell>{row.position}</Cell><Cell>{row.franchises.map((split) => split.teamName).join(' / ')}</Cell><Cell className="text-right">{row.rosteredWeeks}</Cell><Cell className="text-right">{row.starts}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.ppg, 1)}</Cell><Cell className="text-right tabular-nums">{row.bestGamePoints == null ? '—' : `${fmt(row.bestGamePoints, 1)} W${row.bestGameWeek}`}</Cell></tr>)}</tbody></table></TableWrap>
+            <ReferenceSection title={`${season} Player Leaders`} subtitle={useFullRookiePool ? 'Rookies Only uses the full NFL rookie pool under East v. West scoring, including free agents.' : 'Ranked by season fantasy points. Filter by position or switch to rookies only.'}>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => setSeasonRookiesOnly(false)} className={`rounded-md border px-3 py-1.5 text-xs font-bold ${!seasonRookiesOnly ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]'}`}>All Players</button>
+                <button type="button" onClick={() => setSeasonRookiesOnly(true)} className={`rounded-md border px-3 py-1.5 text-xs font-bold ${seasonRookiesOnly ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]'}`}>Rookies Only</button>
+                <span className="mx-1 h-5 w-px bg-[var(--border)]" aria-hidden="true" />
+                {['ALL', ...positions].map((position) => <button key={position} type="button" onClick={() => setSeasonPosition(position)} className={`rounded-md border px-3 py-1.5 text-xs font-bold ${seasonPosition === position ? 'border-[var(--accent)] bg-accent-soft text-accent' : 'border-[var(--border)] text-[var(--muted)] hover:text-[var(--text)]'}`}>{position === 'ALL' ? 'All Positions' : position}</button>)}
+              </div>
+              {useFullRookiePool ? (
+                <TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell>NFL</HeaderCell><HeaderCell>Owner</HeaderCell><HeaderCell className="text-right">GP</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">PPG</HeaderCell></tr></thead><tbody>{currentRookieRows.length ? currentRookieRows.slice(0, 100).map((row, index) => <tr key={`rookie-pool-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><div className="flex items-center gap-2"><PlayerLink playerId={row.playerId} name={row.name} /><span className="rounded-full border border-[var(--accent)]/40 bg-accent-soft px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-accent">Rookie</span></div></Cell><Cell>{row.position}</Cell><Cell>{row.nflTeam || '—'}</Cell><Cell>{row.ownerTeam || <span className="text-[var(--muted)]">Free Agent</span>}</Cell><Cell className="text-right tabular-nums">{row.gamesPlayed || '—'}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.ppg, 1)}</Cell></tr>) : <tr><Cell colSpan={8} className="py-6 text-center text-[var(--muted)]">No rookies match these filters.</Cell></tr>}</tbody></table></TableWrap>
+              ) : (
+                <TableWrap><table className="w-full"><thead><tr><HeaderCell>Rk</HeaderCell><HeaderCell>Player</HeaderCell><HeaderCell>Pos</HeaderCell><HeaderCell>Franchise</HeaderCell><HeaderCell className="text-right">Wks</HeaderCell><HeaderCell className="text-right">Starts</HeaderCell><HeaderCell className="text-right">Pts</HeaderCell><HeaderCell className="text-right">PPG</HeaderCell><HeaderCell className="text-right">Best Game</HeaderCell></tr></thead><tbody>{seasonPlayers.length ? seasonPlayers.slice(0, 100).map((row, index) => <tr key={`${row.season}-${row.playerId}`}><Cell>{index + 1}</Cell><Cell><div className="flex items-center gap-2"><PlayerLink playerId={row.playerId} name={row.name} />{row.isRookie ? <span className="rounded-full border border-[var(--accent)]/40 bg-accent-soft px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-accent">Rookie</span> : null}</div></Cell><Cell>{row.position}</Cell><Cell>{row.franchises.map((split) => split.teamName).join(' / ')}</Cell><Cell className="text-right">{row.rosteredWeeks}</Cell><Cell className="text-right">{row.starts}</Cell><Cell className="text-right font-semibold tabular-nums">{fmt(row.points, 1)}</Cell><Cell className="text-right tabular-nums">{fmt(row.ppg, 1)}</Cell><Cell className="text-right tabular-nums">{row.bestGamePoints == null ? '—' : `${fmt(row.bestGamePoints, 1)} W${row.bestGameWeek}`}</Cell></tr>) : <tr><Cell colSpan={9} className="py-6 text-center text-[var(--muted)]">No players match these filters.</Cell></tr>}</tbody></table></TableWrap>
+              )}
             </ReferenceSection>
 
             <ReferenceSection title={`${season} Game Summary`} subtitle={`${seasonGames.length} completed East v. West matchups in the dataset.`}>

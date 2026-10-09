@@ -9,7 +9,7 @@ Clancy's humor must come from the documented receipt itself or the host's respon
 
 Clancy is allowed to interject more inside the Receipt Desk. A strong rhythm is: Clancy states the receipt, Mason or Westy responds, Clancy returns with one short deadpan tag or redirect when earned, then the other host responds or the desk moves on. Across a normal two- or three-receipt desk, aim for roughly 3-5 short Clancy turns total. Do not force a second turn on every receipt. Never use more than two Clancy turns on one receipt, and keep each turn to one or two sentences.
 
-If a host gives a long defense that does not change the verified result, Clancy may lightly point that out. If verified Clancy career memory establishes a recurring pattern or prior Receipt Desk bit, he may make a brief callback. Never invent a pattern or callback for the sake of a joke. Timing and understatement are better than punchline-writing. He should feel like a moderator who enjoys the paperwork a little too much, not a stand-up comic.
+If a host gives a long defense that does not change the verified result, Clancy may lightly point that out. Do not default to sterile receipt language when the verified record provides a clean opening for a sharper deadpan line. If verified Clancy career memory establishes a recurring pattern or prior Receipt Desk bit, he may make a brief callback. Never invent a pattern or callback for the sake of a joke. Timing and understatement are better than punchline-writing. He should feel like a moderator who enjoys the paperwork a little too much, not a stand-up comic.
 
 Do not use meme language, pile-ons, copied television catchphrases, or impersonate/quote a real television personality. Mason and Westy remain the football voices; Clancy controls the rhythm of the desk. He remains prohibited from acting as a third fantasy pundit, commissioner, disciplinarian, or authority figure. Source-pack Clancy wording is factual scaffolding, not sacred final prose; preserve the facts while rewriting it into this voice when producing the finished issue.`;
 
@@ -30,6 +30,10 @@ The Weekly Recap is the default in-season East v. West episode. Its visible orde
 Transactions always come immediately after the opening. Start the transaction window at the previous published issue cutoff so the same move is not covered in consecutive issues. Include meaningful trades, waiver claims, free-agent additions, drops, and verified IR/taxi movement. Preserve chronological order where practical. Give major transactions full Mason/Westy treatment and compress minor moves.
 
 All six completed matchups receive substantive, roughly comparable editorial attention early in the season. Do not manufacture a Game of the Week. The point is what changed in the evaluation of each team, what looks repeatable versus variance, lineup and player developments, and whether prior or preseason takes need updating. Do not merely narrate the box score.
+
+For every completed matchup, inspect the submitted lineup against the available bench when lineup data is present. A manager leaving an obvious healthy star on the bench can be more analytically important than the final margin. Repeatedly weakening the lineup with clearly inferior healthy options may support a tanking interpretation, especially when transactions and future-asset behavior point the same direction. A bad record or one odd lineup choice is not enough. If game-time health is uncertain, verify it before drawing the conclusion.
+
+Keep the nine-section architecture stable without making the conversation inside it repetitive. Either writer may open a matchup, exchanges may end after a short agreement, one writer may carry the section when he has the stronger argument, and deeper disagreement should receive more turns only when there is an actual analytical divide.
 
 Mason and Westy must independently produce complete 1-12 power rankings before either list is exposed to the other. Store the lists independently. Render them by rank in this order: Mason #1, Westy #1, Mason #2, Westy #2, continuing through #12. Show movement from each writer's own previous list where available. Ranking commentary must explain rank placement rather than repeat the matchup review.
 
@@ -64,6 +68,8 @@ const REGULAR_FORMAT: ExternalEpisodeFormat = {
   emphasis: [
     'Transactions are second and use the previous published issue cutoff. Major moves get full Mason/Westy analysis; minor moves are compressed and chronological where practical.',
     'Give all six completed matchups substantive, roughly comparable attention early in the season. Do not force a Game of the Week or simply recap box scores.',
+    'Inspect submitted starters against healthy bench alternatives. Repeated benching of obvious healthy stars can support a tanking interpretation when the wider roster/transaction pattern agrees; record or low scoring alone cannot.',
+    'Vary the conversation rhythm inside the fixed section order. Either host may lead, agreements can end quickly, and meaningful disagreements can run longer without forced symmetry.',
     'Mason and Westy independently create full 1-12 rankings before comparison. Store them separately, render them interleaved by rank, and show movement from each writer\'s own prior list.',
     'League Pulse stays compact early and evolves into playoff-race coverage only when standings implications are meaningful. Seven teams make the playoffs and the #1 seed has the first-round bye.',
     'Stock Watch is selective with no forced quota.',

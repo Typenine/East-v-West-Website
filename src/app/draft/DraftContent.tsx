@@ -544,7 +544,7 @@ export default function DraftContent() {
                                           <li key={pickIndex} className="text-sm">
                                             {`Round ${pick.round}, Pick ${pick.pick}: `}
                                             {pick.playerId ? (
-                                              <PlayerLink playerId={pick.playerId}>{pick.player}</PlayerLink>
+                                              <PlayerLink playerId={pick.playerId} style={{ color: 'inherit' }}>{pick.player}</PlayerLink>
                                             ) : (
                                               pick.player
                                             )}
@@ -619,7 +619,7 @@ export default function DraftContent() {
                                                     </div>
                                                     <div className="text-sm truncate">
                                                       <span className="truncate inline-block max-w-full align-middle">
-                                                        {p.playerId ? <PlayerLink playerId={p.playerId}>{p.player}</PlayerLink> : p.player}
+                                                        {p.playerId ? <PlayerLink playerId={p.playerId} style={{ color: 'inherit' }}>{p.player}</PlayerLink> : p.player}
                                                       </span>
                                                       {p.pos && (
                                                         <span
@@ -798,7 +798,13 @@ function FullDraftBoard({ data, selectedYear }: { data: DraftYearData; selectedY
                             <div className="min-w-0 flex-1">
                               <div className="flex min-w-0 items-center gap-1.5">
                                 <span className="truncate text-sm font-semibold text-[var(--text)]">
-                                  {pick.playerId ? <PlayerLink playerId={pick.playerId}>{pick.player}</PlayerLink> : pick.player}
+                                  {pick.playerId ? (
+                                    <PlayerLink playerId={pick.playerId} style={{ color: 'inherit' }}>
+                                      {pick.player}
+                                    </PlayerLink>
+                                  ) : (
+                                    pick.player
+                                  )}
                                 </span>
                                 {pick.pos ? (
                                   <span className="shrink-0 rounded bg-black/15 px-1 py-0.5 text-[9px] font-bold text-[var(--muted)]">{pick.pos}</span>

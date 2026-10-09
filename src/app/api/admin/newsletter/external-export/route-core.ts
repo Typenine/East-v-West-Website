@@ -14,9 +14,11 @@ import {
   getDraftPicks,
   getLeague,
   getLeagueDrafts,
+  getLeagueMatchups,
   getLeagueRosters,
   getTeamsData,
   type SleeperDraftPick,
+  type SleeperMatchup,
   type SleeperPlayer,
   type SleeperRoster,
 } from '@/lib/utils/sleeper-api';
@@ -180,9 +182,10 @@ async function buildSourcePack(season: number, week: number, episodeType: string
   // Reuse the same roster/player data this export already needs as the canonical
   // player-name catalog for deterministic continuity. This adds no model call and
   // avoids treating arbitrary capitalized PDF text as a player name.
-  const [rosters, allPlayers] = await Promise.all([
+  const [rosters, allPlayers, reviewWeekMatchups] = await Promise.all([
     getLeagueRosters(leagueId, opts).catch(() => [] as SleeperRoster[]),
     getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>)),
+    getLeagueMatchups(leagueId, snapshotWeek, opts).catch(() => [] as SleeperMatchup[]),
   ]);
   const canonicalPlayerNames = unique(
     rosters.flatMap(roster => (roster.players ?? []).map(id => safePlayerName(allPlayers[id], ''))),
@@ -316,6 +319,32 @@ async function buildSourcePack(season: number, week: number, episodeType: string
   }).sort((a, b) => a.team.localeCompare(b.team));
 
   const rosterIdToTeam = new Map<number, string>(teams.map(team => [team.rosterId, team.teamName]));
+  const lineupReview = reviewWeekMatchups.map(matchup => {
+    const starterIds = new Set((matchup.starters ?? []).filter(Boolean));
+    const playerIds = (matchup.players ?? []).filter(Boolean);
+    const playerPoints = matchup.players_points ?? {};
+    const rows = playerIds.map(id => {
+      const player = allPlayers[id] as SleeperPlayer | undefined;
+      return {
+        id,
+        name: safePlayerName(player, id),
+        position: player?.position ?? null,
+        nflTeam: player?.team ?? null,
+        started: starterIds.has(id),
+        points: Number(playerPoints[id] ?? 0),
+        statusAtExport: player?.injury_status ?? player?.status ?? null,
+      };
+    });
+    return {
+      week: snapshotWeek,
+      rosterId: matchup.roster_id,
+      team: rosterIdToTeam.get(matchup.roster_id) ?? `Roster ${matchup.roster_id}`,
+      matchupId: matchup.matchup_id ?? null,
+      teamPoints: Number(matchup.custom_points ?? matchup.points ?? 0),
+      starters: rows.filter(player => player.started),
+      bench: rows.filter(player => !player.started),
+    };
+  }).sort((a, b) => a.team.localeCompare(b.team));
   const currentDraft = drafts.find(draft => String(draft.season) === String(season)) ?? drafts[0] ?? null;
   let draftPicks: SleeperDraftPick[] = [];
   if (currentDraft?.draft_id) {
@@ -395,6 +424,7 @@ async function buildSourcePack(season: number, week: number, episodeType: string
       authority: 'This pack is authoritative for East v. West rosters, transactions, draft state, league history, rules, bot memory, and saved newsletter continuity as of exportedAt.',
       nflResearch: 'Research current reliable NFL information when player status, role, injury, depth chart, or team context materially affects the analysis. Do not overwrite East v. West league facts with web assumptions.',
       voice: 'Mason Reed and Trent Weston are the authors. Neutral factual material belongs only in compact tables/sidebars. Main prose should be their analysis, arguments, callbacks, disagreements, and conclusions.',
+      lineupAnalysis: 'Use lineupReview to compare submitted starters with bench alternatives. Repeatedly benching obvious healthy stars for clearly inferior options may support a tanking interpretation, but record/low scoring alone may not. statusAtExport is current at export time, not proof of game-time health, so verify historical availability when that distinction affects the conclusion.',
       continuity: 'Use publishedContinuity as the primary receipt system for what Mason and Westy previously argued. Preserve each host\'s individual history. When new evidence changes a take, acknowledge the prior position and explain why it strengthened, weakened, or reversed. Do not force callbacks where they are not relevant.',
       finalOutput: 'Return a polished PDF with no AI/process/meta language inside the newsletter.',
     },
@@ -406,6 +436,7 @@ async function buildSourcePack(season: number, week: number, episodeType: string
       'Any IDs in publishedContinuity.health.unresolvedIssueIds are published issues whose Mason/Westy attribution could not yet be recovered. Do not invent takes for those issues.',
       'Future pick ownership is reconstructed from the current Sleeper roster map plus traded-pick ownership for four rookie-draft rounds.',
       'For weekless episodes, snapshotWeek is set to 1 so current standings/transaction APIs still return a usable league snapshot.',
+      'lineupReview contains the actual Sleeper starters and bench for snapshotWeek when available. Player statusAtExport reflects the export-time Sleeper player record and is not guaranteed to represent game-time availability for that historical week.',
     ],
     league: {
       leagueId,
@@ -420,6 +451,10 @@ async function buildSourcePack(season: number, week: number, episodeType: string
     },
     currentLeagueSnapshot: currentWeek,
     rosters: rosterProfiles,
+    lineupReview: {
+      week: snapshotWeek,
+      teams: lineupReview,
+    },
     draft: {
       draftId: currentDraft?.draft_id ?? null,
       status: (currentDraft as { status?: string } | null)?.status ?? null,

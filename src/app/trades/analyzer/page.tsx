@@ -1084,6 +1084,204 @@ function RosterSuggestionPanel({ analysis, values, sideA, sideB, gap, onAddA, on
   );
 }
 
+
+type DiscoverySort = 'high' | 'low' | 'closest' | 'name';
+type DiscoveryPosition = 'ALL' | 'QB' | 'RB' | 'WR' | 'TE' | 'K' | 'DEF' | 'PICK';
+
+const DISCOVERY_POSITIONS: { key: DiscoveryPosition; label: string }[] = [
+  { key: 'ALL', label: 'All positions' },
+  { key: 'QB', label: 'QB' },
+  { key: 'RB', label: 'RB' },
+  { key: 'WR', label: 'WR' },
+  { key: 'TE', label: 'TE' },
+  { key: 'K', label: 'K' },
+  { key: 'DEF', label: 'DEF' },
+  { key: 'PICK', label: 'Draft picks' },
+];
+
+function sourceValue(v: TradeValue, source: ValueSource): number {
+  return source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
+}
+
+function discoveryPositionMatches(v: TradeValue, position: DiscoveryPosition, includePicksInAll = true): boolean {
+  if (position === 'PICK') return v.isPick;
+  if (v.isPick) return position === 'ALL' && includePicksInAll;
+  return position === 'ALL' || v.position === position;
+}
+
+function AssetBrowser({
+  values, excluded, source, owners, ownersBusy, ownersError, target, suggestionMode, onAddA, onAddB,
+}: {
+  values: TradeValue[];
+  excluded: Set<string>;
+  source: ValueSource;
+  owners: Record<string, string>;
+  ownersBusy: boolean;
+  ownersError: string;
+  target: number;
+  suggestionMode: boolean;
+  onAddA: (v: TradeValue) => void;
+  onAddB: (v: TradeValue) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [position, setPosition] = useState<DiscoveryPosition>('ALL');
+  const [team, setTeam] = useState('ALL');
+  const [ownedOnly, setOwnedOnly] = useState(!suggestionMode);
+  const [nearOnly, setNearOnly] = useState(false);
+  const [sort, setSort] = useState<DiscoverySort>(suggestionMode ? 'closest' : 'high');
+  const [limit, setLimit] = useState(30);
+  const teamNames = useMemo(() => [...new Set(Object.values(owners))].filter(Boolean).sort(), [owners]);
+
+  useEffect(() => { setLimit(30); }, [query, position, team, ownedOnly, nearOnly, sort, target]);
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return values.filter((v) => {
+      const price = sourceValue(v, source);
+      if (!price || excluded.has(v.sleeperId)) return false;
+      if (!discoveryPositionMatches(v, position, suggestionMode)) return false;
+      if (q && !v.name.toLowerCase().includes(q)) return false;
+      if (ownedOnly && !v.isPick && !owners[v.sleeperId]) return false;
+      if (team !== 'ALL' && owners[v.sleeperId] !== team) return false;
+      if (nearOnly && target > 0 && Math.abs(price - target) > target * 0.35) return false;
+      return true;
+    }).sort((a, b) => {
+      const av = sourceValue(a, source);
+      const bv = sourceValue(b, source);
+      if (sort === 'name') return a.name.localeCompare(b.name);
+      if (sort === 'low') return av - bv;
+      if (sort === 'closest' && target > 0) return Math.abs(av - target) - Math.abs(bv - target) || bv - av;
+      return bv - av;
+    });
+  }, [values, source, excluded, position, suggestionMode, query, ownedOnly, owners, team, nearOnly, target, sort]);
+  const shown = matches.slice(0, limit);
+  const selectStyle = { ...ANALYZER_FIELD_STYLE, minWidth: 0 };
+  const fieldClass = 'w-full min-h-11 rounded-md border px-2.5 py-2 text-sm';
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs" style={broadcastMutedTextStyle}>
+        {suggestionMode
+          ? 'Browse every comparable asset, filter by position or draft pick, and add as many as you need.'
+          : 'Current trade values and East v. West ownership. Add a player directly to either side of your trade.'}
+      </p>
+      <AnalyzerFieldInput type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search players or picks..." aria-label="Search player values" />
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        <label className="min-w-0 space-y-1">
+          <span className="text-xs" style={broadcastMutedTextStyle}>Position</span>
+          <select className={fieldClass} style={selectStyle} value={position} onChange={(e) => setPosition(e.target.value as DiscoveryPosition)} aria-label="Filter by position">
+            {DISCOVERY_POSITIONS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0 space-y-1">
+          <span className="text-xs" style={broadcastMutedTextStyle}>Sort</span>
+          <select className={fieldClass} style={selectStyle} value={sort} onChange={(e) => setSort(e.target.value as DiscoverySort)} aria-label="Sort player values">
+            <option value="high">Highest value</option>
+            <option value="low">Lowest value</option>
+            {target > 0 && <option value="closest">Closest to offer</option>}
+            <option value="name">Name</option>
+          </select>
+        </label>
+        <label className="min-w-0 space-y-1 col-span-2 md:col-span-1">
+          <span className="text-xs" style={broadcastMutedTextStyle}>League owner</span>
+          <select className={fieldClass} style={selectStyle} value={team} onChange={(e) => setTeam(e.target.value)} aria-label="Filter by fantasy team">
+            <option value="ALL">All teams</option>
+            {teamNames.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <label className="flex items-center gap-2 text-xs" style={broadcastBodyTextStyle}>
+          <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
+          League-owned players only
+        </label>
+        {target > 0 && (
+          <label className="flex items-center gap-2 text-xs" style={broadcastBodyTextStyle}>
+            <input type="checkbox" checked={nearOnly} onChange={(e) => setNearOnly(e.target.checked)} />
+            Within 35% of offer ({formatValue(Math.round(target))})
+          </label>
+        )}
+      </div>
+      {position === 'PICK' && <p className="text-xs" style={broadcastFaintTextStyle}>Draft picks are valuation references. This list does not establish who owns a particular pick.</p>}
+      {ownersBusy && <p className="text-xs" style={broadcastMutedTextStyle}>Loading league ownership from Sleeper...</p>}
+      {ownersError && <p className="text-xs" role="alert" style={{ color: 'var(--danger)' }}>League ownership is unavailable: {ownersError}. Disable the league-owned filter to see all rankings.</p>}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium" style={broadcastMutedTextStyle}>{matches.length} matching assets</span>
+        {target > 0 && <span className="text-xs tabular-nums" style={broadcastMutedTextStyle}>Offer value: {formatValue(Math.round(target))}</span>}
+      </div>
+      <div className="overflow-x-auto rounded-md border" style={{ borderColor: PANEL.hairline }}>
+        <table className="w-full text-sm">
+          <thead style={{ background: PANEL.tintStrong }}>
+            <tr className="text-left text-xs" style={broadcastMutedTextStyle}>
+              <th scope="col" className="px-3 py-2">Player / asset</th>
+              <th scope="col" className="hidden sm:table-cell px-3 py-2">League owner</th>
+              <th scope="col" className="px-3 py-2 text-right">Value</th>
+              <th scope="col" className="px-3 py-2 text-right">Add</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((v) => {
+              const owner = v.isPick ? 'Pick estimate' : (owners[v.sleeperId] || (ownersBusy ? 'Loading...' : ownersError ? 'Unknown' : 'Unrostered'));
+              return (
+                <tr key={v.sleeperId} className="border-t" style={{ borderColor: PANEL.hairline }}>
+                  <td className="px-3 py-2 min-w-[130px]">
+                    <div className="font-semibold" style={broadcastBodyTextStyle}>{v.name}</div>
+                    <div className="text-xs" style={broadcastMutedTextStyle}>{v.isPick ? 'Draft pick' : [v.position, v.team, v.age ? 'Age ' + v.age.toFixed(0) : ''].filter(Boolean).join(' · ')}</div>
+                    <div className="sm:hidden text-[11px]" style={broadcastFaintTextStyle}>{owner}</div>
+                  </td>
+                  <td className="hidden sm:table-cell px-3 py-2 text-xs" style={broadcastMutedTextStyle}>{owner}</td>
+                  <td className="px-3 py-2 text-right font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(sourceValue(v, source))}</td>
+                  <td className="px-2 py-2">
+                    <div className="flex items-center justify-end gap-1">
+                      <button type="button" onClick={() => onAddA(v)} className="min-h-9 min-w-9 rounded border px-2 text-xs font-bold" style={{ borderColor: PANEL.border, color: PANEL.text }} title="Add to Side A" aria-label={'Add ' + v.name + ' to Side A'}>+A</button>
+                      <button type="button" onClick={() => onAddB(v)} className="min-h-9 min-w-9 rounded border px-2 text-xs font-bold" style={{ borderColor: PANEL.border, color: PANEL.text }} title="Add to Side B" aria-label={'Add ' + v.name + ' to Side B'}>+B</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {shown.length === 0 && <tr><td colSpan={4} className="px-3 py-5 text-center text-sm" style={broadcastMutedTextStyle}>{ownersBusy && ownedOnly ? 'Loading league rosters...' : 'No assets match these filters.'}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {shown.length < matches.length && (
+        <button type="button" onClick={() => setLimit((n) => n + 30)} className="w-full min-h-11 rounded-md border px-4 py-2 text-sm font-semibold" style={{ borderColor: PANEL.border, color: PANEL.text, background: PANEL.tintStrong }}>
+          Show 30 more ({matches.length - shown.length} remaining)
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SuggestionsDialog({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    const prior = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prior;
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[220] flex items-end md:items-center justify-center">
+      <button type="button" className="absolute inset-0 bg-black/70" aria-label="Close all suggestions" onClick={onClose} />
+      <div className="relative flex w-full max-w-5xl max-h-[90vh] md:max-h-[85vh] flex-col overflow-hidden rounded-t-xl md:rounded-xl border" style={ANALYZER_DROPDOWN_STYLE} role="dialog" aria-modal="true" aria-label="All trade suggestions">
+        <div className="flex shrink-0 items-center justify-between border-b px-4 py-3" style={{ borderColor: PANEL.hairline }}>
+          <h2 className="font-bold" style={broadcastBodyTextStyle}>All trade suggestions</h2>
+          <button type="button" className="min-h-10 min-w-10 text-xl" style={broadcastBodyTextStyle} aria-label="Close suggestions" onClick={onClose}>×</button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // --- Main content (needs Suspense for useSearchParams) ---
 
 function TradeAnalyzerContent() {
@@ -1100,6 +1298,14 @@ function TradeAnalyzerContent() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [dataSources, setDataSources] = useState<{ fantasyCalc: boolean; keepTradeCut: boolean; fcCount?: number; ktcCount?: number; ktcMatchRate?: number } | null>(null);
   const [suggestDismissed, setSuggestDismissed] = useState(false);
+  const [discoveryView, setDiscoveryView] = useState<'build' | 'browse'>('build');
+  const [browseSide, setBrowseSide] = useState<'A' | 'B'>('A');
+  const [suggestionPosition, setSuggestionPosition] = useState<DiscoveryPosition>('ALL');
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [owners, setOwners] = useState<Record<string, string>>({});
+  const [ownersBusy, setOwnersBusy] = useState(false);
+  const [ownersError, setOwnersError] = useState('');
+  const [ownersLoaded, setOwnersLoaded] = useState(false);
   const urlInitialized = useRef(false);
 
   useEffect(() => {
@@ -1129,6 +1335,30 @@ function TradeAnalyzerContent() {
     }
     load();
   }, []);
+
+  // Fetch all league owners once on demand, without writing anything to Neon.
+  useEffect(() => {
+    if ((discoveryView !== 'browse' && !suggestionsOpen) || ownersLoaded) return;
+    let cancelled = false;
+    setOwnersBusy(true);
+    setOwnersError('');
+    fetch('/api/trade-analyzer/ownership')
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Sleeper roster lookup failed');
+        return response.json();
+      })
+      .then((data: { owners?: Record<string, string> }) => {
+        if (cancelled) return;
+        setOwners(data.owners || {});
+        setOwnersLoaded(true);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setOwnersError(error instanceof Error ? error.message : 'Unknown error');
+      })
+      .finally(() => { if (!cancelled) setOwnersBusy(false); });
+    return () => { cancelled = true; };
+  }, [discoveryView, suggestionsOpen, ownersLoaded]);
 
   // Decode URL params into trade state once values are loaded
   useEffect(() => {
@@ -1168,30 +1398,28 @@ function TradeAnalyzerContent() {
   const totalA = analysis.rawA;
   const totalB = analysis.rawB;
 
-  // Suggestions: when both sides have assets, target the effective gap (what the losing side
-  // needs to add). When only one side has assets, suggest comparable players for reference.
-  const suggestions = useMemo(() => {
-    const all = [...sideA, ...sideB];
-    if (all.length === 0 || values.length === 0) return [];
-    const getVal = (v: TradeValue) =>
-      source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
-    const oneSide = sideA.length > 0 ? sideA : sideB;
-    const target = sideA.length > 0 && sideB.length > 0
-      ? analysis.diff
-      : effectiveTotal(oneSide, source, studScale).total;
-    return values
-      .filter((v) => !excluded.has(v.sleeperId) && getVal(v) > 0)
-      .sort((a, b) => Math.abs(getVal(a) - target) - Math.abs(getVal(b) - target))
-      .slice(0, 8);
-  }, [sideA, sideB, analysis.diff, values, excluded, source, studScale]);
-
+  // Match against the effective offer; retain the full sorted set for the expanded browser.
+  const suggestionTarget = sideA.length > 0 && sideB.length > 0
+    ? analysis.diff
+    : (sideA.length || sideB.length)
+      ? effectiveTotal(sideA.length ? sideA : sideB, source, studScale).total
+      : 0;
+  const suggestionCandidates = useMemo(() => {
+    if (!suggestionTarget || !values.length) return [];
+    return values.filter((v) => !excluded.has(v.sleeperId) && sourceValue(v, source) > 0)
+      .sort((a, b) => Math.abs(sourceValue(a, source) - suggestionTarget) - Math.abs(sourceValue(b, source) - suggestionTarget));
+  }, [suggestionTarget, values, excluded, source]);
+  const suggestions = suggestionCandidates.filter((v) => discoveryPositionMatches(v, suggestionPosition)).slice(0, 8);
+  const browseTarget = browseSide === 'A'
+    ? (sideA.length ? analysis.effA : analysis.effB)
+    : (sideB.length ? analysis.effB : analysis.effA);
   const suggestionMode: 'balance' | 'compare' = sideA.length > 0 && sideB.length > 0 ? 'balance' : 'compare';
   // Which side is behind (on effective value) and needs the suggested player
   const needsSide: 'A' | 'B' | null = suggestionMode === 'balance'
     ? (analysis.winner === 'A' ? 'B' : analysis.winner === 'B' ? 'A' : null)
     : null;
 
-  const showSuggestions = suggestions.length > 0 && !suggestDismissed;
+  const showSuggestions = suggestionCandidates.length > 0 && !suggestDismissed && discoveryView === 'build';
 
   // Reset dismissed state when trade is fully cleared
   useEffect(() => {
@@ -1228,7 +1456,7 @@ function TradeAnalyzerContent() {
 
   return (
     <>
-    <div className={`container mx-auto px-4 py-8${showSuggestions ? ' pb-24' : ''}`}>
+    <div className={`container mx-auto px-4 py-8${showSuggestions ? ' pb-44 sm:pb-36' : ''}`}>
       <SectionHeader
         title="Trade Analyzer"
         subtitle="Dynasty · Superflex · 12-Team · PPR"
@@ -1247,6 +1475,34 @@ function TradeAnalyzerContent() {
         ) : undefined}
       />
 
+
+      <div className="flex flex-wrap items-center gap-2 mb-4" role="group" aria-label="Trade analyzer views">
+        <button type="button" onClick={() => setDiscoveryView('build')} aria-pressed={discoveryView === 'build'} className="min-h-11 rounded-md border px-4 py-2 text-sm font-bold" style={{ background: discoveryView === 'build' ? PANEL.tintStronger : PANEL.tint, borderColor: PANEL.border, color: PANEL.text }}>Build Trade ({sideA.length + sideB.length})</button>
+        <button type="button" onClick={() => setDiscoveryView('browse')} aria-pressed={discoveryView === 'browse'} className="min-h-11 rounded-md border px-4 py-2 text-sm font-bold" style={{ background: discoveryView === 'browse' ? PANEL.tintStronger : PANEL.tint, borderColor: PANEL.border, color: PANEL.text }}>Browse Values</button>
+      </div>
+
+      {discoveryView === 'browse' ? (
+        <AnalyzerMainPanel title="League Value Browser" meta="Position rankings · current league ownership">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4 rounded-md border p-3" style={{ background: PANEL.tintSoft, borderColor: PANEL.hairline }}>
+            <span className="text-xs" style={broadcastBodyTextStyle}>
+              {sideA.length || sideB.length
+                ? 'Compare against the effective value of your selected trade assets.'
+                : 'Add players or picks in Build Trade to find comparable targets.'}
+            </span>
+            {sideA.length > 0 && sideB.length > 0 && (
+              <div className="flex gap-2">
+                <button type="button" aria-pressed={browseSide === 'A'} onClick={() => setBrowseSide('A')} className="rounded border px-3 py-2 text-xs" style={{ borderColor: PANEL.border, background: browseSide === 'A' ? PANEL.tintStronger : PANEL.tint, color: PANEL.text }}>Match Side A</button>
+                <button type="button" aria-pressed={browseSide === 'B'} onClick={() => setBrowseSide('B')} className="rounded border px-3 py-2 text-xs" style={{ borderColor: PANEL.border, background: browseSide === 'B' ? PANEL.tintStronger : PANEL.tint, color: PANEL.text }}>Match Side B</button>
+              </div>
+            )}
+          </div>
+          <AssetBrowser values={values} excluded={excluded} source={source}
+            owners={owners} ownersBusy={ownersBusy} ownersError={ownersError} target={browseTarget} suggestionMode={false}
+            onAddA={(v) => setSideA((prev) => [...prev, assetFromValue(v, v.isPick)])}
+            onAddB={(v) => setSideB((prev) => [...prev, assetFromValue(v, v.isPick)])} />
+        </AnalyzerMainPanel>
+      ) : (
+        <>
       <AnalyzerMainPanel title="Build Trade">
         <div className="flex flex-col md:flex-row md:items-stretch gap-6">
           <TradeSide label="Side A" color="var(--accent)" assets={sideA} values={values} excluded={excluded} source={source}
@@ -1321,7 +1577,18 @@ function TradeAnalyzerContent() {
       <div className="mt-5 text-center text-xs" style={broadcastFaintTextStyle}>
         Values from FantasyCalc &amp; KeepTradeCut · Updated every 6 hours
       </div>
+        </>
+      )}
     </div>
+
+    {suggestionsOpen && (
+      <SuggestionsDialog onClose={() => setSuggestionsOpen(false)}>
+        <AssetBrowser values={values} excluded={excluded} source={source}
+          owners={owners} ownersBusy={ownersBusy} ownersError={ownersError} target={suggestionTarget} suggestionMode={true}
+          onAddA={(v) => setSideA((prev) => [...prev, assetFromValue(v, v.isPick)])}
+          onAddB={(v) => setSideB((prev) => [...prev, assetFromValue(v, v.isPick)])} />
+      </SuggestionsDialog>
+    )}
 
     {/* Suggestion strip — sticky bottom, non-intrusive */}
     {showSuggestions && (
@@ -1330,34 +1597,55 @@ function TradeAnalyzerContent() {
         style={{ ...PANEL_SHELL_STYLE, borderTopColor: PANEL.border, backdropFilter: 'blur(12px)' }}
       >
         <div className="h-[2px] w-full" style={{ background: 'var(--accent)' }} aria-hidden="true" />
-        <div className="container mx-auto px-4 py-2.5 flex items-center gap-3">
-          <div className="shrink-0 hidden sm:block">
-            <div className="text-[10px] font-bold uppercase tracking-[0.22em]" style={broadcastFaintTextStyle}>
-              {suggestionMode === 'balance' ? 'Balance trade' : 'Compare'}
+
+        {/* Keep filters above suggestions so mobile cards get the full screen width. */}
+        <div className="container mx-auto flex items-center justify-between gap-2 px-3 sm:px-4 pt-2 pb-1.5">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-wider" style={broadcastFaintTextStyle}>
+              {suggestionMode === 'balance' ? 'Balance trade' : 'Compare'} · {suggestions.length} suggestions
             </div>
+            <div className="text-[10px] sm:hidden" style={broadcastMutedTextStyle}>Swipe to see more</div>
             {suggestionMode === 'balance' && needsSide && (
-              <div className="text-[9px] mt-0.5" style={broadcastFaintTextStyle}>add to Side {needsSide}</div>
+              <div className="hidden sm:block text-[10px]" style={broadcastFaintTextStyle}>Add to Side {needsSide}</div>
             )}
           </div>
-          <div className="flex gap-2 flex-1 overflow-x-auto pb-0.5">
+          <div className="flex shrink-0 items-center justify-end gap-1.5">
+            <select value={suggestionPosition} onChange={(e) => setSuggestionPosition(e.target.value as DiscoveryPosition)}
+              aria-label="Filter quick trade suggestions by position"
+              className="min-h-10 max-w-[88px] rounded-md border px-2 text-xs" style={ANALYZER_FIELD_STYLE}>
+              {DISCOVERY_POSITIONS.map((p) => <option key={p.key} value={p.key}>{p.key === 'PICK' ? 'Picks' : p.key === 'ALL' ? 'All' : p.label}</option>)}
+            </select>
+            <button type="button" onClick={() => setSuggestionsOpen(true)}
+              className="min-h-10 rounded-md border px-3 text-xs font-bold whitespace-nowrap"
+              style={{ borderColor: PANEL.border, color: PANEL.text, background: PANEL.tintStrong }}>View all</button>
+            <button type="button" onClick={() => setSuggestDismissed(true)}
+              className="min-h-10 min-w-8 p-1 text-xl leading-none transition-opacity hover:opacity-80"
+              style={broadcastFaintTextStyle} aria-label="Dismiss suggestions">×</button>
+          </div>
+        </div>
+        <div className="container mx-auto px-3 sm:px-4 pb-2">
+          <div className="flex w-full min-w-0 gap-2 overflow-x-auto overscroll-x-contain snap-x snap-proximity pb-1" aria-label="Trade suggestions, scroll horizontally for more">
+            {suggestions.length === 0 && (
+              <span className="text-xs py-2 whitespace-nowrap" style={broadcastMutedTextStyle}>No matches for this position</span>
+            )}
             {suggestions.map((v) => {
               const val = source === 'fc' ? (v.fcValue ?? v.value) : source === 'ktc' ? (v.ktcValue ?? v.value) : v.value;
               return (
                 <div
                   key={v.sleeperId}
-                  className="flex items-center gap-2 rounded border px-2.5 py-1.5 shrink-0"
+                  className="flex w-[46vw] sm:w-auto items-center justify-between gap-2 rounded border px-2.5 py-1.5 shrink-0 snap-start"
                   style={{ background: PANEL.tint, borderColor: PANEL.hairline }}
                 >
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold whitespace-nowrap" style={broadcastBodyTextStyle}>
+                    <div className="text-sm font-semibold truncate" title={v.name} style={broadcastBodyTextStyle}>
                       {v.isPick ? v.name.replace(/^\d{4}\s*/, '') : v.name}
                     </div>
-                    <div className="text-xs whitespace-nowrap tabular-nums" style={broadcastMutedTextStyle}>
+                    <div className="text-xs truncate tabular-nums" style={broadcastMutedTextStyle}>
                       {v.isPick ? 'Pick' : `${v.position}${v.team ? ` · ${v.team}` : ''}`}
                       {' · '}<span className="text-accent">{formatValue(val)}</span>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-0.5 ml-1">
+                  <div className="flex flex-col gap-0.5 ml-1 shrink-0">
                     <div style={{ opacity: needsSide === 'B' ? 0.25 : 1 }}>
                       <BroadcastSubmitButton
                         accent="var(--accent)"
@@ -1381,13 +1669,6 @@ function TradeAnalyzerContent() {
               );
             })}
           </div>
-          <button
-            onClick={() => setSuggestDismissed(true)}
-            className="transition-opacity hover:opacity-80 text-xl leading-none shrink-0 p-1"
-            style={broadcastFaintTextStyle}
-            aria-label="Dismiss suggestions">
-            ×
-          </button>
         </div>
       </div>
     )}

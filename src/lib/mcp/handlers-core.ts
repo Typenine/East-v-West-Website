@@ -83,6 +83,12 @@ function champCounts(): Record<string, number> {
   return counts;
 }
 
+function getUpcomingDraftDate(now: Date = new Date()): Date {
+  return IMPORTANT_DATES.NEXT_DRAFT.getTime() > now.getTime()
+    ? IMPORTANT_DATES.NEXT_DRAFT
+    : IMPORTANT_DATES.NEXT_LEAGUE_YEAR_DRAFT;
+}
+
 // ─── tool: get_league_info ─────────────────────────────────────────────────────
 
 export async function handleGetLeagueInfo() {
@@ -104,7 +110,7 @@ export async function handleGetLeagueInfo() {
       TRADE_DEADLINE: IMPORTANT_DATES.TRADE_DEADLINE.toISOString(),
       PLAYOFFS_START: IMPORTANT_DATES.PLAYOFFS_START.toISOString(),
       NEW_LEAGUE_YEAR: IMPORTANT_DATES.NEW_LEAGUE_YEAR.toISOString(),
-      NEXT_DRAFT: IMPORTANT_DATES.NEXT_DRAFT.toISOString(),
+      NEXT_DRAFT: getUpcomingDraftDate().toISOString(),
     },
     structure: {
       regularSeasonWeeks: 14,
@@ -115,8 +121,8 @@ export async function handleGetLeagueInfo() {
       rosterSize: 17,
       starters: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, SUPERFLEX: 1, K: 1, DST: 1 },
       benchSlots: 7,
-      irSlots: 3,
-      taxiSlots: 3,
+      irSlots: 4,
+      taxiSlots: 4,
     },
     payouts: {
       champion: 365,
@@ -1697,7 +1703,7 @@ export async function handleGetCommissionerOps() {
   const dateReminders: DateReminder[] = [];
 
   const importantDateEntries: Array<{ key: string; label: string; date: Date }> = [
-    { key: 'NEXT_DRAFT',      label: 'Annual Draft',           date: IMPORTANT_DATES.NEXT_DRAFT },
+    { key: 'NEXT_DRAFT',      label: 'Annual Draft',           date: getUpcomingDraftDate(now) },
     { key: 'NFL_WEEK_1',      label: 'NFL Week 1 Kickoff',     date: IMPORTANT_DATES.NFL_WEEK_1_START },
     { key: 'TRADE_DEADLINE',  label: 'Trade Deadline (Wk 12)', date: IMPORTANT_DATES.TRADE_DEADLINE },
     { key: 'PLAYOFFS_START',  label: 'Playoffs Start (Wk 15)', date: IMPORTANT_DATES.PLAYOFFS_START },
@@ -1776,28 +1782,45 @@ export async function handleGetCommissionerOps() {
   }
 
   // ── Taxi squad review ─────────────────────────────────────────────────────────
-  // Sleeper stores taxi players in roster.taxi[]
-  // Flag if a taxi player has 2+ years of NFL experience (possible eligibility issue)
-  type TaxiReviewItem = { team: string; player: string; position: string | null; yearsExp: number | null; note: string };
+  // Only flag current-state violations that Sleeper data can prove directly.
+  // Historical taxi activation/reset eligibility depends on transaction and tenure
+  // history and must not be inferred from a player's NFL experience alone.
+  type TaxiReviewItem = {
+    team: string;
+    issue: 'capacity' | 'qb_limit';
+    players: string[];
+    note: string;
+  };
   const taxiReview: TaxiReviewItem[] = [];
   for (const roster of rosters) {
     const teamName = rosterIdToName.get(roster.roster_id) ?? `Roster ${roster.roster_id}`;
     const taxiIds: string[] = (roster as unknown as { taxi?: string[] }).taxi ?? [];
-    for (const pid of taxiIds) {
-      const pl = allPlayers[pid];
-      if (!pl) continue;
-      const yearsExp = typeof pl.years_exp === 'number' ? pl.years_exp : null;
-      const playerName = `${pl.first_name || ''} ${pl.last_name || ''}`.trim();
-      // Dynasty standard: taxi eligibility typically requires 0–1 years experience
-      if (yearsExp !== null && yearsExp >= 2) {
-        taxiReview.push({
-          team: teamName,
-          player: playerName,
-          position: pl.position ?? null,
-          yearsExp,
-          note: `Possible issue: ${playerName} has ${yearsExp} years NFL experience on taxi squad. Check before kickoff — taxi eligibility may need commissioner review.`,
-        });
-      }
+
+    if (taxiIds.length > 4) {
+      const names = taxiIds.map((pid) => {
+        const pl = allPlayers[pid];
+        return pl ? `${pl.first_name || ''} ${pl.last_name || ''}`.trim() || pid : pid;
+      });
+      taxiReview.push({
+        team: teamName,
+        issue: 'capacity',
+        players: names,
+        note: `${taxiIds.length} players are currently on taxi; the league maximum is 4.`,
+      });
+    }
+
+    const qbIds = taxiIds.filter((pid) => (allPlayers[pid]?.position ?? '').toUpperCase() === 'QB');
+    if (qbIds.length > 1) {
+      const names = qbIds.map((pid) => {
+        const pl = allPlayers[pid];
+        return pl ? `${pl.first_name || ''} ${pl.last_name || ''}`.trim() || pid : pid;
+      });
+      taxiReview.push({
+        team: teamName,
+        issue: 'qb_limit',
+        players: names,
+        note: `${qbIds.length} quarterbacks are currently on taxi; the league maximum is 1 QB.`,
+      });
     }
   }
 
@@ -1860,7 +1883,7 @@ export async function handleGetCommissionerOps() {
 
   // Roster review
   if (irReview.length > 0) checklist.push(`Review ${irReview.length} possible IR slot issue(s) — players showing Active while on IR`);
-  if (taxiReview.length > 0) checklist.push(`Review ${taxiReview.length} possible taxi eligibility issue(s) — players with 2+ years experience`);
+  if (taxiReview.length > 0) checklist.push(`Review ${taxiReview.length} confirmed current taxi limit issue(s) — capacity and/or QB limit`);
   if (lineupFlags.length > 0) checklist.push(`Check before kickoff: ${lineupFlags.length} injured/questionable player(s) listed as starters this week`);
 
   // Always-present items
@@ -1985,9 +2008,9 @@ export function formatCommissionerOpsMarkdown(data: ReturnType<typeof handleGetC
 
   // ── Taxi squad review ─────────────────────────────────────────────────────────
   if (taxiReview.length > 0) {
-    lines.push('### 🚕 Taxi Squad Review — Possible Eligibility Issues');
+    lines.push('### 🚕 Taxi Squad Review — Current Limit Issues');
     for (const item of taxiReview) {
-      lines.push(`- **${item.player}** *(${item.team})* — ${item.note}`);
+      lines.push(`- **${item.team}** — ${item.note}`);
     }
     lines.push('');
   }
@@ -2906,110 +2929,145 @@ export function formatTradeBlockMarkdown(data: ReturnType<typeof handleGetTradeB
 
 // ─── tool: get_power_rankings ─────────────────────────────────────────────────
 
+const POWER_RANKINGS_BASE = 'https://east-v-west-website.vercel.app';
+
+type PowerRankingsPageItem = {
+  rank: number;
+  team: string;
+  blurb: string;
+  movementLabel?: string;
+  movementDirection?: 'up' | 'down' | 'neutral';
+  movementDescription?: string;
+  record?: string;
+  pointsFor?: number;
+};
+
+type PowerRankingsPageData = {
+  masonRankings?: PowerRankingsPageItem[];
+  westyRankings?: PowerRankingsPageItem[];
+  bot1_intro?: string;
+  bot2_intro?: string;
+  source?: 'structured' | 'uploaded-pdf';
+};
+
+type PublishedNewsletterMeta = {
+  id: string;
+  title?: string | null;
+  status?: string | null;
+  season: number;
+  week: number;
+  episodeType?: string | null;
+  publishedAt?: string | null;
+  generatedAt: string;
+};
+
 export async function handleGetPowerRankings() {
-  const leagueId = LEAGUE_IDS.CURRENT;
-  const opts = { timeoutMs: 15000 };
-
-  const [teams, rosters, state] = await Promise.all([
-    getTeamsData(leagueId, opts).catch(() => []),
-    getLeagueRosters(leagueId, opts).catch(() => [] as SleeperRoster[]),
-    getNFLState().catch(() => null),
-  ]);
-
-  const currentWeek = (state as { week?: number } | null)?.week ?? 1;
-  const recentWeeks = Array.from(
-    new Set([Math.max(1, currentWeek - 2), Math.max(1, currentWeek - 1), currentWeek])
+  const listRes = await fetch(
+    `${POWER_RANKINGS_BASE}/api/newsletter?list=true&season=${encodeURIComponent(CURRENT_SEASON)}`,
+    { cache: 'no-store', signal: AbortSignal.timeout(12_000) },
   );
-
-  const weekMatchups = await Promise.all(
-    recentWeeks.map((w) => getLeagueMatchups(leagueId, w, opts).catch(() => [] as SleeperMatchup[]))
-  );
-
-  const rosterById = new Map<number, SleeperRoster>(rosters.map((r) => [r.roster_id, r]));
-
-  // Count recent wins per roster_id
-  const recentWinsMap = new Map<number, number>();
-  for (const wk of weekMatchups) {
-    const byMatchup = new Map<number, SleeperMatchup[]>();
-    for (const m of wk) {
-      if (!byMatchup.has(m.matchup_id)) byMatchup.set(m.matchup_id, []);
-      byMatchup.get(m.matchup_id)!.push(m);
-    }
-    for (const pair of byMatchup.values()) {
-      if (pair.length !== 2) continue;
-      const [a, b] = pair;
-      const winner = (a.points ?? 0) >= (b.points ?? 0) ? a : b;
-      recentWinsMap.set(winner.roster_id, (recentWinsMap.get(winner.roster_id) ?? 0) + 1);
-    }
+  if (!listRes.ok) {
+    throw new McpError('upstream_error', `Power Rankings catalog returned ${listRes.status}`);
   }
 
-  const stats = teams.map((team) => {
-    const r = rosterById.get(team.rosterId);
-    const rs = r?.settings as { wins?: number; losses?: number; ties?: number; fpts?: number; fpts_decimal?: number } | undefined;
-    const wins = rs?.wins ?? 0;
-    const losses = rs?.losses ?? 0;
-    const ties = rs?.ties ?? 0;
-    const games = wins + losses + ties;
-    const pf = (rs?.fpts ?? 0) + (rs?.fpts_decimal ?? 0) / 100;
-    const winPct = games > 0 ? wins / games : 0.5;
-    const rw = recentWinsMap.get(team.rosterId) ?? 0;
-    const recentWPct = recentWeeks.length > 0 ? rw / recentWeeks.length : 0.5;
-    return { teamName: team.teamName, wins, losses, ties, pf, winPct, recentWins: rw, recentWPct };
-  });
-
-  const sortedByPF = [...stats].sort((a, b) => b.pf - a.pf);
-  const pfRank = new Map(sortedByPF.map((t, i) => [t.teamName, i]));
-  const maxRank = Math.max(stats.length - 1, 1);
-
-  const scored = stats.map((t) => {
-    const pfPct = (maxRank - (pfRank.get(t.teamName) ?? 0)) / maxRank;
-    const score = Math.round(t.winPct * 40 + pfPct * 30 + t.recentWPct * 30);
-    const tier = score >= 75 ? 'Elite' : score >= 55 ? 'Contender' : score >= 40 ? 'Fringe' : 'Rebuilding';
-    return { ...t, pfPercentile: Math.round(pfPct * 100), score, tier };
-  }).sort((a, b) => b.score - a.score || b.pf - a.pf);
-
-  return {
-    ok: true,
-    data: {
-      fetchedAt: new Date().toISOString(),
-      source: 'sleeper-live',
-      season: CURRENT_SEASON,
-      week: currentWeek,
-      method: 'record(40%) + PF-percentile(30%) + last-3-weeks(30%)',
-      rankings: scored.map((t, i) => ({
-        rank: i + 1,
-        teamName: t.teamName,
-        score: t.score,
-        tier: t.tier,
-        record: `${t.wins}-${t.losses}${t.ties > 0 ? `-${t.ties}` : ''}`,
-        pf: Math.round(t.pf * 10) / 10,
-        pfPercentile: t.pfPercentile,
-        recentForm: `${t.recentWins}-${recentWeeks.length - t.recentWins} (last ${recentWeeks.length} wks)`,
-      })),
-    },
+  const listJson = (await listRes.json()) as {
+    success?: boolean;
+    items?: PublishedNewsletterMeta[];
   };
+
+  const published = (listJson.items ?? [])
+    .filter((item) => item.status === 'published')
+    .sort((a, b) => {
+      const aTs = Date.parse(a.publishedAt || a.generatedAt || '') || 0;
+      const bTs = Date.parse(b.publishedAt || b.generatedAt || '') || 0;
+      return bTs - aTs;
+    });
+
+  for (const meta of published) {
+    const rankingsRes = await fetch(
+      `${POWER_RANKINGS_BASE}/api/newsletter/power-rankings?id=${encodeURIComponent(meta.id)}`,
+      { cache: 'no-store', signal: AbortSignal.timeout(30_000) },
+    );
+    if (!rankingsRes.ok) continue;
+
+    const rankingsJson = (await rankingsRes.json()) as {
+      success?: boolean;
+      rankings?: PowerRankingsPageData;
+    };
+    if (rankingsJson.success === false || !rankingsJson.rankings) continue;
+
+    const rankings = rankingsJson.rankings;
+    const masonRankings = Array.isArray(rankings.masonRankings) ? rankings.masonRankings : [];
+    const westyRankings = Array.isArray(rankings.westyRankings) ? rankings.westyRankings : [];
+
+    // The Power Rankings page itself requires complete 1-12 lists. The connector
+    // should expose that same canonical result rather than inventing or re-ranking.
+    if (masonRankings.length !== 12 || westyRankings.length !== 12) continue;
+
+    return {
+      ok: true,
+      data: {
+        fetchedAt: new Date().toISOString(),
+        source: 'published-power-rankings-page',
+        rankingsSource: rankings.source ?? null,
+        pageUrl: `${POWER_RANKINGS_BASE}/power-rankings?season=${CURRENT_SEASON}&issue=${encodeURIComponent(meta.id)}`,
+        season: String(meta.season ?? CURRENT_SEASON),
+        week: meta.week,
+        issueId: meta.id,
+        issueTitle: meta.title?.trim() || null,
+        episodeType: meta.episodeType ?? null,
+        publishedAt: meta.publishedAt || meta.generatedAt,
+        masonIntro: rankings.bot1_intro?.trim() || null,
+        westyIntro: rankings.bot2_intro?.trim() || null,
+        masonRankings,
+        westyRankings,
+      },
+    };
+  }
+
+  throw new McpError(
+    'not_found',
+    `No complete published Power Rankings are available on the ${CURRENT_SEASON} Power Rankings page.`,
+  );
 }
 
 export function formatPowerRankingsMarkdown(data: ReturnType<typeof handleGetPowerRankings> extends Promise<infer T> ? T : never): string {
   if (!data?.data) return '⚠️ Power rankings data unavailable.';
-  const { rankings, week, season, method } = data.data;
 
-  const tierEmoji = (tier: string) =>
-    tier === 'Elite' ? '🟢' : tier === 'Contender' ? '🟡' : tier === 'Fringe' ? '🟠' : '🔴';
+  const {
+    season, week, issueTitle, publishedAt,
+    masonRankings, westyRankings,
+  } = data.data;
 
   const lines: string[] = [
-    `## ⚡ Power Rankings — ${season} Week ${week}`,
-    `*Formula: ${method}*`,
+    `## ⚡ Power Rankings — ${season}${week < 900 ? ` Week ${week}` : ''}`,
+    issueTitle ? `*${issueTitle} · Published ${new Date(publishedAt).toLocaleDateString('en-US')}*` : `*Published ${new Date(publishedAt).toLocaleDateString('en-US')}*`,
     '',
-    '| Rank | Team | Score | Tier | Record | PF | Recent |',
-    '|------|------|-------|------|--------|----|--------|',
   ];
 
-  for (const r of rankings) {
-    lines.push(`| **${r.rank}** | ${r.teamName} | **${r.score}** | ${tierEmoji(r.tier)} ${r.tier} | ${r.record} | ${r.pf} | ${r.recentForm} |`);
-  }
+  const addTable = (label: string, rankings: PowerRankingsPageItem[]) => {
+    const hasRecordData = rankings.some((item) => item.record && typeof item.pointsFor === 'number');
+    lines.push(`### ${label}`);
+    lines.push(hasRecordData ? '| Rank | Team | Movement | Record | PF |' : '| Rank | Team | Movement |');
+    lines.push(hasRecordData ? '|---:|---|---:|---|---:|' : '|---:|---|---:|');
 
-  lines.push('', `*Live from Sleeper · ${FRESHNESS()}*`);
+    for (const item of [...rankings].sort((a, b) => a.rank - b.rank)) {
+      const move = item.movementLabel || '—';
+      if (hasRecordData) {
+        const record = item.record ?? '—';
+        const pf = typeof item.pointsFor === 'number' ? item.pointsFor.toFixed(1) : '—';
+        lines.push(`| **${item.rank}** | ${item.team} | ${move} | ${record} | ${pf} |`);
+      } else {
+        lines.push(`| **${item.rank}** | ${item.team} | ${move} |`);
+      }
+    }
+    lines.push('');
+  };
+
+  addTable('Mason Reed', masonRankings);
+  addTable('Westy', westyRankings);
+
+  lines.push(`*Source: published Power Rankings page · ${FRESHNESS()}*`);
   return lines.join('\n');
 }
 
@@ -3037,12 +3095,14 @@ export async function handleAnalyzeRoster(input: { name?: string }) {
   const r = rosters.find((ros) => ros.roster_id === team.rosterId);
   const irSet = new Set<string>(r?.reserve ?? []);
   const taxiSet = new Set<string>(r?.taxi ?? []);
-  const activeIds = (r?.players ?? team.players ?? []).filter((pid) => pid && !irSet.has(pid) && !taxiSet.has(pid));
+  // Dynasty roster strength includes every rostered asset. Sleeper keeps IR and
+  // taxi players in players[], so classify them instead of filtering them out.
+  const allIds = (r?.players ?? team.players ?? []).filter(Boolean);
 
-  const byPos: Record<string, Array<{ name: string; value: number | null; rank: number | null; trend: number | null; nflTeam: string | null }>> = {};
+  const byPos: Record<string, Array<{ name: string; value: number | null; rank: number | null; trend: number | null; nflTeam: string | null; slot: 'active' | 'ir' | 'taxi' }>> = {};
   let totalValue = 0;
 
-  for (const pid of activeIds) {
+  for (const pid of allIds) {
     const p = allPlayers[pid] as SleeperPlayer | undefined;
     const pos = p?.position ?? 'UNKN';
     if (!SKILL_POS.includes(pos)) continue;
@@ -3054,8 +3114,9 @@ export async function handleAnalyzeRoster(input: { name?: string }) {
         ?? (fuzzyFindValue(name, values) ?? undefined);
     }
 
+    const slot: 'active' | 'ir' | 'taxi' = irSet.has(pid) ? 'ir' : taxiSet.has(pid) ? 'taxi' : 'active';
     if (!byPos[pos]) byPos[pos] = [];
-    byPos[pos].push({ name, value: val?.value ?? null, rank: val?.rank ?? null, trend: val?.trend ?? null, nflTeam: p?.team ?? null });
+    byPos[pos].push({ name, value: val?.value ?? null, rank: val?.rank ?? null, trend: val?.trend ?? null, nflTeam: p?.team ?? null, slot });
     totalValue += val?.value ?? 0;
   }
 
@@ -3074,7 +3135,7 @@ export async function handleAnalyzeRoster(input: { name?: string }) {
     ok: true,
     data: {
       fetchedAt: new Date().toISOString(),
-      source: 'sleeper-live + trade-values',
+      source: 'sleeper-live full roster + trade-values',
       teamName: matchedTeam,
       totalDynastyValue: Math.round(totalValue),
       positionSummary: posSum,
@@ -3094,7 +3155,7 @@ export function formatAnalyzeRosterMarkdown(data: ReturnType<typeof handleAnalyz
 
   const lines: string[] = [
     `## 🏈 Roster Analysis — ${teamName}`,
-    `*Total dynasty value: **${totalDynastyValue.toLocaleString()}** pts · ${valuesAvailable ? 'FC + KTC avg' : 'values unavailable'} · ${FRESHNESS()}*`,
+    `*Total dynasty value: **${totalDynastyValue.toLocaleString()}** pts · full roster (active + IR + taxi) · ${valuesAvailable ? 'FC + KTC avg' : 'values unavailable'} · ${FRESHNESS()}*`,
     '',
     '### Position Breakdown',
     '| Position | # Players | Total Value | Top Player |',
@@ -3119,7 +3180,8 @@ export function formatAnalyzeRosterMarkdown(data: ReturnType<typeof handleAnalyz
     for (const p of players) {
       const valStr = p.value != null ? ` — ${p.value.toLocaleString()}${trendStr(p.trend)}` : '';
       const rankStr = p.rank != null ? ` (#${p.rank} overall)` : '';
-      lines.push(`- **${p.name}**${p.nflTeam ? ` (${p.nflTeam})` : ''}${valStr}${rankStr}`);
+      const slotStr = p.slot === 'ir' ? ' · IR' : p.slot === 'taxi' ? ' · Taxi' : '';
+      lines.push(`- **${p.name}**${p.nflTeam ? ` (${p.nflTeam})` : ''}${slotStr}${valStr}${rankStr}`);
     }
     lines.push('');
   }
