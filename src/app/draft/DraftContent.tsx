@@ -708,7 +708,7 @@ export default function DraftContent() {
               <CardContent>
                 <div className="space-y-4">
                   <p className="text-[var(--muted)]">
-                    Commissioner controls for setting up and managing the live draft. Create drafts, upload custom player lists, control the clock, and more.
+                    Commissioner controls for setting up and managing the live draft. Create drafts (auto-imports that year&apos;s Sleeper rookies + DEF), branding, clock, and more.
                   </p>
                   <div className="flex gap-3">
                     <a href="/admin/draft" className="btn btn-primary text-sm px-3 py-1.5 inline-block">
