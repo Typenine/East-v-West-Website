@@ -1,8 +1,8 @@
 name: Trade Notifier Cron
 
 # Polls Sleeper for new trades and posts them to Discord via GET /api/cron/trade-notifier.
-# Runs on GitHub Actions (not Vercel cron) to match this repo's other recurring jobs and to
-# allow a sub-hourly cadence that the Vercel Hobby plan's cron limits don't permit.
+# Manual-only workflow. The automatic trade polling schedule is intentionally disabled.
+# Run from the Actions tab only if trade notification debugging is needed.
 #
 # Required GitHub secrets:
 #   - CRON_SECRET  : matches the deployment's CRON_SECRET env var (isCronAuthorized)
@@ -11,9 +11,8 @@ name: Trade Notifier Cron
 # The endpoint is idempotent — it dedupes posted trades in the discord_notifications table —
 # so frequent polling is safe and will not double-post.
 
+# Automatic scheduled runs disabled to prevent recurring failed jobs and emails.
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 # Avoid overlapping runs if one poll is slow.

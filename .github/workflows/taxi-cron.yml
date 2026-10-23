@@ -1,8 +1,7 @@
 name: Taxi Cron
 
+# Automatic scheduled runs disabled. Homepage and commissioner taxi audits are independent.
 on:
-  schedule:
-    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
