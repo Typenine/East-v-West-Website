@@ -6,12 +6,15 @@ import BroadcastMaterialStage from './BroadcastMaterialStage';
 type Props = {
   primary: string;
   secondary?: string;
+  logoUrl?: string | null;
+  onLogoReady?: () => void;
 };
 
 type DrawMesh = {
   vao: WebGLVertexArrayObject;
   indices: number;
   material: number;
+  badge: boolean;
 };
 
 // Original WebGL geometry: stage design informed by the privately archived
@@ -47,6 +50,43 @@ function stageHex(radius: number, base: number, top: number) {
     faces.push(j, j + 1, j + 2, j + 1, j + 3, j + 2);
   }
   return { vertices, faces };
+}
+
+// A substantial upright hexagonal insignia, not a flat image over the viewport.
+// The silhouette and edge are actual meshes in the same WebGL scene as the stage.
+function badgeHex(radius: number, yFront: number, yBack: number, zCenter: number) {
+  const vertices: number[] = [0, yFront, zCenter];
+  const faces: number[] = [];
+  const pts: [number, number][] = [];
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI / 6 + (i * 2 * Math.PI) / 6;
+    pts.push([radius * Math.cos(a), zCenter + radius * Math.sin(a)]);
+    vertices.push(pts[i][0], yFront, pts[i][1]);
+  }
+  for (let i = 0; i < 6; i++) faces.push(0, i + 1, ((i + 1) % 6) + 1);
+  const backBase = vertices.length / 3;
+  vertices.push(0, yBack, zCenter);
+  for (const [x, z] of pts) vertices.push(x, yBack, z);
+  for (let i = 0; i < 6; i++) faces.push(backBase, backBase + ((i + 1) % 6) + 1, backBase + i + 1);
+  for (let i = 0; i < 6; i++) {
+    const next = (i + 1) % 6;
+    const p = i + 1, q = next + 1;
+    faces.push(p, q, backBase + p, q, backBase + q, backBase + p);
+  }
+  return { vertices, faces };
+}
+
+function logoQuad(size: number, y: number, zCenter: number) {
+  const r = size / 2;
+  return {
+    vertices: [-r, y, zCenter - r, r, y, zCenter - r, -r, y, zCenter + r, r, y, zCenter + r],
+    faces: [0, 1, 2, 1, 3, 2],
+    uv: [0, 0, 1, 0, 0, 1, 1, 1],
+  };
+}
+
+function translationZ(z: number) {
+  return Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, z, 1]);
 }
 
 function stageCylinder(radius: number, base: number, height: number, count = 96) {
@@ -118,10 +158,13 @@ const VERTEX = [
   '#version 300 es',
   'precision highp float;',
   'layout(location=0) in vec3 position;',
+  'layout(location=1) in vec2 texCoord;',
+  'out vec2 vUv;'
   'uniform mat4 viewMatrix, projectionMatrix, modelMatrix;',
   'out vec3 worldPos;',
   'void main() {',
   '  worldPos = (modelMatrix * vec4(position, 1.)).xyz;',
+  '  vUv = texCoord;'
   '  gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.);',
   '}',
 ].join('\n');
@@ -130,10 +173,18 @@ const FRAGMENT = [
   '#version 300 es',
   'precision highp float;',
   'in vec3 worldPos;',
+  'in vec2 vUv;',
   'out vec4 outColor;',
   'uniform vec3 eye, accent, second;',
   'uniform float time, material;',
+  'uniform sampler2D insigniaTexture;'
   'void main() {',
+  '  if (material > 3.5) {',
+  '    vec4 texel = texture(insigniaTexture, vUv);',
+  '    if (texel.a < .02) discard;',
+  '    outColor = texel;',
+  '    return;',
+  '  }',
   '  vec3 normal = normalize(cross(dFdx(worldPos), dFdy(worldPos)));',
   '  if (!gl_FrontFacing) normal = -normal;',
   '  vec3 toEye = normalize(eye - worldPos);',
@@ -180,10 +231,11 @@ function initStage(gl: WebGL2RenderingContext, color: string, secondColor: strin
     second: gl.getUniformLocation(program, 'second'),
     time: gl.getUniformLocation(program, 'time'),
     material: gl.getUniformLocation(program, 'material'),
+    insigniaTexture: gl.getUniformLocation(program, 'insigniaTexture'),
   };
   const drawMeshes: DrawMesh[] = [];
   const buffers: WebGLBuffer[] = [];
-  const make = (shape: { vertices: number[]; faces: number[] }, material: number) => {
+  const make = (shape: { vertices: number[]; faces: number[]; uv?: number[] }, material: number, badge = false) => {
     const vao = gl.createVertexArray();
     const vertexBuffer = gl.createBuffer();
     const indexBuffer = gl.createBuffer();
@@ -193,11 +245,20 @@ function initStage(gl: WebGL2RenderingContext, color: string, secondColor: strin
     gl.bufferData(gl.ARRAY_BUFFER, Float32Array.from(shape.vertices), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+    if (shape.uv) {
+      const uvBuffer = gl.createBuffer();
+      if (!uvBuffer) throw new Error('Unable to allocate logo UV buffer');
+      gl.bindBuffer(gl.ARRAY_BUFFER, uvBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, Float32Array.from(shape.uv), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(1);
+      gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
+      buffers.push(uvBuffer);
+    }
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, Uint32Array.from(shape.faces), gl.STATIC_DRAW);
     gl.bindVertexArray(null);
     buffers.push(vertexBuffer, indexBuffer);
-    drawMeshes.push({ vao, indices: shape.faces.length, material });
+    drawMeshes.push({ vao, indices: shape.faces.length, material, badge });
   };
   make(stageCylinder(3.1, -.9, .05), 0);
   make(stageCylinder(2.45, .06, .29), 1);
@@ -207,10 +268,38 @@ function initStage(gl: WebGL2RenderingContext, color: string, secondColor: strin
   make(stageRing(2.49, .045, .32), 2);
   make(stageRing(1.65, .03, .43), 2);
   make(stageRing(3.55, .012, -.02), 2);
+  // Raised center-stage identity: dark metallic back, inset front and illuminated border.
+  // Centered above the platform, with the actual team's PNG as a texture.
+  make(badgeHex(1.93, -.84, -.42, 2.32), 1, true);
+  make(badgeHex(1.78, -.88, -.80, 2.32), 0, true);
+  make(badgeHex(1.91, -.91, -.89, 2.32), 2, true);
+  make(logoQuad(2.80, -.95, 2.32), 4, true);
+  const insigniaTexture = gl.createTexture();
+  if (!insigniaTexture) throw new Error('Unable to allocate insignia texture');
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, insigniaTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 0]));
+  gl.uniform1i(uniforms.insigniaTexture, 0);
+  let insigniaReady = false;
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
   gl.disable(gl.CULL_FACE);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   return {
+    // Existing same-origin project team logos, never new or manually uploaded files.
+    setLogo(image: HTMLImageElement) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, insigniaTexture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      insigniaReady = true;
+    },
     draw(canvas: HTMLCanvasElement, seconds: number) {
       const dpr = Math.min(window.devicePixelRatio || 1, 1.4);
       const width = Math.min(2400, Math.round(canvas.clientWidth * dpr));
@@ -233,8 +322,19 @@ function initStage(gl: WebGL2RenderingContext, color: string, secondColor: strin
       gl.uniform3fv(uniforms.second, Float32Array.from(parseColor(secondColor)));
       gl.uniform1f(uniforms.time, seconds);
       drawMeshes.forEach((mesh, i) => {
+        if (mesh.material === 4 && !insigniaReady) return;
         gl.bindVertexArray(mesh.vao);
-        gl.uniformMatrix4fv(uniforms.model, false, multiply(rotationZ(seconds * (i > 3 ? (i % 2 ? -.03 : .02) : .02)), rotationZ(i === 3 ? seconds * .075 : 0)));
+        const arrive = Math.min(1, seconds / 1.45);
+        const ease = 1 - Math.pow(1 - arrive, 3);
+        const badgeMotion = multiply(
+          translationZ(-1.65 * (1 - ease) + Math.sin(seconds * .65) * .055),
+          rotationZ((1 - ease) * -.35 + Math.sin(seconds * .4) * .07),
+        );
+        const platformMotion = multiply(
+          rotationZ(seconds * (i > 3 ? (i % 2 ? -.03 : .02) : .02)),
+          rotationZ(i === 3 ? seconds * .075 : 0),
+        );
+        gl.uniformMatrix4fv(uniforms.model, false, mesh.badge ? badgeMotion : platformMotion);
         gl.uniform1f(uniforms.material, mesh.material);
         gl.drawElements(gl.TRIANGLES, mesh.indices, gl.UNSIGNED_INT, 0);
       });
@@ -243,6 +343,7 @@ function initStage(gl: WebGL2RenderingContext, color: string, secondColor: strin
     destroy() {
       drawMeshes.forEach(m => gl.deleteVertexArray(m.vao));
       buffers.forEach(b => gl.deleteBuffer(b));
+      gl.deleteTexture(insigniaTexture);
       gl.deleteProgram(program);
       gl.deleteShader(vertexShader);
       gl.deleteShader(fragmentShader);
@@ -250,9 +351,11 @@ function initStage(gl: WebGL2RenderingContext, color: string, secondColor: strin
   };
 }
 
-export default function DraftPick3DStage({ primary, secondary }: Props) {
+export default function DraftPick3DStage({ primary, secondary, logoUrl, onLogoReady }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const fallbackRef = useRef<HTMLDivElement>(null);
+  const onLogoReadyRef = useRef(onLogoReady);
+  onLogoReadyRef.current = onLogoReady;
 
   useEffect(() => {
     const canvas = ref.current;
@@ -271,6 +374,22 @@ export default function DraftPick3DStage({ primary, secondary }: Props) {
       return; // Retain static broadcast fallback when GLSL is unavailable
     }
     if (fallback) fallback.style.opacity = '0';
+    let image: HTMLImageElement | null = null;
+    let disposed = false;
+    if (logoUrl) {
+      image = new Image();
+      image.decoding = 'async';
+      image.onload = () => {
+        if (disposed || !image || gl.isContextLost()) return;
+        try {
+          stage.setLogo(image);
+          onLogoReadyRef.current?.();
+        } catch {
+          // The original 2D team logo remains visible if the GPU upload fails.
+        }
+      };
+      image.src = logoUrl;
+    }
     let handle = 0;
     const start = performance.now();
     let active = true;
@@ -282,10 +401,12 @@ export default function DraftPick3DStage({ primary, secondary }: Props) {
     handle = window.requestAnimationFrame(frame);
     return () => {
       active = false;
+      disposed = true;
+      if (image) image.onload = null;
       window.cancelAnimationFrame(handle);
       stage.destroy();
     };
-  }, [primary, secondary]);
+  }, [primary, secondary, logoUrl]);
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
