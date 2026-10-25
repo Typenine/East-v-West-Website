@@ -474,7 +474,7 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
   const nextTeamsForClock = (draft?.upcoming || [])
     .filter((u) => u.team && u.overall > (draft?.curOverall ?? 0))
     .slice(0, 2)
-    .map((u) => ({ name: u.team, logoPath: getTeamLogoPath(u.team) }));
+    .map((u) => ({ name: u.team }));
 
   const clockDigitColor =
     displayRemainingSec <= 10 ? '#ef4444'
