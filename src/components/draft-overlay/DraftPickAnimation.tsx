@@ -292,7 +292,15 @@ export default function DraftPickAnimation({
           className="absolute inset-0"
           style={{ background: `radial-gradient(ellipse at 50% 50%, ${c1}22 0%, #0d0d0d 70%)` }}
         />
-        <DraftPick3DStage primary={c1} secondary={c2} />
+        <DraftPick3DStage
+          primary={c1}
+          secondary={c2}
+          logoUrl={teamLogo}
+          onLogoReady={() => {
+            const fallback = containerRef.current?.querySelector<HTMLElement>('.gsap-team-logo');
+            if (fallback) fallback.style.visibility = 'hidden';
+          }}
+        />
         <div
           className="gsap-team-name-bg absolute inset-0"
           style={{ willChange: 'opacity' }}
@@ -315,7 +323,7 @@ export default function DraftPickAnimation({
             />
           )}
         </div>
-        <div className="absolute inset-0 z-10 flex items-center justify-center px-4 sm:px-10">
+        <div className="absolute inset-x-0 bottom-[6%] z-10 flex items-center justify-center px-4 sm:px-10">
           <div
             className="gsap-team-name-text text-center font-black text-white uppercase max-w-[min(94vw,1100px)] mx-auto break-words hyphens-auto"
             style={{
