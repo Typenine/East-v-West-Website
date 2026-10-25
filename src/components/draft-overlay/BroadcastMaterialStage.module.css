@@ -1,0 +1,112 @@
+/* Lightweight broadcast finish informed by the Hype Chamber material parameter
+   export. Procedural CSS substitutes for Unreal shaders; no licensed textures. */
+.root {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  contain: paint;
+  background:
+    radial-gradient(ellipse 62% 53% at 50% 66%, color-mix(in srgb, var(--bcast-primary), transparent 81%), transparent 85%),
+    linear-gradient(160deg, #06090e 1%, #111923 46%, #05070a 100%);
+}
+.ambient {
+  position: absolute;
+  inset: -10%;
+  background:
+    radial-gradient(ellipse 36% 56% at 20% 26%, color-mix(in srgb, var(--bcast-secondary), transparent 74%), transparent 90%),
+    radial-gradient(ellipse 33% 44% at 78% 26%, color-mix(in srgb, var(--bcast-primary), transparent 77%), transparent 95%);
+  animation: ambientPulse 9s ease-in-out infinite alternate;
+}
+.hexPattern {
+  position: absolute;
+  inset: -20%;
+  opacity: .18;
+  background:
+    linear-gradient(30deg, transparent 43.75%, rgba(197,225,235,.25) 44%, rgba(197,225,235,.25) 44.5%, transparent 44.75%, transparent 55.25%, rgba(197,225,235,.25) 55.5%, rgba(197,225,235,.25) 56%, transparent 56.25%),
+    linear-gradient(150deg, transparent 43.75%, rgba(197,225,235,.23) 44%, rgba(197,225,235,.23) 44.5%, transparent 44.75%, transparent 55.25%, rgba(197,225,235,.23) 55.5%, rgba(197,225,235,.23) 56%, transparent 56.25%);
+  background-size: 76px 132px;
+  mask-image: radial-gradient(ellipse at 50% 54%, #000 0%, transparent 72%);
+  transform: perspective(920px) rotateX(13deg) scale(1.06);
+}
+.floorReflection {
+  position: absolute;
+  left: -22%;
+  right: -22%;
+  bottom: -44%;
+  height: 65%;
+  transform: perspective(1100px) rotateX(67deg);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 45%, color-mix(in srgb, var(--bcast-primary), transparent 73%) 0%, color-mix(in srgb, var(--bcast-secondary), transparent 88%) 34%, transparent 68%);
+  filter: blur(8px);
+}
+.outerRing, .innerRing {
+  position: absolute;
+  top: 47%;
+  left: 50%;
+  width: min(85vw, 990px);
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--bcast-primary), white 22%);
+  box-shadow:
+    0 0 22px color-mix(in srgb, var(--bcast-primary), transparent 55%),
+    inset 0 0 25px color-mix(in srgb, var(--bcast-primary), transparent 77%);
+  opacity: .25;
+  transform: translate(-50%, -50%) perspective(980px) rotateX(71deg);
+  animation: ringPulse 7s ease-in-out infinite alternate;
+}
+.innerRing {
+  width: min(63vw, 740px);
+  opacity: .20;
+  border-width: 4px;
+  border-color: color-mix(in srgb, var(--bcast-secondary), white 38%);
+  animation-delay: -3s;
+}
+.specularSweep {
+  position: absolute;
+  top: -75%;
+  left: -42%;
+  width: 28%;
+  height: 260%;
+  transform: rotate(20deg) translateX(-110%);
+  background: linear-gradient(90deg, transparent 0%, rgba(214,233,241,.012) 30%, rgba(244,250,255,.16) 49%, rgba(226,239,247,.025) 58%, transparent 100%);
+  filter: blur(8px);
+  mix-blend-mode: screen;
+  animation: specularPass 8s ease-in-out infinite;
+}
+.surfaceWear {
+  position: absolute;
+  inset: 0;
+  opacity: .16;
+  background:
+    repeating-linear-gradient(111deg, transparent 0px, transparent 21px, rgba(222,236,240,.052) 22px, transparent 23px),
+    repeating-linear-gradient(89deg, transparent 0px, transparent 78px, rgba(0,0,0,.21) 80px, transparent 82px);
+  mask-image: linear-gradient(to bottom, transparent, #000 31%, #000 72%, transparent);
+  mix-blend-mode: screen;
+}
+.root[data-variant='trade'] .outerRing,
+.root[data-variant='trade'] .innerRing { opacity: .12; }
+.root[data-variant='trade'] .ambient { opacity: .75; }
+.root[data-variant='selection'] .outerRing,
+.root[data-variant='selection'] .innerRing { opacity: .10; }
+.root[data-variant='selection'] .surfaceWear { opacity: .09; }
+
+@keyframes ambientPulse { from { opacity: .7; transform: scale(1); } to { opacity: 1; transform: scale(1.04); } }
+@keyframes ringPulse { from { filter: brightness(.7); } to { filter: brightness(1.55); } }
+@keyframes specularPass {
+  0%, 18% { transform: rotate(20deg) translateX(-110%); opacity: 0; }
+  27% { opacity: 1; }
+  57% { transform: rotate(20deg) translateX(630%); opacity: .7; }
+  66%, 100% { transform: rotate(20deg) translateX(630%); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ambient, .outerRing, .innerRing, .specularSweep { animation: none; }
+  .specularSweep { opacity: 0; }
+}
+@media (max-width: 720px) {
+  .hexPattern { background-size: 52px 90px; opacity: .1; }
+  .outerRing { width: 125vw; }
+  .innerRing { width: 96vw; }
+  .specularSweep { filter: blur(11px); }
+}
