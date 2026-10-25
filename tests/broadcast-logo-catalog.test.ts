@@ -37,6 +37,8 @@ describe('East v. West 13-logo broadcast catalog', () => {
   it('preserves historical team aliases without inventing a fourteenth logo', () => {
     expect(getBroadcastTeamLogoUrl("Minshew's Maniacs")).toBe(getBroadcastTeamLogoUrl('Cascade Marauders'));
     expect(getBroadcastTeamLogoUrl("Gardner's Ghost")).toBe(getBroadcastTeamLogoUrl('Cascade Marauders'));
+    expect(getBroadcastTeamLogoUrl('Bop Pop')).toBe(getBroadcastTeamLogoUrl('bop pop'));
+    expect(getBroadcastTeamLogoUrl('Minshew’s Maniacs')).toBe(getBroadcastTeamLogoUrl('Cascade Marauders'));
   });
 
   it('provides league fallback without replacing custom draft-event branding', () => {
