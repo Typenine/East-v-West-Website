@@ -76,6 +76,21 @@ function badgeHex(radius: number, yFront: number, yBack: number, zCenter: number
   return { vertices, faces };
 }
 
+function badgeBorder(outer: number, inner: number, y: number, zCenter: number) {
+  const vertices: number[] = [];
+  const faces: number[] = [];
+  for (let i = 0; i <= 6; i++) {
+    const a = Math.PI / 6 + (i * 2 * Math.PI) / 6;
+    vertices.push(outer * Math.cos(a), y, zCenter + outer * Math.sin(a));
+    vertices.push(inner * Math.cos(a), y, zCenter + inner * Math.sin(a));
+    if (i < 6) {
+      const j = i * 2;
+      faces.push(j, j + 2, j + 1, j + 2, j + 3, j + 1);
+    }
+  }
+  return { vertices, faces };
+}
+
 function logoQuad(size: number, y: number, zCenter: number) {
   const r = size / 2;
   return {
@@ -177,7 +192,7 @@ const FRAGMENT = [
   'out vec4 outColor;',
   'uniform vec3 eye, accent, second;',
   'uniform float time, material;',
-  'uniform sampler2D insigniaTexture;'
+  'uniform sampler2D insigniaTexture;',
   'void main() {',
   '  if (material > 3.5) {',
   '    vec4 texel = texture(insigniaTexture, vUv);',
@@ -272,7 +287,7 @@ function initStage(gl: WebGL2RenderingContext, color: string, secondColor: strin
   // Centered above the platform, with the actual team's PNG as a texture.
   make(badgeHex(1.93, -.84, -.42, 2.32), 1, true);
   make(badgeHex(1.78, -.88, -.80, 2.32), 0, true);
-  make(badgeHex(1.91, -.91, -.89, 2.32), 2, true);
+  make(badgeBorder(1.91, 1.78, -.91, 2.32), 2, true);
   make(logoQuad(2.80, -.95, 2.32), 4, true);
   const insigniaTexture = gl.createTexture();
   if (!insigniaTexture) throw new Error('Unable to allocate insignia texture');
@@ -380,7 +395,7 @@ export default function DraftPick3DStage({ primary, secondary, logoUrl, onLogoRe
       image = new Image();
       image.decoding = 'async';
       image.onload = () => {
-        if (disposed || !image || gl.isContextLost()) return;
+        if (disposed || !image || !gl || gl.isContextLost()) return;
         try {
           stage.setLogo(image);
           onLogoReadyRef.current?.();
