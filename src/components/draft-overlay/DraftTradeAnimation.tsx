@@ -5,6 +5,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import BroadcastMaterialStage from './BroadcastMaterialStage';
+import BroadcastLogoBadge from './BroadcastLogoBadge';
+import { LEAGUE_BROADCAST_LOGO_URL } from '@/lib/constants/broadcast-logos';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
 import { DRAFT_TRADE_ALERT_AUDIO_SRC } from '@/components/draft-overlay/draft-display-utils';
@@ -271,14 +273,15 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
           <div className="gtrade-logo absolute inset-0 flex items-center justify-center" style={{ willChange: 'opacity, visibility' }}>
             <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 50%, ${ec1}22 0%, #080810 70%)` }} />
             <BroadcastMaterialStage primary={ec1} secondary={c1.primary} variant="event" />
-            {eventLogoUrl ? (
-              <img src={eventLogoUrl} alt="" className="relative z-10 object-contain"
-                style={{ width: 'clamp(120px, 20vw, 200px)', height: 'clamp(120px, 20vw, 200px)' }} />
-            ) : (
-              <div className="relative z-10 font-black uppercase" style={{ fontSize: 'clamp(5rem, 12vw, 10rem)', color: ec1, letterSpacing: '0.1em' }}>
-                TRADE
-              </div>
-            )}
+            <BroadcastLogoBadge
+              kind="event"
+              name="East v. West"
+              src={eventLogoUrl || LEAGUE_BROADCAST_LOGO_URL}
+              presentation="hero"
+              size={180}
+              primary={ec1}
+              className="relative z-10"
+            />
           </div>
 
           {/* ── PHASE 1: TRADE ALERT ────────────────────────────────────────── */}
@@ -286,10 +289,14 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
             <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 45%, ${ec1}30 0%, #080810 60%)` }} />
             <BroadcastMaterialStage primary={ec1} secondary={c1.primary} variant="trade" />
             <div className="relative z-10 flex flex-col items-center gap-6">
-              {eventLogoUrl && (
-                <img src={eventLogoUrl} alt="" className="object-contain opacity-90"
-                  style={{ width: 'clamp(50px, 7vw, 70px)', height: 'clamp(50px, 7vw, 70px)' }} />
-              )}
+              <BroadcastLogoBadge
+                kind="event"
+                name="East v. West"
+                src={eventLogoUrl || LEAGUE_BROADCAST_LOGO_URL}
+                presentation="clock"
+                size={70}
+                primary={ec1}
+              />
               <div
                 className="gtrade-alert-text font-black text-center uppercase leading-none"
                 style={{
@@ -331,8 +338,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
                   <div className="absolute inset-0 opacity-10 flex items-center justify-center">
                     <img src={tLogo} alt="" className="object-contain" style={{ width: '90%', height: '90%' }} />
                   </div>
-                  <img src={tLogo} alt={t} className="relative z-10 object-contain drop-shadow-2xl"
-                    style={{ width: 'clamp(80px, 12vw, 180px)', height: 'clamp(80px, 12vw, 180px)' }} />
+                  <BroadcastLogoBadge teamName={t} presentation="hero" size={180} className="relative z-10" />
                   <div className="relative z-10 font-black text-white text-center uppercase leading-tight px-4"
                     style={{ fontSize: 'clamp(1.5rem, 3.5vw, 3.2rem)', textShadow: '0 2px 8px rgba(0,0,0,1), 0 4px 24px rgba(0,0,0,0.9)', letterSpacing: '0.04em', WebkitTextStroke: '1px rgba(0,0,0,0.5)', paintOrder: 'stroke fill' }}>
                     {t}
