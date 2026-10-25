@@ -7,6 +7,8 @@ import { gsap } from 'gsap';
 import { useDraftData } from './useDraftData';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
+import { LEAGUE_BROADCAST_LOGO_URL } from '@/lib/constants/broadcast-logos';
+import BroadcastLogoBadge from './BroadcastLogoBadge';
 import DraftPickAnimation from './DraftPickAnimation';
 import NowOnClockAnimation from './NowOnClockAnimation';
 import DraftTradeAnimation, { type TradeAnimAsset } from './DraftTradeAnimation';
@@ -469,7 +471,6 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
     }
   }, [displayRemainingSec, animPhase, draft?.status]);
   const teamColors = currentTeam?.colors || ['#333', '#555', null];
-  const teamLogo = currentTeam ? getTeamLogoPath(currentTeam.name) : null;
   const nextTeamsForClock = (draft?.upcoming || [])
     .filter((u) => u.team && u.overall > (draft?.curOverall ?? 0))
     .slice(0, 2)
@@ -584,7 +585,6 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
                 const gridItem = draftGrid[gridIdx];
                 const isCurrentPick = currentPickIndex === gridIdx;
                 const isPicked = gridItem?.player !== null;
-                const teamLogo = gridItem?.team ? getTeamLogoPath(gridItem.team) : null;
                 const isViewerOnline = gridItem?.team && activeViewers.includes(gridItem.team);
                 const viewerGlowColor = isViewerOnline ? getTeamColors(gridItem.team).primary : null;
                 
@@ -612,13 +612,9 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
                         background: `${viewerGlowColor}22`,
                       } : undefined}
                     >
-                      {teamLogo ? (
-                        <img src={teamLogo} alt="" className="w-full h-full object-contain" />
-                      ) : gridItem?.team ? (
-                        <div className="text-[8px] font-bold text-zinc-500">
-                          {gridItem.team.split(' ').map(w => w[0]).join('').slice(0, 3).toUpperCase()}
-                        </div>
-                      ) : null}
+                      {gridItem?.team && (
+                        <BroadcastLogoBadge teamName={gridItem.team} presentation="board" size={48} />
+                      )}
                     </div>
                     
                     {/* Player info - only when picked */}
@@ -636,16 +632,15 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
         </div>
 
         {/* Event logo watermark — centered on the draft board at low opacity */}
-        {eventLogoUrl && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]">
-            <img
-              src={eventLogoUrl}
-              alt=""
-              className="w-48 h-48 object-contain"
-              style={{ opacity: 0.10 }}
-            />
-          </div>
-        )}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]" style={{ opacity: 0.10 }}>
+          <BroadcastLogoBadge
+            kind="event"
+            name="East v. West"
+            src={eventLogoUrl || LEAGUE_BROADCAST_LOGO_URL}
+            presentation="watermark"
+            size={192}
+          />
+        </div>
 
         {/* PHASE: Player highlight video — only covers draft board, info bar stays visible */}
         {(animPhase === 'video' || videoExiting) && animDataRef.current?.videoUrl && (() => {
@@ -722,14 +717,13 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
         >
           {/* Left: Event logo */}
           <div className="flex flex-col justify-center items-center p-2 w-28">
-            {eventLogoUrl && (
-              <img
-                src={eventLogoUrl}
-                alt=""
-                className="object-contain"
-                style={{ width: '108px', height: '108px', opacity: 0.94 }}
-              />
-            )}
+            <BroadcastLogoBadge
+              kind="event"
+              name="East v. West"
+              src={eventLogoUrl || LEAGUE_BROADCAST_LOGO_URL}
+              presentation="clock"
+              size={108}
+            />
           </div>
 
           {/* Center: Timer + RD/PK as a tight centered pair */}
@@ -753,14 +747,16 @@ const DraftOverlayLive = forwardRef<DraftInfoBarTickerHandle, DraftOverlayLivePr
               className="w-24 h-24 bg-zinc-700 rounded overflow-hidden border-2 shrink-0"
               style={{ borderColor: teamColors[0], boxShadow: `0 0 10px ${teamColors[0]}66` }}
             >
-              {teamLogo && <img src={teamLogo} alt={currentTeam?.name || ''} className="w-full h-full object-contain" />}
+              {currentTeam?.name && (
+                <BroadcastLogoBadge teamName={currentTeam.name} size={92} presentation="clock" />
+              )}
             </div>
             <div className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] text-zinc-400 uppercase tracking-wide">Next</span>
               <div className="flex gap-2">
                 {nextTeamsForClock.map((t, i) => (
                   <div key={i} className="w-12 h-12 bg-zinc-600 rounded overflow-hidden">
-                    {t.logoPath && <img src={t.logoPath} alt={t.name} className="w-full h-full object-contain" />}
+                    <BroadcastLogoBadge teamName={t.name} presentation="board" size={48} />
                   </div>
                 ))}
               </div>
