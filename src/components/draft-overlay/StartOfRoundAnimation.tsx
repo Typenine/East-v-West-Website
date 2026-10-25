@@ -4,6 +4,8 @@
 
 import { useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
+import BroadcastLogoBadge from './BroadcastLogoBadge';
+import { LEAGUE_BROADCAST_LOGO_URL } from '@/lib/constants/broadcast-logos';
 import { Dancing_Script } from 'next/font/google';
 
 const dancingScript = Dancing_Script({ subsets: ['latin'], weight: ['700'] });
@@ -126,14 +128,15 @@ export default function StartOfRoundAnimation({ roundNumber, eventLogoUrl, event
 
       {/* Content */}
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-6" style={{ zIndex: 10 }}>
-        {eventLogoUrl && (
-          <img
-            src={eventLogoUrl}
-            alt=""
-            className="sor-logo object-contain"
-            style={{ width: 'clamp(80px,11vw,140px)', height: 'clamp(80px,11vw,140px)' }}
-          />
-        )}
+        <BroadcastLogoBadge
+          kind="event"
+          name="East v. West"
+          src={eventLogoUrl || LEAGUE_BROADCAST_LOGO_URL}
+          presentation="hero"
+          size={140}
+          primary={ec}
+          className="sor-logo"
+        />
         <div
           className="sor-divider rounded-full"
           style={{
