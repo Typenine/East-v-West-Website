@@ -4,6 +4,7 @@
 
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { gsap } from 'gsap';
+import BroadcastMaterialStage from './BroadcastMaterialStage';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 
 interface NowOnClockAnimationProps {
@@ -368,7 +369,9 @@ export default function NowOnClockAnimation({
           `,
           boxShadow: `inset 0 -120px 100px -40px rgba(0,0,0,0.85)`,
         }}
-      />
+      >
+        <BroadcastMaterialStage primary={c1} secondary={c2} variant="team" />
+      </div>
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.07]"
         style={{
