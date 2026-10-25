@@ -35,9 +35,15 @@ Original Unreal project is on the user's PC. Do **not** commit original or extra
 - reflective lighting sweep
 - stage-ring highlights and faux floor reflections
 
-It is used as a decorative layer in the existing draft-pick reveal, event logo reveal, player reveal, and trade-alert introduction. It takes live team and event colors; GSAP animation events, roster data, pick ordering, player photos, draft controls and audio are unchanged. Honors reduced-motion preferences.
+It is used as a decorative layer in the existing draft-pick reveal, event logo reveal, player reveal, trade-alert introduction, and full-screen on-clock animation. It takes live team and event colors; GSAP animation events, roster data, pick ordering, player photos, draft controls and audio are unchanged. Honors reduced-motion preferences.
 
 The code deliberately does **not** bundle raw Fab source textures, which would both inflate deployment size and expose standalone licensed files in this public repository.
+
+## October 25 browser smoke test
+
+Rendered a 1440x810 static HTML composition in Chromium using the pilot's material CSS formulas. Background gradients, hex line pattern, reflective ring and contrasting type successfully rendered. This is a **visual CSS smoke test**, not a working Next.js or draft-overlay run; it does not verify the site build, GSAP timing, player/league data, or mobile overlay stacking.
+
+The tested look is a relatively subtle background effect, **not yet Epic-grade 3D motion graphics**. Do not ship this as the final visual-quality upgrade. A proper next quality gate is a browser-native animated logo / pick reveal that uses selected optimized 3D geometry with intentionally rebuilt materials (prefer private prototype until licensing and visual quality are verified). If this fails to materially outperform existing draft graphics, do not add 3D payload to production.
 
 ## Testing before merging or releasing
 
