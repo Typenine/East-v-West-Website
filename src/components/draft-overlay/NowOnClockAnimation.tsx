@@ -5,6 +5,8 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import BroadcastMaterialStage from './BroadcastMaterialStage';
+import BroadcastLogoBadge from './BroadcastLogoBadge';
+import { LEAGUE_BROADCAST_LOGO_URL } from '@/lib/constants/broadcast-logos';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 
 interface NowOnClockAnimationProps {
@@ -291,17 +293,12 @@ export default function NowOnClockAnimation({
                 className="noc-ib-live w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full shrink-0"
                 style={{ background: '#f43f5e', boxShadow: '0 0 14px #f43f5e' }}
               />
-              {eventLogoUrl ? (
-                <img
-                  src={eventLogoUrl}
-                  alt=""
-                  className="noc-ib-brand object-contain shrink-0 drop-shadow-lg"
-                  style={{
-                    width: 'clamp(40px, 9vw, 56px)',
-                    height: 'clamp(40px, 9vw, 56px)',
-                  }}
-                />
-              ) : null}
+              <BroadcastLogoBadge
+                kind="event" name="East v. West"
+                src={eventLogoUrl || LEAGUE_BROADCAST_LOGO_URL}
+                presentation="clock" size={56} primary={ec}
+                className="noc-ib-brand"
+              />
               <span
                 className="noc-ib-headline font-black text-white uppercase tracking-tight shrink-0 leading-none"
                 style={{ fontSize: 'clamp(0.95rem, 2.6vw + 0.4rem, 1.55rem)' }}
@@ -317,7 +314,7 @@ export default function NowOnClockAnimation({
                     background: `linear-gradient(145deg, ${c1}33 0%, #0d0d0d 100%)`,
                   }}
                 >
-                  <img src={logo} alt="" className="noc-ib-logo object-contain w-[82%] h-[82%]" />
+                  <BroadcastLogoBadge teamName={team.name} presentation="board" size={56} className="noc-ib-logo" />
                 </div>
               ) : null}
               <span
@@ -429,17 +426,12 @@ export default function NowOnClockAnimation({
                 </span>
               </div>
               <div className="h-4 w-px bg-white/15 shrink-0 hidden sm:block" />
-              {eventLogoUrl ? (
-                <img
-                  src={eventLogoUrl}
-                  alt=""
-                  className="noc-draft-logo object-contain shrink-0 drop-shadow-lg"
-                  style={{
-                    width: 'clamp(40px, 7vw, 56px)',
-                    height: 'clamp(40px, 7vw, 56px)',
-                  }}
-                />
-              ) : null}
+              <BroadcastLogoBadge
+                kind="event" name="East v. West"
+                src={eventLogoUrl || LEAGUE_BROADCAST_LOGO_URL}
+                presentation="clock" size={56} primary={ec}
+                className="noc-draft-logo"
+              />
               <h1
                 className="noc-headline font-black uppercase tracking-[0.12em] text-white leading-none"
                 style={{
@@ -471,11 +463,7 @@ export default function NowOnClockAnimation({
                     boxShadow: `0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08) inset`,
                   }}
                 >
-                  <img
-                    src={logo}
-                    alt=""
-                    className="noc-logo-img object-contain w-[82%] h-[82%] drop-shadow-lg"
-                  />
+                  <BroadcastLogoBadge teamName={team.name} presentation="clock" size={132} className="noc-logo-img" />
                 </div>
               )}
               <div
