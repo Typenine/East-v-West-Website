@@ -56,7 +56,14 @@ export function getBroadcastTeamLogoUrl(name: string): string | null {
   const normalized = name.trim().replace(/[\u2018\u2019\u02bc]/g, "'");
   const direct = normalized as BroadcastTeamName;
   const canonical = Object.prototype.hasOwnProperty.call(BROADCAST_TEAM_LOGO_FILES, direct)
-    ? direct : BROADCAST_TEAM_LOGO_ALIASES[normalized];
+    ? direct
+    : BROADCAST_TEAM_LOGO_ALIASES[normalized] ??
+      (Object.keys(BROADCAST_TEAM_LOGO_FILES).find(
+        key => key.toLowerCase() === normalized.toLowerCase(),
+      ) as BroadcastTeamName | undefined) ??
+      Object.entries(BROADCAST_TEAM_LOGO_ALIASES).find(
+        ([alias]) => alias.toLowerCase() === normalized.toLowerCase(),
+      )?.[1];
   return canonical
     ? BROADCAST_LOGO_DIRECTORY + encodeURIComponent(BROADCAST_TEAM_LOGO_FILES[canonical])
     : null;
