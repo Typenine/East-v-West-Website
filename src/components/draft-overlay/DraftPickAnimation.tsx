@@ -4,6 +4,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
+import BroadcastMaterialStage from './BroadcastMaterialStage';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 
 interface DraftPickAnimationProps {
@@ -290,6 +291,7 @@ export default function DraftPickAnimation({
           className="absolute inset-0"
           style={{ background: `radial-gradient(ellipse at 50% 50%, ${c1}22 0%, #0d0d0d 70%)` }}
         />
+        <BroadcastMaterialStage primary={c1} secondary={c2} variant="team" />
         <div
           className="gsap-team-name-bg absolute inset-0"
           style={{ willChange: 'opacity' }}
@@ -302,7 +304,7 @@ export default function DraftPickAnimation({
             }}
           />
         </div>
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 z-10 flex items-center justify-center">
           {teamLogo && (
             <img
               src={teamLogo}
@@ -312,7 +314,7 @@ export default function DraftPickAnimation({
             />
           )}
         </div>
-        <div className="absolute inset-0 flex items-center justify-center px-4 sm:px-10">
+        <div className="absolute inset-0 z-10 flex items-center justify-center px-4 sm:px-10">
           <div
             className="gsap-team-name-text text-center font-black text-white uppercase max-w-[min(94vw,1100px)] mx-auto break-words hyphens-auto"
             style={{
@@ -413,6 +415,7 @@ export default function DraftPickAnimation({
             background: `linear-gradient(to top, ${ec}22 0%, ${ec}0d 38%, transparent 58%)`,
             clipPath: 'polygon(32% 100%, 68% 100%, 78% 0%, 22% 0%)',
           }} />
+          <BroadcastMaterialStage primary={ec} secondary={c2} variant="event" />
           {/* Logo — cinematic element animated independently */}
           <img
             src={eventLogoUrl}
@@ -479,6 +482,7 @@ export default function DraftPickAnimation({
           className="absolute inset-0"
           style={{ background: `radial-gradient(ellipse at 50% 50%, ${c1}28 0%, #0d0d0d 70%)` }}
         />
+        <BroadcastMaterialStage primary={c1} secondary={c2} variant="selection" />
         <div
           className="relative z-10 rounded-2xl overflow-hidden"
           style={{
