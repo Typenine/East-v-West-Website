@@ -50,7 +50,7 @@ export default function BroadcastLogoBadge({
   const resolved = src || getBroadcastLogoUrl({
     teamName: kind === 'team' ? teamName : null,
     league: kind !== 'team',
-  }) || LEAGUE_BROADCAST_LOGO_URL;
+  }) || (kind === 'team' ? null : LEAGUE_BROADCAST_LOGO_URL);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const colors = teamName ? getTeamColors(teamName) : null;
   const c1 = primary || colors?.primary || '#a4c810';
@@ -76,7 +76,7 @@ export default function BroadcastLogoBadge({
     >
       <span className={styles.bevel} aria-hidden="true" />
       <span className={styles.face}>
-        {failedSrc === resolved ? (
+        {!resolved || failedSrc === resolved ? (
           <span className={styles.initials} aria-hidden="true">{initials(label)}</span>
         ) : (
           <img
