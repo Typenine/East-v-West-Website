@@ -101,7 +101,7 @@ function viewMatrix(eye: number[], focus: number[]) {
   const side = [f[1], -f[0], 0];
   const sl = Math.hypot(...side);
   const s = side.map(v => v / sl);
-  const up = [-f[2] * s[1], f[2] * s[0], f[0] * s[1] - f[1] * s[0]];
+  const up = [s[1] * f[2], -s[0] * f[2], s[0] * f[1] - s[1] * f[0]];
   const view = Float32Array.from([
     s[0], up[0], -f[0], 0,
     s[1], up[1], -f[1], 0,
