@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
+import BroadcastMaterialStage from './BroadcastMaterialStage';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
 import { DRAFT_TRADE_ALERT_AUDIO_SRC } from '@/components/draft-overlay/draft-display-utils';
@@ -269,6 +270,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
           {/* ── PHASE 0: Event Logo ─────────────────────────────────────────── */}
           <div className="gtrade-logo absolute inset-0 flex items-center justify-center" style={{ willChange: 'opacity, visibility' }}>
             <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 50%, ${ec1}22 0%, #080810 70%)` }} />
+            <BroadcastMaterialStage primary={ec1} secondary={c1.primary} variant="event" />
             {eventLogoUrl ? (
               <img src={eventLogoUrl} alt="" className="relative z-10 object-contain"
                 style={{ width: 'clamp(120px, 20vw, 200px)', height: 'clamp(120px, 20vw, 200px)' }} />
@@ -282,6 +284,7 @@ export default function DraftTradeAnimation({ teams, assets, eventLogoUrl, event
           {/* ── PHASE 1: TRADE ALERT ────────────────────────────────────────── */}
           <div className="gtrade-alert absolute inset-0 flex flex-col items-center justify-center gap-6" style={{ willChange: 'opacity, visibility' }}>
             <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at 50% 45%, ${ec1}30 0%, #080810 60%)` }} />
+            <BroadcastMaterialStage primary={ec1} secondary={c1.primary} variant="trade" />
             <div className="relative z-10 flex flex-col items-center gap-6">
               {eventLogoUrl && (
                 <img src={eventLogoUrl} alt="" className="object-contain opacity-90"
