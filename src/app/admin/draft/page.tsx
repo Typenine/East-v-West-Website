@@ -16,8 +16,9 @@ import DraftOverlayLive, {
 } from '@/components/draft-overlay/DraftOverlayLive';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 import { getTeamColors } from '@/lib/constants/team-colors';
+import { LEAGUE_BROADCAST_LOGO_URL } from '@/lib/constants/broadcast-logos';
 
-const LEAGUE_LOGO_PATH = `/assets/teams/East%20v%20West%20Logos/${encodeURIComponent('Official East v. West Logo.png')}`;
+const LEAGUE_LOGO_PATH = LEAGUE_BROADCAST_LOGO_URL;
 
 type DraftOverview = {
   id: string;
