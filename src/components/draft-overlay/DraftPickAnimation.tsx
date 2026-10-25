@@ -5,6 +5,7 @@
 import React, { useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import BroadcastMaterialStage from './BroadcastMaterialStage';
+import DraftPick3DStage from './DraftPick3DStage';
 import { getTeamLogoPath } from '@/lib/utils/team-utils';
 
 interface DraftPickAnimationProps {
@@ -291,7 +292,7 @@ export default function DraftPickAnimation({
           className="absolute inset-0"
           style={{ background: `radial-gradient(ellipse at 50% 50%, ${c1}22 0%, #0d0d0d 70%)` }}
         />
-        <BroadcastMaterialStage primary={c1} secondary={c2} variant="team" />
+        <DraftPick3DStage primary={c1} secondary={c2} />
         <div
           className="gsap-team-name-bg absolute inset-0"
           style={{ willChange: 'opacity' }}
