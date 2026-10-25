@@ -1,6 +1,6 @@
 # Draft broadcast graphics: Hype Chamber material pilot
 
-Status: **first visual-material pass implemented on feature/draft-broadcast-materials-v1; not deployed or visually signed off**.
+Status: **a WebGL2 draft-pick stage prototype is committed on feature/draft-broadcast-materials-v1; not approved for production**.
 
 ## Source of truth and preservation
 
@@ -57,3 +57,33 @@ The tested look is a relatively subtle background effect, **not yet Epic-grade 3
 ## If deeper Hype Chamber fidelity is worthwhile
 
 Use the **privately archived** exports for a separate nonpublic conversion experiment. Geometry and shader reconstruction (Three.js / WebGL) should only be added if the visual gain merits the device and maintenance cost; never blindly replace the live draft logic. The source package is **not** browser-ready.
+
+## October 25: original 3D pick reveal milestone
+
+New: `src/components/draft-overlay/DraftPick3DStage.tsx`, integrated into the `gsap-team-intro` phase of `DraftPickAnimation.tsx`.
+
+- Real WebGL2 3D render loop (no Three.js dependency or new npm packages).
+- Procedurally generated concentric platform tiers, rotating metallic hex elements and stage-light rings.
+- Physically inspired shading with two lights, Fresnel-style edge reflection and specular highlights.
+- Dynamic fantasy-team primary and secondary colors.
+- Reduced-motion and WebGL-unavailable fallback to the existing 2D material stage.
+- Pixel ratio cap (1.4), page visibility pause and proper WebGL resource cleanup.
+- Existing GSAP event ordering and draft selection data are unaffected.
+
+**Important distinction:** the website's WebGL geometry is independently generated, based on dimensions and design techniques observed in Epic's assets, not a copy of Epic's extracted model. No proprietary asset was added to this public repository. The original exported **Platform_Main** and **Platform_Center** meshes were loaded into a private standalone WebGL proof of concept with dynamic team/player/pick fields, and retained in the user's **private Library**:
+- `epic-geometry-private-draft-prototype.html`
+- `epic-geometry-software-preview.png` (software-rendered illustrative still, not a browser capture)
+
+The interactive private prototype's JavaScript syntax checks, but automated Chromium in the current environment has WebGL2 disabled and cannot validate GPU playback. It must be checked on a WebGL2-capable browser. Local Next.js build / TypeScript lint have not been verified: source writes occurred through connected GitHub tooling, with no build environment. Do not represent this as production-tested.
+
+### Intellectual property clearance
+
+Epic's current Fab Broadcast Sample listing and the general Fab license information do not conclusively establish whether this particular sample is **UE-Only Content**, especially in light of its Unreal sample-program history. Confirm the acquisition-specific license terms before putting extracted models, logos, images, or textures onto the public website. A private feasibility prototype is not grounds to assume commercial/public browser reuse is permitted.
+
+### Quality gate
+
+Visual assessment: the first software-rendered still shows a genuine 3D platform but remains simpler than Epic's finished broadcast graphics. Do **not** auto-merge or production deploy as the final graphics solution. For a fuller result, add choreography and GPU effects only after a real-browser test. Use one production deployment once approved.
+
+### Preview deployment caveat
+
+The connected Vercel Git integration automatically attempted preview deployments for earlier branch commits despite the user's preference to avoid preview deployments. An in-progress preview was explicitly canceled; Vercel's project setting to disable preview deployments was submitted through its API on October 25. Verify the effective setting before any additional writes. No production deployment was initiated.
