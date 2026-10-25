@@ -1,0 +1,91 @@
+.badge {
+  --badge-primary: #a4c810;
+  --badge-secondary: #263345;
+  --badge-size: 48px;
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: var(--badge-size);
+  height: var(--badge-size);
+  isolation: isolate;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18%;
+  background: linear-gradient(145deg, #d3e1e9 0%, #526373 10%, #101923 38%, #05090e 100%);
+  box-shadow: 0 4px 13px rgba(0,0,0,.45), inset 1px 1px 1px rgba(255,255,255,.53), inset -2px -2px 2px rgba(0,0,0,.8);
+  transform: perspective(420px) rotateX(5deg) rotateY(-7deg);
+  overflow: hidden;
+}
+.bevel {
+  position: absolute;
+  inset: 3%;
+  border: 1px solid color-mix(in srgb,var(--badge-primary) 54%, white);
+  border-radius: 15%;
+  opacity: .6;
+  z-index: 1;
+}
+.face {
+  position: absolute;
+  inset: 7%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13%;
+  background: radial-gradient(ellipse at 35% 20%,color-mix(in srgb,var(--badge-secondary) 39%, #263341) 0%,#0b111a 76%);
+  box-shadow: inset 0 1px 8px rgba(0,0,0,.64);
+}
+.logo {
+  position: relative;
+  z-index: 2;
+  display: block;
+  max-width: 87%;
+  max-height: 87%;
+  width: 87%;
+  height: 87%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,.52));
+}
+.initials {
+  color: #fff;
+  font-weight: 900;
+  font-size: clamp(10px, .32 * var(--badge-size), 35px);
+  letter-spacing: -.04em;
+  text-shadow: 0 1px 2px black;
+}
+.specular {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  background: linear-gradient(118deg,rgba(255,255,255,.24) 0%,rgba(255,255,255,.04) 21%,transparent 35%,transparent 72%,rgba(255,255,255,.10));
+  mix-blend-mode: screen;
+}
+.badge[data-presentation='board'] {
+  transform: perspective(280px) rotateY(-6deg) rotateX(3deg);
+  box-shadow: 0 2px 6px rgba(0,0,0,.5), inset 1px 1px 1px rgba(255,255,255,.45);
+}
+.badge[data-presentation='clock'] {
+  box-shadow: 0 6px 20px rgba(0,0,0,.65), 0 0 12px color-mix(in srgb,var(--badge-primary) 33%,transparent), inset 1px 1px 2px rgba(255,255,255,.47);
+}
+.badge[data-presentation='hero'] {
+  transform: perspective(780px) rotateX(8deg) rotateY(-13deg);
+  box-shadow: 0 12px 40px rgba(0,0,0,.75), 0 0 25px color-mix(in srgb,var(--badge-primary) 28%,transparent), inset 2px 1px 4px rgba(255,255,255,.55);
+}
+.badge[data-presentation='watermark'] {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  transform: none;
+}
+.badge[data-presentation='watermark'] .bevel,
+.badge[data-presentation='watermark'] .specular { display: none; }
+.badge[data-presentation='watermark'] .face {
+  background: none;
+  box-shadow: none;
+  inset: 0;
+}
+.badge[data-presentation='watermark'] .logo { width: 100%; height: 100%; max-width: 100%; max-height: 100%; filter: none; }
+@media (prefers-reduced-motion: reduce) {
+  .badge { transition: none; }
+}
