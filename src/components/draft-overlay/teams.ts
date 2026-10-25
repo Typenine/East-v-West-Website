@@ -1,3 +1,5 @@
+import { getBroadcastTeamLogoUrl } from '@/lib/constants/broadcast-logos';
+
 // Team data for the draft overlay - maps to website's team system
 // Logo paths point to existing assets in public/assets/teams/East v West Logos/
 
@@ -121,6 +123,5 @@ export function getTeamById(id: number): Team | undefined {
 
 // Get team logo path for use in img src
 export function getTeamLogoPath(team: Team | undefined): string | null {
-  if (!team?.logo) return null;
-  return `/assets/teams/East v West Logos/${team.logo}`;
+  return team ? getBroadcastTeamLogoUrl(team.name) : null;
 }
