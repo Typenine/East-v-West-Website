@@ -174,12 +174,12 @@ const VERTEX = [
   'precision highp float;',
   'layout(location=0) in vec3 position;',
   'layout(location=1) in vec2 texCoord;',
-  'out vec2 vUv;'
+  'out vec2 vUv;',
   'uniform mat4 viewMatrix, projectionMatrix, modelMatrix;',
   'out vec3 worldPos;',
   'void main() {',
   '  worldPos = (modelMatrix * vec4(position, 1.)).xyz;',
-  '  vUv = texCoord;'
+  '  vUv = texCoord;',
   '  gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.);',
   '}',
 ].join('\n');
