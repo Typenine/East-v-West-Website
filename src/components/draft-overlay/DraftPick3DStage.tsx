@@ -406,11 +406,21 @@ export default function DraftPick3DStage({ primary, secondary, logoUrl, onLogoRe
       image.src = logoUrl;
     }
     let handle = 0;
-    const start = performance.now();
+    let lastFrame = 0;
+    let elapsed = 0;
     let active = true;
+    // The team scene appears after the bridge and event-logo intros.
+    // Synchronize badge arrival with its own on-screen phase, not component mount.
+    const teamIntro = canvas.closest<HTMLElement>('.gsap-team-intro');
     const frame = (time: number) => {
       if (!active) return;
-      if (document.visibilityState === 'visible') stage.draw(canvas, (time - start) / 1000);
+      const visible = document.visibilityState === 'visible'
+        && (!teamIntro || Number.parseFloat(window.getComputedStyle(teamIntro).opacity) > 0.025);
+      if (visible) {
+        if (lastFrame) elapsed += Math.min((time - lastFrame) / 1000, 0.10);
+        stage.draw(canvas, elapsed);
+      }
+      lastFrame = time;
       handle = window.requestAnimationFrame(frame);
     };
     handle = window.requestAnimationFrame(frame);
