@@ -87,3 +87,14 @@ Visual assessment: the first software-rendered still shows a genuine 3D platform
 ### Preview deployment caveat
 
 The connected Vercel Git integration automatically attempted preview deployments for earlier branch commits despite the user's preference to avoid preview deployments. An in-progress preview was explicitly canceled; Vercel's project setting to disable preview deployments was submitted through its API on October 25. Verify the effective setting before any additional writes. No production deployment was initiated.
+
+
+## 3D fantasy team logos in the project
+
+The user's existing team logos are stored under \`public/assets/teams/East v West Logos/\`, and \`src/lib/utils/team-utils.ts:getTeamLogoPath\` already maps actual roster team names to filenames. No new logos or manual uploads are required.
+
+As of the 3D-badge iteration, \`DraftPickAnimation.tsx\` passes the resolved existing \`teamLogo\` path to \`DraftPick3DStage\`. The stage loads that image as an RGBA WebGL texture and draws it on a vertically oriented plaque in the same camera/depth-tested 3D scene as the platform. The plaque has procedural 3D thickness, an inset face, a narrow emissive bevel/frame and synchronized rise-and-settle movement. The logo is a **texture on a 3D object**, not fully extruded geometry of each artwork silhouette.
+
+The original 2D logo remains a fallback for WebGL2-disabled browsers, reduced-motion preference, missing logos or failed texture upload; it is hidden only after the 3D texture uploads successfully. The animation timer advances only during the visible team-intro phase; loading does not consume the reveal.
+
+Verification: confirmed project logo mapping and branch source integration, and inspected shader array separators. Full React/Next.js compilation and WebGL2 GPU rendering remain unverified in the current tooling; do not merge or claim visual quality approval until tested.
