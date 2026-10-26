@@ -308,16 +308,28 @@ export default function Navbar() {
   const newPinRef = useRef<HTMLInputElement | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Filter nav config to hide Draft Room for users without access
+  // Filter nav config to hide Draft Room for users without access;
+  // inject Draft Setup for admins so the control panel is discoverable.
   const filteredNavConfig = useMemo(() => {
     const canSeeDraftRoom = isAdmin || (sessionTeam && DRAFT_ROOM_ALLOWED_TEAMS.includes(sessionTeam));
-    if (canSeeDraftRoom) return USER_NAV_CONFIG;
-    // Filter out draft.room from the draft children
-    return USER_NAV_CONFIG.map(item => {
-      if (item.id === 'draft' && item.children) {
-        return { ...item, children: item.children.filter(child => child.id !== 'draft.room') };
+    return USER_NAV_CONFIG.map((item) => {
+      if (item.id !== 'draft' || !item.children) return item;
+      let children = item.children;
+      if (!canSeeDraftRoom) {
+        children = children.filter((child) => child.id !== 'draft.live-room' && child.id !== 'draft.room');
       }
-      return item;
+      if (isAdmin && !children.some((child) => child.id === 'draft.admin-setup')) {
+        children = [
+          {
+            id: 'draft.admin-setup',
+            label: 'Draft Setup & Control',
+            href: '/admin/draft',
+            group: 'Admin',
+          },
+          ...children,
+        ];
+      }
+      return { ...item, children };
     });
   }, [isAdmin, sessionTeam]);
 
@@ -634,6 +646,12 @@ export default function Navbar() {
                     <div className={cn(dropdownPanelClass, 'absolute right-0 mt-2 w-48')}>
                       {isAdmin && (
                         <>
+                          <button
+                            className={dropdownItemClass(false)}
+                            onClick={() => { setAccountMenuOpen(false); router.push('/admin/draft'); }}
+                          >
+                            Admin: Draft Setup
+                          </button>
                           <button
                             className={dropdownItemClass(false)}
                             onClick={() => { setAccountMenuOpen(false); router.push('/admin/newsletter'); }}

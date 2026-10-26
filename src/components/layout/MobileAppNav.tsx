@@ -77,6 +77,7 @@ const MORE_PATHS = collectNavPaths([
 ]);
 
 const ADMIN_ITEMS: UserNavItem[] = [
+  { id: 'admin.draft', label: 'Draft Setup', href: '/admin/draft' },
   { id: 'admin.newsletter', label: 'Newsletter Admin', href: '/admin/newsletter' },
   { id: 'admin.trades', label: 'Trades Admin', href: '/admin/trades' },
   { id: 'admin.suggestions', label: 'Suggestions Admin', href: '/admin/suggestions' },

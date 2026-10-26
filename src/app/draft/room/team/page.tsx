@@ -999,10 +999,13 @@ export default function DraftRoomPage() {
     : eventColor1;
 
   return (
-    <div className="flex flex-col" style={{ background: 'var(--background)' }}>
+    <div className="flex flex-col pb-20 md:pb-0" style={{ background: 'var(--background)' }}>
 
-      {/* ── DRAFT BOARD (full height, no internal scroll — whole page scrolls) ── */}
-      <div className="relative border-b-2 border-zinc-700" style={{ background: '#0a0a0e' }}>
+      {/* ── DRAFT BOARD: always on desktop; mobile only when Board tab selected ── */}
+      <div
+        className={`relative border-b-2 border-zinc-700 ${teamPanelTab === 'board' ? 'block' : 'hidden'} md:block`}
+        style={{ background: '#0a0a0e' }}
+      >
         {/* Event logo watermark — centered on board at low opacity */}
         {eventLogoUrl && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[1]">
@@ -1132,9 +1135,9 @@ export default function DraftRoomPage() {
             .filter((u: DraftSlot) => u.overall > overall)
             .slice(0, 2);
           return (
-            <div className="relative flex gap-0 items-stretch" style={{ minHeight: '184px', borderBottom: `2px solid ${eventColor1}33` }}>
+            <div className="relative flex flex-col md:flex-row gap-0 items-stretch" style={{ minHeight: '184px', borderBottom: `2px solid ${eventColor1}33` }}>
               {/* ClockBox */}
-              <div className="flex items-stretch shrink-0" style={{ width: '380px', background: 'linear-gradient(to bottom,#202020,#282828)', borderRadius: '4px', border: '1px solid #333' }}>
+              <div className="flex items-stretch shrink-0 w-full md:w-[380px]" style={{ background: 'linear-gradient(to bottom,#202020,#282828)', borderRadius: '4px', border: '1px solid #333' }}>
                 <div className="flex flex-col justify-center items-center p-2 w-28">
                   {eventLogoUrl && <img src={eventLogoUrl} alt="" className="object-contain" style={{ width: '88px', height: '88px', opacity: 0.94 }} />}
                 </div>
@@ -1254,10 +1257,10 @@ export default function DraftRoomPage() {
             </div>
           )}
 
-          {/* ── Team panel: pick / queue / roster (board grid unchanged above) ── */}
+          {/* ── Team panel: pick / queue / roster / trade / board ── */}
           {(me.authenticated || isAdmin) && (
             <div
-              className="rounded-xl overflow-hidden border-2 shadow-md flex flex-col min-h-0"
+              className={`rounded-xl overflow-hidden border-2 shadow-md flex flex-col min-h-0 ${teamPanelTab === 'board' ? 'hidden md:flex' : ''}`}
               style={{
                 borderColor: myTeamColors?.secondary ?? 'var(--border)',
                 background: myTeamColors
@@ -1275,11 +1278,14 @@ export default function DraftRoomPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="font-black text-sm text-[var(--foreground)] break-words leading-tight">{myTeam}</div>
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Pick · Queue · Roster · Trade · Board</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)] hidden md:block">Pick · Queue · Roster · Trade · Board</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-[var(--muted)] md:hidden">
+                      {teamPanelTab === 'pick' ? 'Make a pick' : teamPanelTab === 'queue' ? 'Your queue' : teamPanelTab === 'trade' ? 'Trade center' : teamPanelTab === 'roster' ? 'Roster' : 'Board'}
+                    </div>
                   </div>
                 </div>
               )}
-              <div className="flex gap-1 px-2 py-2 border-b border-[var(--border)] bg-black/5 dark:bg-white/5 flex-wrap">
+              <div className="hidden md:flex gap-1 px-2 py-2 border-b border-[var(--border)] bg-black/5 dark:bg-white/5 flex-wrap">
                 {(['pick', 'queue', 'roster', 'trade', 'board'] as const).map(tab => {
                   const isTradeAlert = tab === 'trade' && tradeNotif && teamPanelTab !== 'trade';
                   return (
@@ -1833,7 +1839,7 @@ export default function DraftRoomPage() {
       {/* Trade offer notification popup — stays visible until explicitly dismissed or Trade tab opened */}
       {tradeNotif && teamPanelTab !== 'trade' && (
         <div
-          className="fixed bottom-6 right-6 z-[9999] w-80 rounded-xl border-2 bg-zinc-900 shadow-2xl p-4 cursor-pointer animate-pulse"
+          className="fixed bottom-24 md:bottom-6 right-4 md:right-6 z-[9999] w-[min(100%-2rem,20rem)] rounded-xl border-2 bg-zinc-900 shadow-2xl p-4 cursor-pointer animate-pulse"
           style={{
             borderColor: '#ef4444',
             boxShadow: '0 0 32px #ef444488, 0 0 0 4px #ef444422',
@@ -1853,6 +1859,48 @@ export default function DraftRoomPage() {
             >×</button>
           </div>
         </div>
+      )}
+
+      {/* ── Mobile bottom nav: one job at a time ── */}
+      {(me.authenticated || isAdmin) && (
+        <nav
+          className="md:hidden fixed bottom-0 inset-x-0 z-[9000] border-t border-zinc-700 bg-zinc-950/95 backdrop-blur-md"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        >
+          <div className="grid grid-cols-5 gap-0.5 px-1 py-1.5">
+            {([
+              { id: 'pick' as const, label: 'Pick' },
+              { id: 'queue' as const, label: queue.length ? `Queue (${queue.length})` : 'Queue' },
+              { id: 'board' as const, label: 'Board' },
+              { id: 'trade' as const, label: tradeInboxCount > 0 ? `Trade (${tradeInboxCount})` : 'Trade' },
+              { id: 'roster' as const, label: 'Roster' },
+            ]).map((tab) => {
+              const active = teamPanelTab === tab.id;
+              const isTradeAlert = tab.id === 'trade' && tradeNotif && teamPanelTab !== 'trade';
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setTeamPanelTab(tab.id);
+                    if (tab.id === 'trade') setTradeNotif(false);
+                    if (tab.id === 'board') window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className={`min-h-12 rounded-lg px-1 py-1 text-[10px] font-black uppercase tracking-wide ${isTradeAlert ? 'animate-pulse' : ''}`}
+                  style={
+                    isTradeAlert
+                      ? { background: '#ef4444', color: '#fff' }
+                      : active
+                        ? { background: myTeamColors?.primary ?? '#be161e', color: '#fff' }
+                        : { background: 'transparent', color: '#a1a1aa' }
+                  }
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
       )}
 
     </div>
