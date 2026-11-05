@@ -432,18 +432,14 @@ export default function DraftContent() {
                 <div className="space-y-6">
                   <EmptyState
                     title="2028 Draft Details Coming Soon"
-                    message="Location and dates have not been finalized yet."
+                    message="Milwaukee, Wisconsin has been selected as the host city. Dates and other trip details have not been finalized yet."
                   />
                   <Card>
                     <CardHeader>
-                      <CardTitle>Location: Down to Three Finalists</CardTitle>
+                      <CardTitle>2028 Draft Location: Milwaukee, Wisconsin</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <ul className="list-disc pl-5 space-y-1 text-[var(--text)]">
-                        <li>Milwaukee, Wisconsin</li>
-                        <li>Western New York</li>
-                        <li>Tennessee</li>
-                      </ul>
+                      <p className="text-[var(--text)]">Milwaukee has been selected to host the 2028 East v. West Draft.</p>
                     </CardContent>
                   </Card>
                 </div>
