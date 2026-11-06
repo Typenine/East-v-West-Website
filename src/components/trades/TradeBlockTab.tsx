@@ -137,16 +137,17 @@ export default function TradeBlockTab() {
   const allPlayerIds = useMemo(() => {
     const ids = new Set<string>();
     for (const r of rows) for (const a of r.tradeBlock) if (a.type === 'player') ids.add(a.playerId);
+    for (const a of (mySaved?.tradeBlock || [])) if (a.type === 'player') ids.add(a.playerId);
     return Array.from(ids);
-  }, [rows]);
+  }, [rows, mySaved]);
 
   useEffect(() => {
     if (allPlayerIds.length === 0) return;
     const qs = encodeURIComponent(allPlayerIds.join(','));
     fetch(`/api/players/names?ids=${qs}`, { cache: 'no-store' })
       .then((r) => r.ok ? r.json() : Promise.reject())
-      .then((j) => setPlayerNames((j?.players as PlayersLookup) || {}))
-      .catch(() => setPlayerNames({}));
+      .then((j) => setPlayerNames((prev) => ({ ...prev, ...((j?.players as PlayersLookup) || {}) })))
+      .catch(() => {});
   }, [allPlayerIds]);
 
   // If authenticated, load my assets and saved block
@@ -434,12 +435,80 @@ export default function TradeBlockTab() {
               <BroadcastPanel accent={teamAccent(myTeam)} title="My Trade Block" meta={myTeam || undefined}>
                 <div className="space-y-4">
                   <div>
-                    <div className="text-3xl font-bold tabular-nums" style={{ color: PANEL.text }}>
-                      {(mySaved.tradeBlock || []).length}
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h2 className="text-sm font-bold" style={{ color: PANEL.text }}>
+                        Currently on the block
+                      </h2>
+                      <span className="rounded-full px-2 py-1 text-xs font-semibold tabular-nums"
+                        style={{ background: PANEL.tintStronger, color: PANEL.muted }}>
+                        {(mySaved.tradeBlock || []).length} listed
+                      </span>
                     </div>
-                    <div className="mt-1 text-sm" style={{ color: PANEL.muted }}>
-                      assets currently listed for trade
-                    </div>
+                    {(mySaved.tradeBlock || []).length === 0 ? (
+                      <p className="rounded-lg border border-dashed px-3 py-4 text-sm"
+                        style={{ color: PANEL.muted, borderColor: PANEL.hairline }}>
+                        No players or picks listed yet.
+                      </p>
+                    ) : (
+                      <ul className="space-y-2" aria-label="My listed trade assets">
+                        {[...(mySaved.tradeBlock || [])].sort((a, b) => {
+                          const order = { player: 0, pick: 1, faab: 2 };
+                          return order[a.type] - order[b.type];
+                        }).map((asset) => {
+                          const key = assetKey(asset);
+                          const isPlayer = asset.type === 'player';
+                          const name = isPlayer ? playerNames[asset.playerId] : null;
+                          const label = isPlayer
+                            ? (name?.name || 'Player #' + asset.playerId)
+                            : asset.type === 'pick'
+                              ? asset.year + ' ' + pickLabel(asset, myTeam || '')
+                              : '
+                  <button type="button"
+                    onClick={() => { setSaveStatus(null); setSaveError(null); setIsEditing(true); }}
+                    className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg px-4 text-sm font-bold transition-opacity hover:opacity-85 focus-visible:outline focus-visible:outline-2"
+                    style={{
+                      color: PANEL.text,
+                      background: teamAccent(myTeam) + '30',
+                      boxShadow: 'inset 0 0 0 1px ' + teamAccent(myTeam) + '77',
+                    }}>
+                    <Pencil size={16} aria-hidden="true" />
+                    Edit my trade block
+                  </button>
+                  <p className="text-xs leading-5" style={{ color: PANEL.muted }}>
+                    Search your roster, add picks, and remove players in one place.
+                  </p>
+                </div>
+              </BroadcastPanel>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+ + (asset.amount ?? 0) + ' FAAB';
+                          const tag = isPlayer ? (name?.position || 'PLR')
+                            : asset.type === 'pick' ? 'R' + asset.round : 'FAAB';
+                          return (
+                            <li key={key} className="flex min-w-0 items-center gap-3 rounded-lg border px-3 py-2.5"
+                              style={{ background: PANEL.tintSoft, borderColor: PANEL.hairline }}>
+                              <span className="inline-flex min-w-10 shrink-0 justify-center rounded px-1.5 py-1 text-[11px] font-bold"
+                                style={{ background: teamAccent(myTeam) + '1c', color: teamAccent(myTeam) }}>
+                                {tag}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="break-words text-sm font-semibold" style={{ color: PANEL.text }}>
+                                  {label}
+                                </div>
+                                {isPlayer && name?.team ? (
+                                  <div className="text-xs" style={{ color: PANEL.muted }}>{name.team}</div>
+                                ) : null}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </div>
                   <button type="button"
                     onClick={() => { setSaveStatus(null); setSaveError(null); setIsEditing(true); }}
