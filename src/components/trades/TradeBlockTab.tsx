@@ -5,6 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import TradeBlockCard from '@/components/trades/TradeBlockCard';
 import TradeBlockEditPanel, { TradeBlockEditPanelPlaceholder } from '@/components/trades/TradeBlockEditPanel';
 import { TradeCardSkeleton } from '@/components/trades/TradeCard';
+import { ArrowLeft, Pencil } from 'lucide-react';
+import { BroadcastPanel, PANEL, teamAccent } from '@/components/ui/BroadcastPanel';
 
 export type { TradeAsset, TradeWants, TeamRow } from '@/types/trade-block';
 import type { TradeAsset, TradeWants, TeamRow } from '@/types/trade-block';
@@ -18,6 +20,51 @@ export type MeTradeBlock = { tradeBlock: TradeAsset[]; tradeWants?: TradeWants }
 export type AuthMe = { authenticated: boolean; claims?: Record<string, unknown> };
 
 const WANT_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', '1st', '2nd', '3rd'];
+
+function assetKey(a: TradeAsset): string {
+  if (a.type === 'player') return 'player:' + a.playerId;
+  if (a.type === 'pick') return ['pick', a.year, a.round, a.originalTeam].join(':');
+  return 'faab:' + (a.amount ?? 0);
+}
+
+function compareBlocks(a: TradeAsset[], b: TradeAsset[]): boolean {
+  return a.map(assetKey).sort().join('|') === b.map(assetKey).sort().join('|');
+}
+
+function compareWants(a?: TradeWants, b?: TradeWants): boolean {
+  const clean = (w?: TradeWants) => JSON.stringify({
+    text: w?.text || '',
+    positions: [...(w?.positions || [])].sort(),
+    contactMethod: w?.contactMethod || '',
+    phone: w?.contactMethod === 'text' ? (w.phone || '').replace(/[^0-9+]/g, '').slice(0, 20) : '',
+    snap: w?.contactMethod === 'snap' ? (w.snap || '').replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 30) : '',
+  });
+  return clean(a) === clean(b);
+}
+
+function savedEditorState(saved: MeTradeBlock, assets: AssetsResponse) {
+  const players: Record<string, boolean> = {};
+  const picks: Record<string, boolean> = {};
+  let faabOn = false;
+  let faabAmt = 0;
+  for (const asset of (saved.tradeBlock || [])) {
+    if (asset.type === 'player') players[asset.playerId] = true;
+    if (asset.type === 'pick') picks[[asset.year, asset.round, asset.originalTeam].join('-')] = true;
+    if (asset.type === 'faab') {
+      faabOn = true;
+      faabAmt = asset.amount ?? assets.faab;
+    }
+  }
+  const wantsPos: Record<string, boolean> = {};
+  for (const pos of saved.tradeWants?.positions || []) wantsPos[pos] = true;
+  return {
+    players, picks, faabOn, faabAmt, wantsPos,
+    wantsText: saved.tradeWants?.text || '',
+    contactMethod: saved.tradeWants?.contactMethod,
+    phone: saved.tradeWants?.phone || '',
+    snap: saved.tradeWants?.snap || '',
+  };
+}
 
 export default function TradeBlockTab() {
   const [rows, setRows] = useState<TeamRow[]>([]);
@@ -42,6 +89,10 @@ export default function TradeBlockTab() {
   const [phone, setPhone] = useState('');
   const [snap, setSnap] = useState('');
   const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [editorLoadError, setEditorLoadError] = useState<string | null>(null);
 
   const [slotByOriginalTeam, setSlotByOriginalTeam] = useState<Record<string, number>>({});
   const [draftOrderSeason, setDraftOrderSeason] = useState<number>(0);
@@ -107,9 +158,14 @@ export default function TradeBlockTab() {
           fetch('/api/me/assets', { cache: 'no-store' }),
           fetch('/api/me/trade-block', { cache: 'no-store' })
         ]);
-        if (assetsRes.ok) setMyAssets(await assetsRes.json());
-        if (mineRes.ok) setMySaved(await mineRes.json());
-      } catch {}
+        if (!assetsRes.ok || !mineRes.ok) throw new Error('Unable to load your trade block editor.');
+        const [assets, saved] = await Promise.all([assetsRes.json(), mineRes.json()]);
+        setMyAssets(assets as AssetsResponse);
+        setMySaved(saved as MeTradeBlock);
+        setEditorLoadError(null);
+      } catch {
+        setEditorLoadError('Unable to load your roster or saved block. Refresh the page to try again.');
+      }
     })();
   }, [auth]);
 
@@ -142,36 +198,19 @@ export default function TradeBlockTab() {
       .catch(() => {});
   }, []);
 
-  // Hydrate edit state from saved
+  // Keep the draft synchronized with server-confirmed saves and the initial load.
   useEffect(() => {
-    if (!myAssets) return;
-    const selP: Record<string, boolean> = {};
-    const selPk: Record<string, boolean> = {};
-    let faOn = false; let faVal = 0;
-    const wp: Record<string, boolean> = {};
-    let wt = '';
-
-    if (mySaved?.tradeBlock) {
-      for (const a of mySaved.tradeBlock) {
-        if (a.type === 'player') selP[a.playerId] = true;
-        else if (a.type === 'pick') selPk[`${a.year}-${a.round}-${a.originalTeam}`] = true;
-        else if (a.type === 'faab') { faOn = true; faVal = a.amount ?? myAssets.faab; }
-      }
-    }
-    if (mySaved?.tradeWants) {
-      wt = mySaved.tradeWants.text || '';
-      for (const p of (mySaved.tradeWants.positions || [])) wp[p] = true;
-      setContactMethod(mySaved.tradeWants.contactMethod);
-      setPhone(mySaved.tradeWants.phone || '');
-      setSnap(mySaved.tradeWants.snap || '');
-    }
-
-    setSelPlayers(selP);
-    setSelPicks(selPk);
-    setFaabOn(faOn);
-    setFaabAmt(faVal);
-    setWantsText(wt);
-    setWantsPos(wp);
+    if (!myAssets || !mySaved) return;
+    const next = savedEditorState(mySaved, myAssets);
+    setSelPlayers(next.players);
+    setSelPicks(next.picks);
+    setFaabOn(next.faabOn);
+    setFaabAmt(next.faabAmt);
+    setWantsText(next.wantsText);
+    setWantsPos(next.wantsPos);
+    setContactMethod(next.contactMethod);
+    setPhone(next.phone);
+    setSnap(next.snap);
   }, [myAssets, mySaved]);
 
   const pickSlot = (a: { year: number; originalTeam: string }): number =>
@@ -196,119 +235,232 @@ export default function TradeBlockTab() {
     return [...sorted, ...players, ...faab];
   };
 
+  const draftBlock = useMemo<TradeAsset[]>(() => {
+    if (!myAssets) return [];
+    const items: TradeAsset[] = [];
+    for (const pid of myAssets.players) {
+      if (selPlayers[pid]) items.push({ type: 'player', playerId: pid });
+    }
+    for (const pick of myAssets.picks) {
+      if (selPicks[[pick.year, pick.round, pick.originalTeam].join('-')]) {
+        items.push({ type: 'pick', year: pick.year, round: pick.round, originalTeam: pick.originalTeam });
+      }
+    }
+    if (faabOn) {
+      items.push({ type: 'faab', amount: Math.max(0, Math.min(myAssets.faab, faabAmt || 0)) });
+    }
+    return items;
+  }, [myAssets, selPlayers, selPicks, faabOn, faabAmt]);
+
+  const draftWants = useMemo<TradeWants>(() => ({
+    text: wantsText.slice(0, 300),
+    positions: WANT_POSITIONS.filter((pos) => wantsPos[pos]),
+    contactMethod,
+    phone: contactMethod === 'text' ? phone.replace(/[^0-9+]/g, '').slice(0, 20) : undefined,
+    snap: contactMethod === 'snap' ? snap.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 30) : undefined,
+  }), [wantsText, wantsPos, contactMethod, phone, snap]);
+
+  const dirty = !!mySaved &&
+    (!compareBlocks(draftBlock, mySaved.tradeBlock || []) ||
+      !compareWants(draftWants, mySaved.tradeWants));
+
+  function discardMine() {
+    if (!myAssets || !mySaved) return;
+    const next = savedEditorState(mySaved, myAssets);
+    setSelPlayers(next.players);
+    setSelPicks(next.picks);
+    setFaabOn(next.faabOn);
+    setFaabAmt(next.faabAmt);
+    setWantsText(next.wantsText);
+    setWantsPos(next.wantsPos);
+    setContactMethod(next.contactMethod);
+    setPhone(next.phone);
+    setSnap(next.snap);
+    setSaveError(null);
+    setSaveStatus(null);
+  }
+
+  function backToBlock() {
+    if (dirty && !window.confirm('Discard your unsaved trade block changes?')) return;
+    if (dirty) discardMine();
+    setIsEditing(false);
+  }
+
   async function saveMine() {
-    if (!auth || !myAssets) return;
+    if (!auth || !myAssets || !mySaved || saving || !dirty) return;
     try {
       setSaving(true);
-      const tradeBlock: TradeAsset[] = [];
-      for (const pid of myAssets.players) if (selPlayers[pid]) tradeBlock.push({ type: 'player', playerId: pid });
-      for (const p of myAssets.picks) if (selPicks[`${p.year}-${p.round}-${p.originalTeam}`]) tradeBlock.push({ type: 'pick', year: p.year, round: p.round, originalTeam: p.originalTeam });
-      if (faabOn) tradeBlock.push({ type: 'faab', amount: Math.max(0, Math.min(myAssets.faab, faabAmt || 0)) });
-      const tradeWants: TradeWants = {
-        text: wantsText.slice(0, 300),
-        positions: WANT_POSITIONS.filter((k) => wantsPos[k]),
-        contactMethod: contactMethod,
-        phone: contactMethod === 'text' ? phone : undefined,
-        snap: contactMethod === 'snap' ? snap : undefined,
-      };
+      setSaveError(null);
+      setSaveStatus(null);
       const res = await fetch('/api/me/trade-block', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tradeBlock, tradeWants })
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tradeBlock: draftBlock, tradeWants: draftWants }),
       });
       if (!res.ok) {
-        const j = await res.json().catch(() => ({} as { error?: string }));
-        throw new Error(j?.error || 'Failed to save');
+        const json = await res.json().catch(() => ({} as { error?: string }));
+        throw new Error(json?.error || 'Could not save your trade block.');
       }
-      // Optimistic update
+      const response = await res.json() as MeTradeBlock;
+      const savedBlock = response.tradeBlock || draftBlock;
+      const savedWants = response.tradeWants || draftWants;
+      setMySaved({ tradeBlock: savedBlock, tradeWants: savedWants });
+      setSaveStatus('Changes saved successfully.');
       if (myTeam) {
-        const updated: TeamRow = { team: myTeam, tradeBlock, tradeWants, updatedAt: new Date().toISOString() };
+        const updated: TeamRow = {
+          team: myTeam, tradeBlock: savedBlock, tradeWants: savedWants,
+          updatedAt: new Date().toISOString(),
+        };
         setRows((prev) => {
-          const idx = prev.findIndex((r) => r.team === myTeam);
-          if (idx >= 0) { const copy = [...prev]; copy[idx] = updated; return copy; }
-          return [...prev, updated];
+          const idx = prev.findIndex((row) => row.team === myTeam);
+          if (idx < 0) return [...prev, updated];
+          const next = [...prev];
+          next[idx] = updated;
+          return next;
         });
       }
-      // Refresh public list
-      const agg = await fetch('/api/teams/trade-blocks', { cache: 'no-store' });
-      const j = await agg.json();
-      setRows((j?.teams as TeamRow[]) || []);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to save');
+      // A failed refresh does not undo a successful save.
+      try {
+        const agg = await fetch('/api/teams/trade-blocks', { cache: 'no-store' });
+        if (agg.ok) {
+          const json = await agg.json();
+          if (Array.isArray(json?.teams)) setRows(json.teams as TeamRow[]);
+        }
+      } catch {}
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save your trade block.');
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      <div className="lg:col-span-2">
-        {loading ? (
-          <div className="space-y-5" role="status" aria-live="polite" aria-busy="true">
-            <TradeCardSkeleton />
-            <TradeCardSkeleton />
+    <div>
+      {isEditing ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button type="button" onClick={backToBlock}
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg border px-4 text-sm font-semibold transition-colors hover:bg-[var(--panel-tint-medium)]"
+              style={{ borderColor: PANEL.hairline, color: PANEL.text }}>
+              <ArrowLeft size={16} aria-hidden="true" /> Back to trade block
+            </button>
+            <div className="text-right">
+              <h2 className="text-xl font-bold" style={{ color: PANEL.text }}>Manage my trade block</h2>
+              <p className="text-xs" style={{ color: PANEL.muted }}>Choose exactly which assets other teams can see.</p>
+            </div>
           </div>
-        ) : error ? (
-          <p className="text-[var(--danger)]">{error}</p>
-        ) : rows.length === 0 ? (
-          <p className="text-[var(--muted)]">No teams have posted trade blocks yet.</p>
-        ) : (
-          <ul className="space-y-5">
-            {rows.map((row) => {
-              const isHighlighted = highlightTeam
-                ? row.team.trim().toLowerCase() === decodeURIComponent(highlightTeam).trim().toLowerCase()
-                : false;
-              return (
-                <TradeBlockCard
-                  key={row.team}
-                  team={row.team}
-                  tradeBlock={sortedBlock(row.tradeBlock)}
-                  tradeWants={row.tradeWants}
-                  updatedAt={row.updatedAt}
-                  playerNames={playerNames}
-                  pickLabel={(a) => pickLabel(a, row.team)}
-                  isHighlighted={isHighlighted}
-                />
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      {/* Edit panel */}
-      <div className="lg:col-span-1">
-        {!auth ? (
-          <TradeBlockEditPanelPlaceholder message="Sign in to manage your trade block." />
-        ) : !myAssets ? (
-          <TradeBlockEditPanelPlaceholder message="Loading your assets…" accentTeam={myTeam} />
-        ) : (
-          <TradeBlockEditPanel
-            myTeam={myTeam}
-            myAssets={myAssets}
-            playerNames={playerNames}
-            selPlayers={selPlayers}
-            setSelPlayers={setSelPlayers}
-            selPicks={selPicks}
-            setSelPicks={setSelPicks}
-            faabOn={faabOn}
-            setFaabOn={setFaabOn}
-            faabAmt={faabAmt}
-            setFaabAmt={setFaabAmt}
-            wantsText={wantsText}
-            setWantsText={setWantsText}
-            wantsPos={wantsPos}
-            setWantsPos={setWantsPos}
-            contactMethod={contactMethod}
-            setContactMethod={setContactMethod}
-            phone={phone}
-            setPhone={setPhone}
-            snap={snap}
-            setSnap={setSnap}
-            saving={saving}
-            pickLabel={(a) => pickLabel(a, myTeam || '')}
-            pickSlot={pickSlot}
-            onSave={saveMine}
-          />
-        )}
-      </div>
+          {!myAssets || !mySaved ? (
+            <TradeBlockEditPanelPlaceholder
+              message={editorLoadError || 'Loading your roster and saved trade block...'}
+              accentTeam={myTeam}
+            />
+          ) : (
+            <TradeBlockEditPanel
+              myTeam={myTeam}
+              myAssets={myAssets}
+              playerNames={playerNames}
+              selPlayers={selPlayers}
+              setSelPlayers={setSelPlayers}
+              selPicks={selPicks}
+              setSelPicks={setSelPicks}
+              faabOn={faabOn}
+              setFaabOn={setFaabOn}
+              faabAmt={faabAmt}
+              setFaabAmt={setFaabAmt}
+              wantsText={wantsText}
+              setWantsText={setWantsText}
+              wantsPos={wantsPos}
+              setWantsPos={setWantsPos}
+              contactMethod={contactMethod}
+              setContactMethod={setContactMethod}
+              phone={phone}
+              setPhone={setPhone}
+              snap={snap}
+              setSnap={setSnap}
+              saving={saving}
+              dirty={dirty}
+              saveStatus={saveStatus}
+              saveError={saveError}
+              pickLabel={(a) => pickLabel(a, myTeam || '')}
+              pickSlot={pickSlot}
+              onSave={saveMine}
+              onDiscard={discardMine}
+            />
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
+          <div className="lg:col-span-2 lg:order-first order-last">
+            {loading ? (
+              <div className="space-y-5" role="status" aria-live="polite" aria-busy="true">
+                <TradeCardSkeleton />
+                <TradeCardSkeleton />
+              </div>
+            ) : error ? (
+              <p className="text-[var(--danger)]">{error}</p>
+            ) : rows.length === 0 ? (
+              <p className="text-[var(--muted)]">No teams have posted trade blocks yet.</p>
+            ) : (
+              <ul className="space-y-5">
+                {rows.map((row) => {
+                  const isHighlighted = highlightTeam
+                    ? row.team.trim().toLowerCase() === decodeURIComponent(highlightTeam).trim().toLowerCase()
+                    : false;
+                  return (
+                    <TradeBlockCard
+                      key={row.team}
+                      team={row.team}
+                      tradeBlock={sortedBlock(row.tradeBlock)}
+                      tradeWants={row.tradeWants}
+                      updatedAt={row.updatedAt}
+                      playerNames={playerNames}
+                      pickLabel={(a) => pickLabel(a, row.team)}
+                      isHighlighted={isHighlighted}
+                    />
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          <div className="order-first lg:order-last">
+            {!auth ? (
+              <TradeBlockEditPanelPlaceholder message="Sign in to manage your trade block." />
+            ) : !myAssets || !mySaved ? (
+              <TradeBlockEditPanelPlaceholder
+                message={editorLoadError || 'Loading your trade block...'}
+                accentTeam={myTeam}
+              />
+            ) : (
+              <BroadcastPanel accent={teamAccent(myTeam)} title="My Trade Block" meta={myTeam || undefined}>
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-3xl font-bold tabular-nums" style={{ color: PANEL.text }}>
+                      {(mySaved.tradeBlock || []).length}
+                    </div>
+                    <div className="mt-1 text-sm" style={{ color: PANEL.muted }}>
+                      assets currently listed for trade
+                    </div>
+                  </div>
+                  <button type="button"
+                    onClick={() => { setSaveStatus(null); setSaveError(null); setIsEditing(true); }}
+                    className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg px-4 text-sm font-bold transition-opacity hover:opacity-85 focus-visible:outline focus-visible:outline-2"
+                    style={{
+                      color: PANEL.text,
+                      background: teamAccent(myTeam) + '30',
+                      boxShadow: 'inset 0 0 0 1px ' + teamAccent(myTeam) + '77',
+                    }}>
+                    <Pencil size={16} aria-hidden="true" />
+                    Edit my trade block
+                  </button>
+                  <p className="text-xs leading-5" style={{ color: PANEL.muted }}>
+                    Search your roster, add picks, and remove players in one place.
+                  </p>
+                </div>
+              </BroadcastPanel>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
