@@ -462,31 +462,7 @@ export default function TradeBlockTab() {
                             ? (name?.name || 'Player #' + asset.playerId)
                             : asset.type === 'pick'
                               ? asset.year + ' ' + pickLabel(asset, myTeam || '')
-                              : '
-                  <button type="button"
-                    onClick={() => { setSaveStatus(null); setSaveError(null); setIsEditing(true); }}
-                    className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg px-4 text-sm font-bold transition-opacity hover:opacity-85 focus-visible:outline focus-visible:outline-2"
-                    style={{
-                      color: PANEL.text,
-                      background: teamAccent(myTeam) + '30',
-                      boxShadow: 'inset 0 0 0 1px ' + teamAccent(myTeam) + '77',
-                    }}>
-                    <Pencil size={16} aria-hidden="true" />
-                    Edit my trade block
-                  </button>
-                  <p className="text-xs leading-5" style={{ color: PANEL.muted }}>
-                    Search your roster, add picks, and remove players in one place.
-                  </p>
-                </div>
-              </BroadcastPanel>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
- + (asset.amount ?? 0) + ' FAAB';
+                              : '$' + (asset.amount ?? 0) + ' FAAB';
                           const tag = isPlayer ? (name?.position || 'PLR')
                             : asset.type === 'pick' ? 'R' + asset.round : 'FAAB';
                           return (
