@@ -59,7 +59,32 @@ export async function getPublishedEditorialSnapshot(season:number,throughWeek:nu
       console.warn('[EditorialTracking] Unable to extract '+meta.id,error instanceof Error?error.message:String(error));
     }
   }
-  const scoreboard=buildScoreboard(issues);
+  const parsedScoreboard=buildScoreboard(issues);
+  // The already-published 2026 Weeks 2-9 were audited from the original
+  // newsletters before the structured PDF ledger existed. Preserve this
+  // week-level baseline even when older PDF layouts are not machine-readable.
+  // These figures do not imply that disagreement-by-disagreement picks were
+  // recovered; head-to-head stays unavailable until its underlying picks are.
+  const historical2026 = [
+    [2,3,3,4,2],[3,4,2,5,1],[4,1,5,3,3],[5,5,1,4,2],
+    [6,4,2,4,2],[7,5,1,4,2],[8,3,3,4,2],[9,3,3,4,2],
+  ].map(([week,mw,ml,ww,wl])=>({week,mason:{w:mw,l:ml},westy:{w:ww,l:wl}}));
+  const baseline=season===2026 ? historical2026.filter(x=>x.week<=throughWeek) : [];
+  const latest=parsedScoreboard.weeks.filter(x=>!baseline.some(b=>b.week===x.week));
+  const weeks=[...baseline,...latest].sort((a,b)=>a.week-b.week);
+  const sum=(who:'mason'|'westy',key:'w'|'l')=>weeks.reduce((n,w)=>n+w[who][key],0);
+  const missingPostBaseline=parsedScoreboard.missingWeeks.filter(w=>!baseline.some(b=>b.week===w));
+  const scoreboard={
+    ...parsedScoreboard,
+    weeks,
+    mason:{w:sum('mason','w'),l:sum('mason','l')},
+    westy:{w:sum('westy','w'),l:sum('westy','l')},
+    lastWeek:weeks[weeks.length-1]??null,
+    missingWeeks:missingPostBaseline,
+    verified:weeks.length>0&&missingPostBaseline.length===0,
+    disagreementRecordsComplete:baseline.length===0&&parsedScoreboard.verified,
+    historicalBaseline:baseline.length? '2026 Weeks 2-9 audited week-level records from published issues; individual disagreements not fully backfilled':null,
+  };
   const allWatches=issues.flatMap(i=>i.stockWatch).sort((a,b)=>a.week-b.week);
   return {
     scoreboard:{
