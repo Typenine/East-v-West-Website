@@ -20,6 +20,7 @@ import {
 } from '@/lib/utils/discord';
 import { updateBotMemoryFromPublish } from '@/lib/newsletter/publish-memory';
 import { recordPublishedTakeLedger } from '@/lib/newsletter/published-take-ledger';
+import { recordPublishedEditorialIssue } from '@/lib/newsletter/editorial-tracking-store';
 import { EPISODE_WEEK_STORAGE } from '@/lib/newsletter/queue-target';
 import { getDb } from '@/server/db/client';
 import { discordNotifications, newsletters } from '@/server/db/schema';
@@ -275,6 +276,12 @@ export async function POST(req: NextRequest) {
     // attributable Mason/Westy continuity into the stored newsletter section.
     await recordPublishedTakeLedger(target.id).catch(error => {
       console.warn('[Publish] Published take ledger update failed (non-fatal):', error);
+    });
+
+    // Store predictions and Stock Watch receipts only after the issue is officially published.
+    // Re-publishing or re-exporting does not duplicate them.
+    await recordPublishedEditorialIssue(target.id).catch(error => {
+      console.warn('[Publish] Editorial tracking extraction failed (non-fatal):', error);
     });
 
     const announcementPending = sendDiscord && (discordStatus === 'pending_retry' || discordStatus === 'not_configured');
