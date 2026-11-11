@@ -74,6 +74,14 @@ export async function getPublishedEditorialSnapshot(season:number,throughWeek:nu
   const weeks=[...baseline,...latest].sort((a,b)=>a.week-b.week);
   const sum=(who:'mason'|'westy',key:'w'|'l')=>weeks.reduce((n,w)=>n+w[who][key],0);
   const missingPostBaseline=parsedScoreboard.missingWeeks.filter(w=>!baseline.some(b=>b.week===w));
+  // A missing results page cannot silently make the cumulative record "verified".
+  for(const issue of metas){
+    if(issue.week<=9&&baseline.length)continue;
+    if(issue.week<2||issue.week>throughWeek)continue;
+    if(!weeks.some(w=>w.week===issue.week)&&!missingPostBaseline.includes(issue.week))missingPostBaseline.push(issue.week);
+  }
+  const unresolvedCritical=unresolvedIssues.some(id=>
+    metas.some(issue=>issue.id===id && (!baseline.length||issue.week>9)));
   const scoreboard={
     ...parsedScoreboard,
     weeks,
@@ -89,8 +97,8 @@ export async function getPublishedEditorialSnapshot(season:number,throughWeek:nu
   return {
     scoreboard:{
       ...scoreboard,
-      verified:scoreboard.verified&&unresolvedIssues.length===0,
-      label:scoreboard.verified&&unresolvedIssues.length===0?'Verified published picks':'Incomplete archive; do not print a full season record',
+      verified:scoreboard.verified&&!unresolvedCritical,
+      label:scoreboard.verified&&!unresolvedCritical?'Verified published picks':'Incomplete archive; do not print a full season record',
       scope:'Matchup winner picks only; excludes preseason and subjective forecasts',
     },
     stockWatch:{
