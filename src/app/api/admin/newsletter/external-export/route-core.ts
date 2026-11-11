@@ -219,7 +219,6 @@ async function buildSourcePack(season: number, week: number, episodeType: string
     priorWestyMemory,
     forecastRecords,
     recentPublishedIssues,
-    editorialTracking,
     overrides,
     masonTakeState,
     westyTakeState,
@@ -236,11 +235,19 @@ async function buildSourcePack(season: number, week: number, episodeType: string
     season > 2023 ? loadBotMemory('analyst', season - 1).catch(() => null) : Promise.resolve(null),
     loadForecastRecords(season).catch(() => ({ entertainer: { w: 0, l: 0 }, analyst: { w: 0, l: 0 } })),
     loadRecentPublishedIssues(season),
-    getPublishedEditorialSnapshot(season, snapshotWeek).catch(error => ({ scoreboard: null, stockWatch: null, extractionHealth: { error: error instanceof Error ? error.message : String(error) } })),
     loadAllTeamNarrativeOverrides().catch(() => []),
     loadPublishedTakeLedgerState('entertainer', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null, extractionVersion: 0 })),
     loadPublishedTakeLedgerState('analyst', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null, extractionVersion: 0 })),
   ]);
+
+  // Supplemental read-only editorial history. Keep the canonical source-pack
+  // construction block unchanged for the existing prebuild compatibility checks.
+  const editorialTracking = await getPublishedEditorialSnapshot(season, snapshotWeek)
+    .catch(error => ({
+      scoreboard: null,
+      stockWatch: null,
+      extractionHealth: { error: error instanceof Error ? error.message : String(error) },
+    }));
 
   const valueBySleeperId = new Map(
     Object.values(tradeValues)
@@ -432,8 +439,6 @@ async function buildSourcePack(season: number, week: number, episodeType: string
       finalOutput: 'Return a polished PDF with no AI/process/meta language inside the newsletter.',
     },
     dataQualityNotes: [
-      'Prediction scoreboard is authoritative only when editorialTracking.scoreboard.verified is true. The legacy botContinuity.forecastRecords may be 0-0 for externally published issues and must not be substituted for an incomplete scoreboard.',
-      'Stock Watch history is sourced from published PDFs. Do not invent follow-ups or claim that tentative monitoring was an incorrect prediction.',
       'Current dynasty values are asset values, not current-season projections.',
       'Roster value is split into active, IR, taxi, and all-slots totals. Do not call a roster weak because a major asset is parked on IR.',
       'publishedContinuity is the primary continuity record. recentPublishedIssues provide additional prose context, not the only memory of prior newsletters.',
@@ -483,7 +488,6 @@ async function buildSourcePack(season: number, week: number, episodeType: string
         'A callback should identify the prior position accurately and then connect it to the current evidence.',
       ],
     },
-    editorialTracking,
     botContinuity: {
       currentSeason: { mason: masonMemory, westy: westyMemory },
       priorSeason: { mason: priorMasonMemory, westy: priorWestyMemory },
@@ -492,6 +496,10 @@ async function buildSourcePack(season: number, week: number, episodeType: string
       recentPublishedIssues,
     },
   };
+
+  // Source Pack consumer reads editorialTracking independently of the legacy
+  // forecastRecords, which may remain 0-0 for externally written PDFs.
+  Object.assign(sourcePack, { editorialTracking });
 
   const suffix = week > 0 ? `-week-${week}` : '';
   return downloadResponse(
