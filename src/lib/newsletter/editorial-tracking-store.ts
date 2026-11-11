@@ -8,7 +8,7 @@ import { buildScoreboard, extractEditorial, type EditorialExtract } from './edit
 
 type UploadedData = { key?: string; editorialTracking?: EditorialExtract; [key:string]:unknown };
 type IssueSection = { type:string; data:unknown };
-type IssueContent = { meta:unknown; sections:IssueSection[]; [key:string]:unknown };
+type IssueContent = { meta:{ leagueName:string; week:number; date:string; season:number }; sections:IssueSection[]; [key:string]:unknown };
 
 async function extractFromIssue(issueId:string):Promise<EditorialExtract|null>{
   const loaded=await loadNewsletterById(issueId);
