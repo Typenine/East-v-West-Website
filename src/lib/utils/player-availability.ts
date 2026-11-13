@@ -152,7 +152,7 @@ function noteFantasyLineupHistory(entry: PlayerAvailabilityEntry, starts: number
 // accompanying /players/nfl/injuries entry. Depth-chart role is not evidence
 // that someone on IR, PUP, or ruled out can play this week's game.
 function injuryAvailabilityCap(rawStatus: string | null | undefined): number | null {
-  const status = String(rawStatus ?? '').trim().toLowerCase().replace(/[_.\\/-]+/g, ' ').replace(/\\s+/g, ' ');
+  const status = String(rawStatus ?? '').trim().toLowerCase().replace(/[_.\/-]+/g, ' ').replace(/\s+/g, ' ');
   if (!status || status === 'active' || status === 'healthy') return null;
 
   if (
