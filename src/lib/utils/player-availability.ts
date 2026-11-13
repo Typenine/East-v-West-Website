@@ -148,28 +148,46 @@ function noteFantasyLineupHistory(entry: PlayerAvailabilityEntry, starts: number
   entry.reasons.push(`fantasy-lineup-starts-${starts}`);
 }
 
+// NFL injury designations may appear in the player directory without an
+// accompanying /players/nfl/injuries entry. Depth-chart role is not evidence
+// that someone on IR, PUP, or ruled out can play this week's game.
+function injuryAvailabilityCap(rawStatus: string | null | undefined): number | null {
+  const status = String(rawStatus ?? '').trim().toLowerCase().replace(/[_.\\/-]+/g, ' ').replace(/\\s+/g, ' ');
+  if (!status || status === 'active' || status === 'healthy') return null;
+
+  if (
+    /^(ir|ir r|out|o|inactive|pup|nfi|susp|suspended|suspension)$/.test(status) ||
+    /^(injured reserve|reserve injured|physically unable to perform|non football (injury|illness)|reserve non football (injury|illness))$/.test(status)
+  ) return 0;
+  if (status === 'd' || status === 'doubtful') return 0.22;
+  if (status === 'q' || status === 'questionable') return 0.82;
+  return null;
+}
+
 function adjustForInjury(
   entry: PlayerAvailabilityEntry,
   injury: SleeperInjury | undefined,
-  playerPractice?: string | null,
+  player: SleeperPlayerWithPractice | undefined,
 ) {
-  const status = injury?.status?.toLowerCase();
-  if (status === 'out' || status === 'suspended' || status === 'inactive') {
-    entry.weight = Math.min(entry.weight, 0.01);
-    entry.tier = 'inactive';
-    entry.reasons.push(`injury-${status}`);
-  } else if (status === 'doubtful') {
-    entry.weight = Math.min(entry.weight, 0.22);
-    entry.reasons.push('injury-D');
-  } else if (status === 'questionable') {
-    entry.weight = Math.min(entry.weight, 0.82);
-    entry.reasons.push('injury-Q');
+  // Apply the most restrictive explicit status from either Sleeper source.
+  // A fantasy-league IR/taxi slot is intentionally NOT included here: it
+  // doesn't establish that the player is on the NFL injured-reserve list.
+  const statuses = [injury?.status, player?.injury_status, player?.status];
+  const caps = statuses.map(injuryAvailabilityCap).filter((cap): cap is number => cap !== null);
+  const cap = caps.length ? Math.min(...caps) : null;
+  if (cap !== null) {
+    entry.weight = Math.min(entry.weight, cap);
+    if (cap === 0) {
+      entry.tier = 'inactive';
+      entry.reasons.push('nfl-unavailable');
+    } else {
+      entry.reasons.push(cap <= 0.22 ? 'injury-D' : 'injury-Q');
+    }
   }
 
-  // Sleeper documents practice_participation on the main player map. Some
-  // injury-feed entries also carry it, so use either source rather than
-  // depending on the injury list alone.
-  const practice = String(injury?.practice_participation || playerPractice || '').toLowerCase();
+  // Practice limitations can adjust uncertain statuses, but cannot make a
+  // medically or administratively unavailable player eligible to play.
+  const practice = String(injury?.practice_participation || player?.practice_participation || '').toLowerCase();
   if (practice.includes('dnp') || practice.includes('did not practice')) {
     entry.weight *= 0.82;
     entry.reasons.push('practice-DNP');
@@ -216,7 +234,7 @@ export async function buildPlayerAvailabilitySnapshot(args: AvailabilitySnapshot
     }
     entry.weight = Math.min(entry.weight, tierActiveProbability[entry.tier] ?? 0.92);
     noteFantasyLineupHistory(entry, lineupStarts.get(playerId) ?? 0, weeksConsidered);
-    adjustForInjury(entry, injury, player?.practice_participation);
+    adjustForInjury(entry, injury, player);
     entry.weight = Math.max(0, Math.min(1, Number(entry.weight.toFixed(3))));
     if (entry.reasons.length === 0) entry.reasons.push('no-flags');
     result[playerId] = entry;
