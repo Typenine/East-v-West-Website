@@ -2177,58 +2177,60 @@ export async function getCurrentStreaksForLeague(
   leagueId: string,
   options?: SleeperFetchOptions
 ): Promise<Record<number, { type: 'W' | 'L' | 'T' | null; length: number }>> {
-  const weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+  // Sleeper matchup scores can change during an active week, but roster W/L/T
+  // records are only updated after a week is finalized. Streaks must use the
+  // same completed games as the standings, not all 18 scheduled weeks.
+  const rosters = await getLeagueRosters(leagueId, options);
+  const completedWeeks = Math.min(18, rosters.reduce((max, roster) => {
+    const { wins = 0, losses = 0, ties = 0 } = roster.settings ?? {};
+    return Math.max(max, wins + losses + ties);
+  }, 0));
+
+  const weeks = Array.from({ length: completedWeeks }, (_, i) => i + 1);
   const allWeekMatchups = await Promise.all(
-    weeks.map((w) => getLeagueMatchups(leagueId, w, options).catch(() => [] as SleeperMatchup[]))
+    weeks.map((week) => getLeagueMatchups(leagueId, week, options).catch(() => [] as SleeperMatchup[]))
   );
+
+  // Keep one slot per official week. Missing matchup data must not cause
+  // results from nonconsecutive weeks to be counted as one streak.
   const resultsByRoster: Record<number, Array<'W' | 'L' | 'T' | null>> = {};
-  for (const weekMatchups of allWeekMatchups) {
-    if (!weekMatchups || weekMatchups.length === 0) continue;
+  for (const roster of rosters) {
+    resultsByRoster[roster.roster_id] = Array(completedWeeks).fill(null);
+  }
+
+  for (let weekIndex = 0; weekIndex < allWeekMatchups.length; weekIndex++) {
     const byId = new Map<number, SleeperMatchup[]>();
-    for (const m of weekMatchups) {
-      const arr = byId.get(m.matchup_id) || [];
-      arr.push(m);
-      byId.set(m.matchup_id, arr);
+    for (const matchup of allWeekMatchups[weekIndex] || []) {
+      const pair = byId.get(matchup.matchup_id) || [];
+      pair.push(matchup);
+      byId.set(matchup.matchup_id, pair);
     }
+
     for (const pair of byId.values()) {
-      if (!pair || pair.length < 2) continue;
+      if (pair.length !== 2) continue;
       const [a, b] = pair;
+      if (!resultsByRoster[a.roster_id] || !resultsByRoster[b.roster_id]) continue;
       const aPts = a.custom_points ?? a.points ?? 0;
       const bPts = b.custom_points ?? b.points ?? 0;
-      const played = ((aPts ?? 0) > 0) || ((bPts ?? 0) > 0);
-      const resA: 'W' | 'L' | 'T' | null = played ? (aPts > bPts ? 'W' : aPts < bPts ? 'L' : 'T') : null;
-      const resB: 'W' | 'L' | 'T' | null = played ? (bPts > aPts ? 'W' : bPts < aPts ? 'L' : 'T') : null;
-      if (!resultsByRoster[a.roster_id]) resultsByRoster[a.roster_id] = [];
-      if (!resultsByRoster[b.roster_id]) resultsByRoster[b.roster_id] = [];
-      resultsByRoster[a.roster_id].push(resA);
-      resultsByRoster[b.roster_id].push(resB);
+      if (aPts === 0 && bPts === 0) continue;
+
+      resultsByRoster[a.roster_id][weekIndex] = aPts > bPts ? 'W' : aPts < bPts ? 'L' : 'T';
+      resultsByRoster[b.roster_id][weekIndex] = bPts > aPts ? 'W' : bPts < aPts ? 'L' : 'T';
     }
   }
-  const out: Record<number, { type: 'W' | 'L' | 'T' | null; length: number }> = {};
-  for (const [ridStr, arr] of Object.entries(resultsByRoster)) {
-    const rid = Number(ridStr);
-    if (!Array.isArray(arr) || arr.length === 0) {
-      out[rid] = { type: null, length: 0 };
-      continue;
+
+  const streaks: Record<number, { type: 'W' | 'L' | 'T' | null; length: number }> = {};
+  for (const [rosterId, results] of Object.entries(resultsByRoster)) {
+    const last = results[completedWeeks - 1] ?? null;
+    let length = 0;
+    if (last !== null) {
+      for (let i = completedWeeks - 1; i >= 0 && results[i] === last; i--) {
+        length++;
+      }
     }
-    let i = arr.length - 1;
-    while (i >= 0 && arr[i] == null) i--;
-    if (i < 0) {
-      out[rid] = { type: null, length: 0 };
-      continue;
-    }
-    const last = arr[i];
-    if (last === 'T') {
-      let len = 0;
-      while (i >= 0 && arr[i] === 'T') { len++; i--; }
-      out[rid] = { type: 'T', length: len };
-    } else {
-      let len = 0;
-      while (i >= 0 && arr[i] === last) { len++; i--; }
-      out[rid] = { type: last as 'W' | 'L', length: len };
-    }
+    streaks[Number(rosterId)] = { type: last, length };
   }
-  return out;
+  return streaks;
 }
 
 /**
