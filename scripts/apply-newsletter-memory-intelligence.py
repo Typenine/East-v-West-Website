@@ -1,3 +1,582 @@
 from __future__ import annotations
-import base64, zlib
-exec(zlib.decompress(base64.b64decode('eNrtPWtz2za23/MrkMxOJW1oOU7bbK7SxDd13K5n85o4u50dx6NAImRxQ5EqSdnVWvrv9zwAEOBDlpI0u52bzjQWiec5ODgvHBxOsnQmhsPJolhkajgU0WyeZoWQSZIWsojSJL91a4J15rKYxtHIVHgNj7dunb599eZYPKanbifPxvtQZT9RV3msikJl+/PFKI7yqQr3CvlB7eVFmql+kXd6t54fP/v5+M0ObWMVXqiMG785Pjo+ef32dFPzTI1VNC/2QpV/4Fanr/7+5uh4+Prp0d+8hnI+h/+jfRnOosTtQv0G/yYy3lO/IdD7Wboo1N7YwnDy8u3x8+cnPx+/PNqIhZmapdlyL0oKFcfRhUrGuoO3x6dvNzUcDguVF/lwuD9PcwAlk5NiL1MyjBKV530s5I5u3QrVRGRqHsuxGqYwQLeA2Q9EXmSBSONQ/4K+9a9YjlRMv3ti7wn+HdwS8N84XSQFzAmb9+mhC817VBZNdPHtx+KAq+N/mYxyJd5AQTRTx1mWZt1J55oGWA8E4E6NCxWKNFFAV+NpCqNPoJtQXFNv6w73nimgwYQH1pDg0DTpQBwgkC+OX7x688+hi/chUUHW6XQ0ZV7DINAIln0cCPUrQFoosRZExJ0wi/7971jtpdms8+iWblEs5wqa/ZgWL2ihAvz5Us7KZv19rJPXmrw2JPoWKPQ5EehxUmRLp2HTDij7uRYXqng2svX/dz9X2SWsfDjaH8eRSgq37sjMsLF+Pp6qmYT6t2h2x8kUsK3CZ7KQgKE3Cug2/AHWOUouArFIPiTpVfIEajNxC6TObAJIF6dK5mlyquLJG3UZqasjGcfiGtboSqkPA5EsZiOVPYLnfDGbyWxJVAS94qtxmkyiECn80H2dL0b/Aipw3q23GJgGzemlOyxsIJVJIKmnhTvGPFNhNEaexbAOAGPwF/hAYVuLqyxNLpzHKHkDPZkXYo0djWBbIcz5oBEVZ+dY6SrNtqg1k/9KM3ipslxizadZJpc/XBO9V7FpseQCJWih/TdF6j9nNDzgto0czzpjoIUL9YYqdmhm6yf4bwxsBHi86Y8nDRhLL5Lo3yr8MZK5qpTOAZYUmGJULE8TOc+nKUzY7p2zjlPeORcrADCOiQQKRD2g9q2SszcqZukyjeYlWmDvyxJW+IsEXD4X2SIvngMy43K9nnhdv47lUmUtnc+p0OleEcNKim1GiC4SiSKSoIzUxy3lOJZRZS0BxmKRb1o6rsGLBvUlcoWxckfDKTZtp6MY8Lc8kplCnJA0pB0Vhd7WrO2v2jafK5gUYK7zAqsCK1FhB1a28wugfNlx9rfbr5a/b4EX+ZygxjOaYHIJdifKbkfEKc/x7RQFKLOW+qxJIrkTiWVenCqVnNbQZEp+aUaXJZFmrD2xXVQRctNSahGAACBfiXBWB9jbYh76XNHZfQWoc7EmgvzViKRG6M0aINHlJ2Fly+cu5qCsIksa0EvQTeQsXeRm0EETPZ7xik0WCTFuoWbzYsn1GMxub9AGvNYXrh0sBC4OEPSgDfB7QQ3is/OgBun1OqiBcXaOYsKdtSN5ZPKhW8pAg8aeZSfOxMtq4vHjx6IzjS6mHXEovhWDWtkMBljMsPS+oNV2hx+ns7kcF6/tLLqscA5clSZT+SIGrHS0SCRSJGnY6bVJMHe2us9+CWsuDg8BGay89ScR6FlZN0uvxOMnAv70eUSaP//UNXMg7W5XBmLUw6oV5I36JeygmVaLpVe8WolRH9kVVJT0w4wRR6A9wiJ/r1/M5NzMrXutNVfmczhV/BXot5ZBvX8djT+A3vqna6wyh4c17Ej9iJLqYC0uc+f5/pp/w1osZPxLlICaAiv2/pGov1+DApG8h7XsdNb992Zsl3KwRflczk6zLDMnLlj3ei7jsKQxWkRxWF3cLuo4WmqjmhvUpAC+qdMQvARpydKvlSGfB7ca6Im5VRqFOLDWE/NCj3rMnYKSqrs3xKRIl4Ylox99rk0ExT97ZU9WZ4Ne2vZDUBK/07JU5DY31XsFFGbgbGkmutyc55hOxFm/3/fgOW/bGCzReWMDf1DJRTEFlRalw0pgxT4NKkexEt98U2sC84suVafXvJ1gAxl5ivvzHu4h2DX+u15PXBuLrmtR149pKuLJY9g2YgQs8AMrHWWN+SKfdq/1zuFVob1T7hp+SZpOUFKrXkB+BGolteXzYpLXB1FYLclI/wb8fi6MlSTTirJKtTydqe4Y7SgYEP/2NcJohg7OYBzARhElC8UdOZ18duQz3n0bRTz2d6WHershf0zTWMmEX6BMuIxARh4RBEizuqBxFXCJ6sVXqDThJvgkuq5w/wcO97dzb0FhE7ICbX01gHk7IDvMw3immah+6WimzKAtyrXZBbi2YlVbTT8D8RbTw/5UZuFzXWuzmK1xRbsFyoJ7HmL2HtaFIjbgWTmssWoIbphvrSpPuhyxOtgIqrkoaTcPYdRXtBr9SxkvVG6mECo1r1eGca/XzST0QhbTvhzlQEqloYd0ZAukW7CVKqFNVqMCkDi1hqtmRCi+PdOSatvnCm1sMmY3oaKp+pdGhjGxSTmh3xohpanNlKkfd0FL1QIHXLQJis/BOh5+MuvQ1r7Pk7W57/K/wDGA9Xt3ZjXykAXCXlPHT6kAV7z0egEc2uGFv4yvC35P0+K0QGlFTyjfnUcSOfaZfWLG2GInBOGcNU/PGZeApvcMHrq9fpGenL46Jeun2+OqGx10BFdfP9pp81t6cADQb/lRrANfSQkqcpOffSnH7zQbDrQXzedges5N3q4KD4QyxDvZm9qp08bLKuUNe1bXqFI7vmarU+bLZFxq+OMFYCwpXG9v11PuK6o9KOevQaZFufrh2vUECbCb5cD3Gq+1A+EJrTvTXzgC4iOnddeVFOkVEqW8khFW0XtJxbCWXR7G+q77URgAnZfDuGXKG97IPJhv19bRL6+mKlNdmYRd9WtZ2IdfAfbXQ9+/816TrDEczHaPo1lUdA8IElTZbiMgWqnrGaI3PhTrcEB4sOLZvXOChlHX7Zp3HhQy95HKKO1p3ty8qLm8VKbR39Ry44IG4oOy3qNAkGAYGP++s9ojVtluXktNUXY5WygscI0wwp2uaPE2gY1GWqwhiz57Z5y1hHVBAvHJ4VoAX9ed9RG3gTgDGM8HDBxseM/NY3kOEIwmC2/pcYVMb1HY6zlLCdJGuXZzwzLUjOfNa5FRpboB3LYQeiINC276BtMzr3TWMeP0Nkw+TmXIPjOeCzfNK/Mvplm6uJieVsCgfQEU8MCZdxWks/NP5QsGefVt+iX4Q+xSoh3ZQ4jlEyCtVPbjsounirVGPjMh/Wkmf+syDv8s7qMy4YpwXruGc6Ozc1RqyOXq2MWoXoFVjKg0RqhGOZ/sEd/Zhec8cvrguUAv2Fm/SmjYUc2VswLmEqpJBMZaaeve1h2B7YGnjzhfemGskNto4zF1daomrsYH27eWsE3PprS0tAmxjrW9LveRrnzTtqg5lLuN+8Ah/nqTTyX+35fEOwrPDgoJqwQI/92I/WHNH/a7UisrXoZax/VzAeiq4bSgkWK5r8O+Pj0gO/nAyi4urVBXw+nEBkpjGdVAa1EyXwAPvt7q8M16XM0x5k2ncWxDDDbEJuBx4dakbVHOZNyyfQikfs0ri0cs0BRF9CkI+pkhJPfgxdU8gJYjRBpuG+5SNXihaPMQJD3HOcy+pNuOh7R0NJX+VPuKDDI8nGT3U2mbsBe2wRDrIe958H2re6qxCVmaTSVVe/O72k6ySx0YcHFjlThyPZKI0v5U5nreqOZUmCzVkGFY1uD3ek0aj8nE3cd8smgWqKBzMVBQYH3e/+naM3gRl+tB5SX0+zy9UtkRWFTd3vq925n6LcoLPKW0xqx/+nZmRzv3ptpaCzq6rh6T+Da5PWahQ96umcEhBzrpJbsrDkzF6uGvS+bVOnwMzDW88yR7HIzuCrMV8Lczvqmk3WaBaXXeO/fGaXD0liT07YN72tJeEy05bjxc1sYDWAdnaNUY4rCT3wD41WaAg62WwosSaPAKs1P/UHSAVeUdUfGcVI/sGvy0NkrtEClWz20tZinSNwVR3TE067Vb3xFFWpaN+V3/ve1v4PUHSKhVFsCdi6kiz0IWlqd8G909lkYd73GTR9kutLMz/JNq7SBrLDOsNCrUDNkX/oVlJ/aplwRZRGAezvWsqmzP8azhCax9oINZrfpRgfVMN57XeozwXnlA0SgwrONPJefGv3zwgFvpBtY81MKnySdVGqZV48vTnQKf9kWnrnVAHR7XNS2NArG+1el0dHzmXBbj6ZBCALsUdfkyTRTHUWLUI0yWAmr7yNCG+AaY9TgNYbqPO4tisvewY+MwO554P3KDYPCQmroDSYEnnjOYvvKqn+plslWdWE6avTulWlBpYCvf2d8XJ8k4U+jLFaCOJiJUgLpZlCBjGwOLLzKp/VQ0xRy6+3URZUpIjAfdQzewmEaIkmgsYyilE+u++IfWyv4iZJyn8B6ZRg7SbwwwiNfPfspha8mCfIroBMzBlB+jwyzUPGsPD8cN+eb9d4lW0pglvv77j89PTv96/Gx49Orl25OXfz95+8/hP47fnJ68egkw/+XRnS8K5UMBkjmvdGs3E64jd7zHJ0xGtEfFckfAHrqAdcpuTAyNJrAtll6PSqGmPnFp9u2oYbVjbue4Dx+co0F8yNP40lQj/v/oXeKux50vPbjFcX1Ad+cdASFekLL8LhHYQZT8a5Eth/JSRrEcRRQSqYuyNFbDRS4v1JCX1hQAKSU5U9MwS3MgiEqFucpASZwhtxqCvKLoEFMGvG4YJVRMqqx+jYHtBfDDIQlR00+WjlWeD7XL3akOwAJXjYohUlsOdWYUh+zgoQxMa0WGuMbexholg5ux9gjrs9Mbo5SibLyY8eFZrjHAq6LQCUjgDTWb79Rh5M7Sogw9fJesgYrueORPvepTW1rb7cm/JXKT6Y9G97SJQ2ceUGSaOAHMMD+fxj9phE3hky7yqTJIKkSnjH9R0cUUg7S1+YmFmZqoDGnsCFVkvwxV0jemHIDx52D4l9+mDXZvZfiuh5hEKg7znXlSC3WyDYz4U0ycWwQzaTzTTlHhS3szww+RxEqtwZc0kpUQ/zCxihYl6xbm9oeD4l1iXR8JcqAYz9LQKuq6Pg0nFJLJi7Ql0gmfiG/vgZp+8BB0a+tFPQi4EFTHg54ZqBrmtknJ6RokbfCJBLRn+Iyg4gp3StxAX3hfgYTlLzB0rIYiyIIASm3X6xy0XzeirSf+jEDfraLNGRYdCZXS8gi61+PdqECVxctJMPbBQ96C9HhXzyXDSzddd1r8O0oQy9rEKANP2U2Bc/uu5/dWdarAmn0Ha3avqdYGPws0uy8GzfWAKZe17rXVAhpF6bHEWg+g0rc7Qn3PgF1hgQ7s/SrwZevvA2+NuSefX2qXwp/F99wL+mpardzGuKgyeK2cwsF3vB/jXLX1WGo4TZ16GpHT8f/c1K/Vj5xGDyxklvh/eCzuu/N94Pfr1nvg1jtor3fwrVPxL+317t9z6n37yOExLSRgnphOqGmv12vSF6xCPlXxHN3qVMQm21UGJjTbbCSURN1yc21AFnAtRiBfjdzKCgRlT2UbrL82H/QnW35io6VBXBNdxW2iK2AF4VJtrFBXt6s8u63Gpj5Yg4LC8hLdFrdWO4+q6tmNCNgklX43DLnE8F+IxHeJuc2I/TaGp1vIGwvaKHrTVBru38JyNmmcPLkdVM4yVoAQ8lOakTbe1cFfx2GERr+Mjzj+y6jsG6409RoVfnHtk59zY8aTXJsn0KiyaCjZmcz/el57q1xcsWw0VV35/z0I3/tWDjhdNUj0nukIGHTZZv/du1E3Ti/Vagrru5osMsTTKoxyiUbwSs1GMsvAHgU+uMJA6ihZpYtCpMkqQREJmpeEVyPgYSpcXUYJqBmoyq6mADCs7iovFgkU9WCcfbo5TUvZ2zAbMKJmcx2XtcJwxnQyyQ9XCo8+E+5b+3RW7OJdsT53tifOVYIMe9NgB1vIpkDX7/VqKnaN85Oe20x2tKHajcnANSYPN2rJvQ22pHvMyvRFgQGmY9REmq4xGBSUR7Q7kqZdL3K3rKIMfhNpTNJs5fpeVlMl42K6XPGI3cMBLCGu0iExjvpiERBO3FfpzWh07QQ3uS8C7ZLovJ0qMJ6BrEtzWCCXFPMUmFSOJw88gEiBsJ0x2LBHuwwPFhBlWbzExzwq2CnS74g1oWXt4Qb9TSvyN63yRM5XRboYT1eFzC7QapgCI12Fal5McYCsgM0C/8KuG8nxh8V8BZKMvCtqJxzVfVyfFUNS4ACIIRpD+zxa4AdDIVQr+jdcXUmgvGyFQZbwlKkY6Bd+jBfFil1udDy0kmNy4oY7Ad3uv9sNeD0RdNHiJtB1hJzgW1x8JTNQJTLCSgvQ6J8R796Fd1doKCEjAZhRgUXNfzXP0nBBE105PsUVasDIY9VkEo1RV1mu0FoA5gbcEIjoQs5UfrgTThpdlg46Glx6Fheni1Gufl2g693pRuSL+RzAD+l4x/RJp+e0MbgXUXbcti0UyvsV/wESQKUB/xGOF3XlDrECWiEJk6RXAkMsd0JE1T+7PUm89Odk6QGhnfDFQjGSeZRbHDTTRbPZyexTXMmcA69XkbhI8bg/Kl+gXxX5pbiaRpMJ/KLtiCPFq/Qq4crxTujwfbYOMmoF7UwBFMGLBW5/47WOlwKYFqwMqXT6mKi6YTQ0LVShXWWrWRqqeDVTxTQNV6B6LGZzIghgDhmFooYrYsH6d5GmYgZsVQttIBG81IYBVkaM77Rp6v75LbdMiSYCFQm3iCZ4ZUKKSSyvyPZzEFL2ZZyEPl6aZtd8RrDzBMt1nKcgwkihLdfR9E2r2MjxfJ3o99fBPZtBHxywN8DYDGkcDnFCOimNnZsMw3IAWAu8hGviPzZfpxUijPCygAMJmzzP6HXQdJs3XWQYX3AtEsfZ6+S5APSqqotXqHmUA8W7GRtsWSVQzQ9Ta3Lq47WM3ibAnBgzbXw9tghpuwBMYLn+awpY4Nd9F9S2oDL7QLSQdxmzHBFcjb8i8mkOuTIVlARRQF1hoIHxz7r2T8+5MnX/nhPW6jY2sa0/kPfKj9vCujr1FV0iNSjRZNiKmMfNiBHffOO3LIO3qIkOKXLeNjfw9fB600p5pZMGVV534SDFK6bmXlCbsxAfTEBabfYYkLZhXmWxNVb9GDVrvHDMCS/EeV87Zbs9INQkrK4J9YWBJPSeIcMpfvPNznRctnG2GNCJruq8ZAS5czeivpEtlmywp1GpiYwvGTshYRjlVJ8YYg42Df7RDTUN3xUH6zLSqQbooAlKU92wJa5BT6bI501cwXlXjVfTNZoC1nSRn/LBEsygvgNqgWxejTKQDSVa+Jaug3IN51XgksbAo3OvyJ2CfWEnoK+V6vH5YmlD5gjdvJY7wjpsBlUPjjOCE1bnnS8Pmox3ceiY/INSsurrjqYfTzrUKNdksLBRX1rfMFyPI7y+e4jcc43BVFgdNemvYvarmP0qZr+K2T+KmDV0Zl/Z0Gvzpnp6/Lis3HywfNfE5zt9VKNyxOMGOGqt7OHm483RFKZBUJGxrlzVsK5d4rnpVoofh/5V6fiqdHya0uHHz9dPS7yEDM42tWvvn6sNNh+09coVcXfpoIzn304J4o1TuRZww46k2ltsR1fBZ5Z5s8ZVTX/Bl5b6fKMpqGSk/MRZUoqDnqvktZ6/Wi9LYBXBAL2Gvu63/SkuHueXdwHajsJrFwPyfFGCor1cMDZV5rOpbTqVQFPLvGjr8Gkiax2ivwlUuOfpWMavw8mxDcx7oQqJdyO73BVefedfJefDO5IlczydStjrdEUFZK0Ke/0xBqh0FaZxxjX3fV5/GEyVZ4hU9RjzF5gsc5Xx+zdknWtW+gyCe48qQ8EsakOZmX2OoRhRrZdLtUfZXtxyEcVF+t4WFZBA4tc2jvSMn2mfV5BXy4bTfBkVKIwQYi8u9npBtdMSTRs65SutG/o7p7/rOtVyMbZKYwBTZkm3c1YS1Lm+CwdGB+LO3HJlrIqJjIAVDoDOuMMoYbkHRgqlNwcJRAUgy3I6ehwIfauIXut4zLWhQ9T5GN2O8sAizQ0xoJOYlnq8gEOQeTLGM3MHPkzgZtM7AMk1p3zcuCGhDKgnaNsYDI7Nl4hrctNobTsV3rsjVfeFGYlpXF9Q7ss47lqibMzJsRE6Bz0lGTZ30zZtB2ZLeW00t5Hq9D24HMbc0xkTcCafieI0zdGxzX+BsOjQRwu010HvMC8Gi+WzDnfcMYLS3OxqiaE0X4jYKoqSr/T9lYJ5lk9zUGA/OT7S5uzfFON342cC7jT1uDGs8NPGK6PzWi76BxwK2JBjoey6OdrOOzfjq8c7B9s5YW+gyofpZNK9IRsC/ioLxDeifG29fJj/WDvTbNSS7paZb0MHNmqp8zOwnhivBh52HjW2dsaxjfAAVJ/rQqccPEaWVpj3O25cmHPF+PB9Q0zyV5RUjoDrW9kmw25MDMJJwqufp2gA/7ZmYCCjb+vq5eQ7bswax1S5jkpT363FWehb8jn6KQ60+0unWSy7pVSKZiqIWB66jIq7rUfBpDz0S+c5+AGj8/25G+QKwC53uQaCyvWHWqIiF1dyKTAcDEOvKNYDP6wD1d2e1wKvuuZCxvhu2X/feO2ONS+Ji+OH0m8Vd+7lNOBk9HQxvFAzkz+pRPM8i9LsBIVamcEEPczFa1vQ9e93l/kMxB7fOLrznx2+dIOXeWd2SseihXSXLuxTZh0fKLMg2Je/EN6neO7gDpXZeBqBvgLLj5+IwtDDGJToNJ1jEkgsQc8+LlwfSKPCkXrr93cCsWs/5Dqu7mkXGYEYT9NcJb1185AbQDqBpoqSvBdX0Vg90ukaKG99pmaSXEzAWsp5tYP1EX19XtA2bZuawfkpCZodb7mX+NkzEzKdapMmprNunt0791SaLzIra3hWUlds9FaNqmkfyn2JV/E2tpUb2u6Mo46tY/xs225R5N4SNjUIMS268EYQdAY7PSpAQIO4AMGz1Tbdsq8t6NmAYwUXfjPBvPMyZh+CMOI8saQPsDujpXIfA8vW+nMKn7hVNLU0e2h2TiS1+XJjSZz2qKsmcP4Ts/lv2SruRqBYRusTpxx1EX6QYfNuAJtXJaHMdMKfNGG+/OsCCAY0mHFMbLlIN++DrXvZYgd457sfIbNeJQpPywsUDDoyIKfIXRmDipaLi5SuB6R4FRm27CKMly5wjao7Q/oxPW8B8Ci6wNP/PjlRKEu6B3XbhG5Y2EwmH3A6yJpGmGYuSi4jNB1IR0Xt4VdQqJGuMdDBGQ/IsOjXl3i3/rbhdNxhHeDqBBhQ67DY0Q/CPuPhHGbZllOo/Ozldt4Q0iSPbG6YypXSIp3z/i1Mbuov7Cz5iOuan9N3svNFx7ZMvEGL9i52vMfo3lAmYthDYtjdu8JZ0mF+JuJZ2QMD2JP+y3NrgXhO2jsf2Z2u6aPHqd1UMG66ArrNzDSWBGEJjFidOaomTG7C1SZqqXqkm0wxncaSz1zOg9YEHVhW+6xZQy6Oe865yOa5lW7uLzuv8ybt5isaP25eTbm9G9GFn8HxZoYJJm/opwraTX3UXRCtzoeSEkrfBu9+X6pgWlCPfZhDIh62dmpooxJ2jUgwoQj68w6cbgVwrcf5qI+JmLZuUsMSXOZpNXB9xvjHB7eN586ZMe8omoST9Q7svL+Djmolb6ms4IEVqubzLKLPa5mzhhyoWc1Ij7vCC2GsdKJCQxqnjf/B22PZxUKFfYEjjNKi7LvvJ/HBvsB0mgrQl4t37zq5UJdpfIlKpPNlEJDyfGPQfm2EPhm0z5/H4Qgu++0PAHEPexPhMpGzaJwHNEXdAcACE8D+R1GR90HAKcrTW5kFXn2/jEK8Ecj300H//wWzFnpXJU2mQknXqQL3zpxBIMBnb2XRNH6DSYOqdzVdiog+VGSTyOARKTtiAryQa5w2ffEsxUtfiKsxmVExqtO5oNTlOA6iW1EVvIZ7KZOi37GHtHTc/WpRULrszht2UUuYlL4z9vrZT+IqKqbQXjw92dccFtSkQpb3AqOEHM0IU6lK0SB3vlLY/3cKw9vuIGeN1NKrXrWAaCHQ+7WH+TnFBX3zrK+/jOAe5uc0Vrhgp4z5yhvl7+Q4E32dm25CUiAOUEMhY7I8+WZ7vzkyBcg2B2TPys8UOYtlTiNopGyRoIkK6KYjGZM4gI9pctovmBxhBP3MqB6e5mQhwJgWI0ysMV/A8v5ntqGvmkd07/VS7SonOij3TNyBlqK4/ZiUifplAW9HCyQ8E4TIsQ/2LNB8xS1wolx5rwBlARR8ydpSbxupGjqlD/BS6iwiX8AROpLobnULL/ojQqFnfozcgvx1eEseCJnm3pzdti/+Gl3gRCjzFp0qEoDEHZBwR5ibAVNpI5XDxgi0Zctg2ahcfcXaB5QvGduY3LwOOl8Gx2oR0P7S3qsH6Dgmx4WLeByzM8PdAi/QGGiWLtYscGMQ58sWfNccO3TuWZtAM7TzzZBeBgBYQMChzHUekIByXeDn8mx2icDLh2C4Lq1LJYHB5l2GX9xA9/nO6hipq4MWrdUirc3suW6i+e26rHugBmXwlXYlDBptiqCs5Q7VVmu9IxQ6Q1xBmN0VndD8qZVfAlTzRRyau/vLRoE5Bv4P+In5NAZ3LRJ/gh95BeFJx/TKfs3LEIhDz+f6lwHTU0VaVujLz1KwTK4vOsilLNcJucfTNMXMUI6UtqpAXzxPr/bK5H2ssZi5w35bmoQIWP2C8gCKRYLSW8sgSkVQ0x1gYicTf/vn6CZvzOQRiFDrKZmcKSdJCe7x6XKejrMo53Q/zncSiXVsWLGqouLsg+qnnJBY/a3h+yK9/eAWObuAXW6DNtcbOZAT9qehwumEEgOumrQl/nADKjOkMpOWyeqH4Jwm8dIot4FO2RFQZpKMeb3WrDJMBAPs7kpmWqsG/M6QtmbIqllfgz+SVFZqBNMDOkCSk+MshZVewjC5v7paEcPE73wWUmpcWrwC3vi7ClYF4znxHmjWwEDgocRZ8tykCLNluaGImKOC9PEcc8eDHQ7KGkUSYAgByhTMSgI7Ks32dfoxCbJRaokmk1KhA3KVOW478uV87MbvOKqrVocd9uYeLux4ckF5UCpHFtGENsnb49O3fbqlmnd7m04VqOI2hxolX3CCW5tiUjeeZbDmMcTjPhi8PFbAGfwE2sIpfgBK5vTMG+PE6RtrWOd+Aqs4mFCm8jtmlm73iIbaVDTUbr279LLEyV2+EI2IzoGnjFR3e9gDwX46vOYTFd3OB6XmudXUjO/IfGQtaLRUAudzBfrYPieSjfcmUM0bo7xCyVmL29HW7eTZeJuDl36B+YJw+WH13Wua9vLzpw2ir0i1jeKic/exGs53WkdiHe41Mo2bx5HzOfwf7WNepcQdEShGZcAf9jij9j4Iv0LtjZsRCXXw03WEZ/yYCvIM4Endzd8Yualx+4dM/JaMea9pPfvtjU0a7ytUmrn49xq3ZtPdsn2+edxySb1WDQeuW7WrnePyfT+8YAf/mzt2xEG35twog6o8G50jwNGnyK66lA050DH9gT3VDlxB4XB0ze+xeQO/J+4rI5Dnbxb0xXC6C9GddF5ElAfUfGYlbGBskwivnF5jz2stB05evj1+/vzk5+OXR17C5hfHL169+efQLR7ilJulifcRH+eNSensvCrvKLgt3QN75z2LQ/2hbCChbueshGqvgTWci6chxkbV+LOrYu3ApI1naC6j0GARbfEI1Ng+UQCs1nCYgP46HAqMHBoOkR6Gw85Af2IbiePW/wHYBl7D')).decode('utf-8'))
+
+from pathlib import Path
+
+STORE = Path('src/lib/newsletter/published-take-store.ts')
+LEDGER = Path('src/lib/newsletter/published-take-ledger.ts')
+RECEIPTS = Path('src/lib/newsletter/receipt-desk.ts')
+SOURCE_PACK = Path('src/app/api/admin/newsletter/external-export/route-core.ts')
+INTELLIGENCE = Path('src/lib/newsletter/memory-intelligence.ts')
+TEST = Path('src/lib/newsletter/__tests__/post-draft-readiness.test.ts')
+
+
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    count = text.count(old)
+    if count != 1:
+        raise RuntimeError(f'{label}: expected one anchor, found {count}')
+    return text.replace(old, new, 1)
+
+
+MEMORY_INTELLIGENCE_TS = r'''import { and, desc, eq, lte } from 'drizzle-orm';
+import type { BotMemory, BotName } from './types';
+import type { PublishedTakeLedgerEntry } from './published-take-store';
+import { getDb } from '@/server/db/client';
+import { botMemory } from '@/server/db/schema';
+
+type EnhancedData = Record<string, unknown>;
+
+export interface SeasonSelfReviewCall {
+  week: number;
+  summary: string;
+  confidence?: string;
+  subject?: string;
+}
+
+export interface SeasonSelfReview {
+  season: number;
+  generatedAt: string;
+  predictionRecord: { correct: number; wrong: number; winRate: number };
+  bestCalls: SeasonSelfReviewCall[];
+  worstCalls: SeasonSelfReviewCall[];
+  majorReversals: Array<{
+    week: number;
+    subject: string;
+    from: string;
+    to: string;
+    reason?: PublishedTakeLedgerEntry['changeReason'];
+  }>;
+  lessons: string[];
+  recognizedBiases: string[];
+  personalitySnapshot: BotMemory['personality'] | null;
+  strongestTeamRelationships: Array<{ team: string; stance: string; trustLevel: number }>;
+  strongestPlayerRelationships: Array<{ player: string; sentiment: string; trustLevel: number }>;
+  signatureMemories: Array<{
+    week: number;
+    subject: string;
+    claim: string;
+    status: PublishedTakeLedgerEntry['status'];
+    salience: number;
+  }>;
+}
+
+export interface ClancyCareerReceipt {
+  id: string;
+  season: number;
+  week: number;
+  speaker: 'Mason Reed' | 'Westy';
+  subject: string;
+  receiptType: string;
+  summary: string;
+  salience: number;
+  changeReason?: PublishedTakeLedgerEntry['changeReason'];
+}
+
+export interface ClancySubjectThread {
+  subject: string;
+  count: number;
+  lastSeenSeason: number;
+  lastSeenWeek: number;
+  speakers: Array<'Mason Reed' | 'Westy'>;
+  lastSummary: string;
+}
+
+export interface ClancyCareerMemory {
+  version: 1;
+  updatedAt: string | null;
+  totalReceiptsObserved: number;
+  seenReceiptIds: string[];
+  subjectThreads: Record<string, ClancySubjectThread>;
+  famousReceipts: ClancyCareerReceipt[];
+}
+
+function emptyClancyMemory(): ClancyCareerMemory {
+  return { version: 1, updatedAt: null, totalReceiptsObserved: 0, seenReceiptIds: [], subjectThreads: {}, famousReceipts: [] };
+}
+
+function predictionRank(confidence: string): number {
+  return confidence === 'high' ? 3 : confidence === 'medium' ? 2 : 1;
+}
+
+function compactPrediction(memory: BotMemory, result: 'correct' | 'wrong'): SeasonSelfReviewCall[] {
+  return (memory.predictions ?? [])
+    .filter(row => row.result === result)
+    .sort((a, b) => predictionRank(b.confidence) - predictionRank(a.confidence) || b.week - a.week)
+    .slice(0, 5)
+    .map(row => ({
+      week: row.week,
+      summary: `Picked ${row.pick} in ${row.team1} vs ${row.team2}${row.actualWinner ? `; ${row.actualWinner} won` : ''}.`,
+      confidence: row.confidence,
+      subject: row.pick,
+    }));
+}
+
+export function buildSeasonSelfReview(
+  bot: BotName,
+  season: number,
+  memory: BotMemory,
+  entries: PublishedTakeLedgerEntry[],
+): SeasonSelfReview {
+  void bot;
+  const seasonEntries = entries.filter(entry => entry.season === season);
+  const bestCalls = compactPrediction(memory, 'correct');
+  const worstCalls = compactPrediction(memory, 'wrong');
+
+  for (const entry of [...seasonEntries]
+    .filter(row => row.status === 'strengthened' || (row.memorable && row.status === 'active'))
+    .sort((a, b) => (b.salience ?? 0) - (a.salience ?? 0))) {
+    if (bestCalls.length >= 5) break;
+    bestCalls.push({ week: entry.week, summary: entry.claim, subject: entry.subject });
+  }
+
+  for (const entry of [...seasonEntries]
+    .filter(row => row.status === 'wrong' || row.status === 'reversed')
+    .sort((a, b) => (b.salience ?? 0) - (a.salience ?? 0))) {
+    if (worstCalls.length >= 5) break;
+    if (worstCalls.some(call => call.summary === entry.claim)) continue;
+    worstCalls.push({ week: entry.week, summary: entry.claim, subject: entry.subject });
+  }
+
+  const majorReversals = seasonEntries
+    .filter(entry => Boolean(entry.previousClaim) && (entry.status === 'reversed' || entry.status === 'weakened'))
+    .sort((a, b) => (b.salience ?? 0) - (a.salience ?? 0))
+    .slice(0, 6)
+    .map(entry => ({ week: entry.week, subject: entry.subject, from: entry.previousClaim!, to: entry.claim, reason: entry.changeReason }));
+
+  const lessons = (memory.personalGrowth?.hardLessons ?? [])
+    .filter(row => row.season === season || row.season === 0)
+    .slice(-8)
+    .map(row => row.lesson);
+  const recognizedBiases = (memory.personalGrowth?.recognizedBiases ?? []).slice(-8).map(row => row.bias);
+
+  const strongestTeamRelationships = Object.values(memory.deepTeamRelationships ?? {})
+    .sort((a, b) => Math.abs(b.trustLevel) - Math.abs(a.trustLevel))
+    .slice(0, 5)
+    .map(row => ({ team: row.teamName, stance: row.stance, trustLevel: row.trustLevel }));
+
+  const strongestPlayerRelationships = Object.values(memory.deepPlayerRelationships ?? {})
+    .sort((a, b) => Math.abs(b.trustLevel) - Math.abs(a.trustLevel))
+    .slice(0, 5)
+    .map(row => ({ player: row.playerName, sentiment: row.sentiment, trustLevel: row.trustLevel }));
+
+  const signatureMemories = [...seasonEntries]
+    .sort((a, b) => (b.salience ?? 0) - (a.salience ?? 0))
+    .slice(0, 8)
+    .map(entry => ({ week: entry.week, subject: entry.subject, claim: entry.claim, status: entry.status, salience: entry.salience ?? 0 }));
+
+  const stats = memory.predictionStats ?? { correct: 0, wrong: 0, winRate: 0, hotStreak: 0, bestStreak: 0, worstStreak: 0 };
+  return {
+    season,
+    generatedAt: new Date().toISOString(),
+    predictionRecord: { correct: stats.correct, wrong: stats.wrong, winRate: stats.winRate },
+    bestCalls,
+    worstCalls,
+    majorReversals,
+    lessons,
+    recognizedBiases,
+    personalitySnapshot: memory.personality ?? null,
+    strongestTeamRelationships,
+    strongestPlayerRelationships,
+    signatureMemories,
+  };
+}
+
+async function currentEnhancedData(bot: BotName, season: number): Promise<{ id: string; data: EnhancedData } | null> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: botMemory.id, enhancedData: botMemory.enhancedData })
+    .from(botMemory)
+    .where(and(eq(botMemory.bot, bot), eq(botMemory.season, season)))
+    .limit(1);
+  if (!rows.length) return null;
+  return { id: rows[0].id, data: ((rows[0].enhancedData as EnhancedData | null) ?? {}) };
+}
+
+async function saveEnhancedKey(bot: BotName, season: number, key: string, value: unknown): Promise<boolean> {
+  const db = getDb();
+  const current = await currentEnhancedData(bot, season);
+  if (!current) return false;
+  await db.update(botMemory).set({ enhancedData: { ...current.data, [key]: value }, updatedAt: new Date() }).where(eq(botMemory.id, current.id));
+  return true;
+}
+
+export async function saveSeasonSelfReview(bot: BotName, season: number, review: SeasonSelfReview): Promise<boolean> {
+  return saveEnhancedKey(bot, season, 'seasonSelfReview', review);
+}
+
+export async function loadCareerSeasonReviews(bot: BotName, throughSeason: number, limit = 6): Promise<SeasonSelfReview[]> {
+  const db = getDb();
+  const rows = await db
+    .select({ season: botMemory.season, enhancedData: botMemory.enhancedData })
+    .from(botMemory)
+    .where(and(eq(botMemory.bot, bot), lte(botMemory.season, throughSeason)))
+    .orderBy(desc(botMemory.season))
+    .limit(Math.max(limit * 2, 8));
+
+  const reviews: SeasonSelfReview[] = [];
+  for (const row of rows) {
+    const data = ((row.enhancedData as EnhancedData | null) ?? {});
+    const review = data.seasonSelfReview as SeasonSelfReview | undefined;
+    if (!review || typeof review.season !== 'number') continue;
+    reviews.push(review);
+    if (reviews.length >= limit) break;
+  }
+  return reviews;
+}
+
+export async function loadClancyCareerMemory(throughSeason: number): Promise<ClancyCareerMemory> {
+  const db = getDb();
+  const rows = await db
+    .select({ enhancedData: botMemory.enhancedData })
+    .from(botMemory)
+    .where(and(eq(botMemory.bot, 'entertainer'), lte(botMemory.season, throughSeason)))
+    .orderBy(desc(botMemory.season))
+    .limit(8);
+
+  for (const row of rows) {
+    const data = ((row.enhancedData as EnhancedData | null) ?? {});
+    const memory = data.clancyCareerMemory as ClancyCareerMemory | undefined;
+    if (memory?.version === 1) return memory;
+  }
+  return emptyClancyMemory();
+}
+
+export async function updateClancyCareerMemory(input: {
+  season: number;
+  week: number;
+  entries: Array<{ speaker: 'Mason Reed' | 'Westy'; entry: PublishedTakeLedgerEntry }>;
+}): Promise<ClancyCareerMemory> {
+  const memory = await loadClancyCareerMemory(input.season);
+  const seen = new Set(memory.seenReceiptIds);
+  const candidates = input.entries
+    .filter(({ entry }) => entry.status !== 'active' || entry.memorable || entry.claimType === 'prediction' || (entry.salience ?? 0) >= 65)
+    .sort((a, b) => (b.entry.salience ?? 0) - (a.entry.salience ?? 0))
+    .slice(0, 4);
+
+  for (const { speaker, entry } of candidates) {
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    memory.totalReceiptsObserved += 1;
+    const threadKey = `${entry.subjectType}:${entry.subject.toLowerCase()}`;
+    const existing = memory.subjectThreads[threadKey];
+    memory.subjectThreads[threadKey] = {
+      subject: entry.subject,
+      count: (existing?.count ?? 0) + 1,
+      lastSeenSeason: input.season,
+      lastSeenWeek: input.week,
+      speakers: [...new Set([...(existing?.speakers ?? []), speaker])],
+      lastSummary: entry.claim.slice(0, 360),
+    };
+
+    const receipt: ClancyCareerReceipt = {
+      id: entry.id,
+      season: input.season,
+      week: input.week,
+      speaker,
+      subject: entry.subject,
+      receiptType: entry.status === 'wrong' ? 'miss' : entry.status,
+      summary: entry.previousClaim
+        ? `${speaker} moved from "${entry.previousClaim}" to "${entry.claim}".`
+        : `${speaker} put "${entry.claim}" on the record.`,
+      salience: entry.salience ?? 0,
+      changeReason: entry.changeReason,
+    };
+    memory.famousReceipts = [...memory.famousReceipts.filter(item => item.id !== receipt.id), receipt]
+      .sort((a, b) => b.salience - a.salience || b.season - a.season || b.week - a.week)
+      .slice(0, 40);
+  }
+
+  memory.seenReceiptIds = [...seen].slice(-160);
+  memory.updatedAt = new Date().toISOString();
+  await saveEnhancedKey('entertainer', input.season, 'clancyCareerMemory', memory);
+  return memory;
+}
+'''
+
+
+def patch_store() -> None:
+    text = STORE.read_text(encoding='utf-8')
+    if 'PublishedTakeChangeReason' in text and 'computePublishedTakeSalience' in text:
+        return
+    text = replace_once(text,
+        "// Increment when deterministic extraction changes require a one-time historical rebuild. Version 7 also rejects cached PDFs that predate structured season-pick receipts.\nexport const PUBLISHED_CONTINUITY_VERSION = 7;",
+        "// Increment when deterministic extraction changes require a one-time historical rebuild. Version 8 adds deterministic salience and change-reason continuity.\nexport const PUBLISHED_CONTINUITY_VERSION = 8;",
+        'continuity version')
+    text = replace_once(text,
+        "export type PublishedTakeStatus = 'active' | 'strengthened' | 'weakened' | 'reversed' | 'resolved' | 'wrong';\n",
+        """export type PublishedTakeStatus = 'active' | 'strengthened' | 'weakened' | 'reversed' | 'resolved' | 'wrong';\n\nexport type PublishedTakeChangeReasonCategory =\n  | 'injury_availability'\n  | 'role_usage_change'\n  | 'transaction_roster_change'\n  | 'performance_evidence'\n  | 'new_information'\n  | 'admitted_miss'\n  | 'process_correction'\n  | 'explicit_reassessment';\n\nexport interface PublishedTakeChangeReason {\n  category: PublishedTakeChangeReasonCategory;\n  nature: 'circumstances_changed' | 'evaluation_updated' | 'admitted_miss';\n  note: string;\n}\n""",
+        'change reason type')
+    text = replace_once(text,
+        "  status: PublishedTakeStatus;\n  previousClaim?: string;\n  publishedAt: string;\n}",
+        """  status: PublishedTakeStatus;\n  previousClaim?: string;\n  changeReason?: PublishedTakeChangeReason;\n  emotionalWeight?: number;\n  referenceCount?: number;\n  lastReferencedAt?: string;\n  salience?: number;\n  publishedAt: string;\n}""",
+        'ledger fields')
+    text = replace_once(text,
+        "export interface PublishedTakeLedgerState {\n  entries: PublishedTakeLedgerEntry[];\n  processedNewsletterIds: string[];\n  updatedAt: string | null;\n  extractionVersion: number;\n}\n",
+        """export interface PublishedTakeLedgerState {\n  entries: PublishedTakeLedgerEntry[];\n  processedNewsletterIds: string[];\n  updatedAt: string | null;\n  extractionVersion: number;\n}\n\nfunction normalizedWeek(week: number): number {\n  return week > 30 ? 18 : Math.max(1, week || 1);\n}\n\nexport function computePublishedTakeSalience(\n  entry: PublishedTakeLedgerEntry,\n  currentSeason: number,\n  currentWeek: number,\n): number {\n  const ageWeeks = Math.max(0, (currentSeason - entry.season) * 18 + normalizedWeek(currentWeek) - normalizedWeek(entry.week));\n  let score = 18;\n  score += Math.round(Math.max(0, Math.min(1, entry.confidence ?? 0)) * 14);\n  score += entry.memorable ? 14 : 0;\n  score += entry.claimType === 'prediction' ? 12 : entry.claimType === 'reaction' ? 10 : entry.claimType === 'strategy' ? 6 : 3;\n  score += Math.round(Math.max(0, Math.min(10, entry.emotionalWeight ?? 0)) * 1.4);\n  score += Math.min(15, Math.max(0, entry.referenceCount ?? 0) * 5);\n  if (entry.status === 'wrong' || entry.status === 'reversed') score += 14;\n  else if (entry.status === 'weakened' || entry.status === 'strengthened') score += 9;\n  else if (entry.status === 'resolved') score += 6;\n  if (ageWeeks <= 2) score += 16;\n  else if (ageWeeks <= 6) score += 11;\n  else if (ageWeeks <= 13) score += 7;\n  else if (ageWeeks <= 20) score += 3;\n  return Math.max(0, Math.min(100, Math.round(score)));\n}\n""",
+        'salience helper')
+    STORE.write_text(text, encoding='utf-8')
+
+
+def patch_ledger() -> None:
+    text = LEDGER.read_text(encoding='utf-8')
+    if 'inferChangeReason' in text and 'updateClancyCareerMemory' in text:
+        return
+    text = replace_once(text,
+        "  PUBLISHED_CONTINUITY_VERSION,\n  loadPublishedTakeLedgerState,\n  savePublishedTakeLedgerState,\n  type PublishedTakeLedgerEntry,\n  type PublishedTakeLedgerState,\n  type PublishedTakeStatus,\n} from '@/lib/newsletter/published-take-store';",
+        """  PUBLISHED_CONTINUITY_VERSION,\n  computePublishedTakeSalience,\n  loadPublishedTakeLedgerState,\n  savePublishedTakeLedgerState,\n  type PublishedTakeChangeReason,\n  type PublishedTakeLedgerEntry,\n  type PublishedTakeLedgerState,\n  type PublishedTakeStatus,\n} from '@/lib/newsletter/published-take-store';\nimport {\n  buildSeasonSelfReview,\n  saveSeasonSelfReview,\n  updateClancyCareerMemory,\n} from '@/lib/newsletter/memory-intelligence';""",
+        'ledger imports')
+    text = replace_once(text,
+        "function statusForClaim(claim: EditorialClaim, previous?: PublishedTakeLedgerEntry): PublishedTakeStatus {",
+        """function emotionalWeightForClaim(claim: EditorialClaim): number {\n  const text = claim.claim.toLowerCase();\n  let weight = claim.memorable ? 5 : 2;\n  if (claim.claimType === 'reaction') weight += 2;\n  if (/\\b(love|hate|furious|disaster|embarrassing|all in|out on|never again|burned|vindicated|humbled|stunned)\\b/.test(text)) weight += 2;\n  if (/\\b(championship|playoffs?|eliminated|historic|record|season[- ]ending)\\b/.test(text)) weight += 1;\n  return Math.max(0, Math.min(10, weight));\n}\n\nfunction inferChangeReason(\n  claim: EditorialClaim,\n  status: PublishedTakeStatus,\n  previous?: PublishedTakeLedgerEntry,\n): PublishedTakeChangeReason | undefined {\n  if (!previous || status === 'active') return undefined;\n  const text = claim.claim.toLowerCase();\n  if (/\\b(injur|ir\\b|out for|availability|healthy|return(?:ed|ing)? from)\\b/.test(text)) {\n    return { category: 'injury_availability', nature: 'circumstances_changed', note: 'The later published take points to injury or availability changing the underlying situation.' };\n  }\n  if (/\\b(role|usage|snap|touch|target share|depth chart|starter|backup|committee)\\b/.test(text)) {\n    return { category: 'role_usage_change', nature: 'circumstances_changed', note: 'The later published take points to a role or usage change.' };\n  }\n  if (/\\b(trade|traded|waiver|signed|released|cut|roster move|acquired)\\b/.test(text)) {\n    return { category: 'transaction_roster_change', nature: 'circumstances_changed', note: 'The roster context changed after the earlier take.' };\n  }\n  if (/\\b(last \\d+|straight|since then|production|performance|scoring|efficiency|trend|sample|games?)\\b/.test(text)) {\n    return { category: 'performance_evidence', nature: 'evaluation_updated', note: 'Subsequent performance supplied new evidence for the updated evaluation.' };\n  }\n  if (/\\b(report|reported|news|new information|new evidence|learned|now know)\\b/.test(text)) {\n    return { category: 'new_information', nature: 'circumstances_changed', note: 'New information changed the factual basis for the take.' };\n  }\n  if (status === 'wrong' || /\\b(i was wrong|i got this wrong|i missed|i whiffed|take the l|own this l)\\b/.test(text)) {\n    return { category: 'admitted_miss', nature: 'admitted_miss', note: 'The later published language explicitly acknowledges that the earlier take missed.' };\n  }\n  if (/\\b(process|model|method|assumption|overvalued|undervalued|too much weight|not enough weight)\\b/.test(text)) {\n    return { category: 'process_correction', nature: 'evaluation_updated', note: 'The later take identifies a flaw in the earlier evaluation process.' };\n  }\n  return { category: 'explicit_reassessment', nature: 'evaluation_updated', note: 'The later published position explicitly reassesses the earlier take.' };\n}\n\nfunction statusForClaim(claim: EditorialClaim, previous?: PublishedTakeLedgerEntry): PublishedTakeStatus {""",
+        'reason helpers')
+    old_func = r'''function addLedgerEntries(
+  existing: PublishedTakeLedgerEntry[],
+  digest: EditorialMemoryDigest,
+  bot: BotName,
+  source: { newsletterId: string; title: string | null; episodeType: string | null; season: number; week: number; publishedAt: string },
+): PublishedTakeLedgerEntry[] {
+  const ledger = existing.filter(entry => entry.sourceNewsletterId !== source.newsletterId);
+  const candidates = candidateClaims(digest, bot);
+
+  for (const claim of candidates) {
+    const cleanedClaim = normalize(claim.claim).slice(0, 520);
+    if (cleanedClaim.length < 20) continue;
+    if (ledger.some(entry =>
+      entry.sourceNewsletterId === source.newsletterId &&
+      entry.subjectType === claim.subjectType &&
+      entry.subject.toLowerCase() === claim.subject.toLowerCase() &&
+      entry.claim.toLowerCase() === cleanedClaim.toLowerCase()
+    )) continue;
+
+    const key = `${claim.subjectType}:${claim.subject.toLowerCase()}:${claim.claimType}`;
+    const previous = [...ledger].reverse().find(entry =>
+      claimKey(entry) === key && entry.sourceNewsletterId !== source.newsletterId && entry.publishedAt < source.publishedAt
+    );
+    const status = statusForClaim(claim, previous);
+
+    ledger.push({
+      id: `${source.newsletterId}:${bot}:${ledger.length + 1}`,
+      sourceNewsletterId: source.newsletterId,
+      title: source.title,
+      episodeType: source.episodeType,
+      season: source.season,
+      week: source.week,
+      subjectType: claim.subjectType,
+      subject: claim.subject,
+      relatedTeam: claim.relatedTeam,
+      claim: cleanedClaim,
+      claimType: claim.claimType,
+      stance: claim.stance,
+      confidence: claim.confidence,
+      memorable: claim.memorable,
+      status,
+      previousClaim: status === 'active' ? undefined : previous?.claim,
+      publishedAt: source.publishedAt,
+    });
+  }
+
+  return ledger.slice(-480);
+}'''
+    new_func = r'''function addLedgerEntries(
+  existing: PublishedTakeLedgerEntry[],
+  digest: EditorialMemoryDigest,
+  bot: BotName,
+  source: { newsletterId: string; title: string | null; episodeType: string | null; season: number; week: number; publishedAt: string },
+): PublishedTakeLedgerEntry[] {
+  const ledger = existing.filter(entry => entry.sourceNewsletterId !== source.newsletterId);
+  const candidates = candidateClaims(digest, bot);
+
+  for (const claim of candidates) {
+    const cleanedClaim = normalize(claim.claim).slice(0, 520);
+    if (cleanedClaim.length < 20) continue;
+    if (ledger.some(entry =>
+      entry.sourceNewsletterId === source.newsletterId &&
+      entry.subjectType === claim.subjectType &&
+      entry.subject.toLowerCase() === claim.subject.toLowerCase() &&
+      entry.claim.toLowerCase() === cleanedClaim.toLowerCase()
+    )) continue;
+
+    const key = `${claim.subjectType}:${claim.subject.toLowerCase()}:${claim.claimType}`;
+    const previous = [...ledger].reverse().find(entry =>
+      claimKey(entry) === key && entry.sourceNewsletterId !== source.newsletterId && entry.publishedAt < source.publishedAt
+    );
+    const status = statusForClaim(claim, previous);
+    if (previous) {
+      previous.referenceCount = (previous.referenceCount ?? 0) + 1;
+      previous.lastReferencedAt = source.publishedAt;
+      previous.salience = computePublishedTakeSalience(previous, source.season, source.week);
+    }
+
+    const entry: PublishedTakeLedgerEntry = {
+      id: `${source.newsletterId}:${bot}:${ledger.length + 1}`,
+      sourceNewsletterId: source.newsletterId,
+      title: source.title,
+      episodeType: source.episodeType,
+      season: source.season,
+      week: source.week,
+      subjectType: claim.subjectType,
+      subject: claim.subject,
+      relatedTeam: claim.relatedTeam,
+      claim: cleanedClaim,
+      claimType: claim.claimType,
+      stance: claim.stance,
+      confidence: claim.confidence,
+      memorable: claim.memorable,
+      status,
+      previousClaim: status === 'active' ? undefined : previous?.claim,
+      changeReason: inferChangeReason(claim, status, previous),
+      emotionalWeight: emotionalWeightForClaim(claim),
+      referenceCount: 0,
+      publishedAt: source.publishedAt,
+    };
+    entry.salience = computePublishedTakeSalience(entry, source.season, source.week);
+    ledger.push(entry);
+  }
+
+  return ledger.slice(-480).map(entry => ({
+    ...entry,
+    salience: computePublishedTakeSalience(entry, source.season, source.week),
+  }));
+}'''
+    # The canonical ledger may include the newer conservative claim-quality
+    # normalization. Preserve that feature while installing salience and change
+    # reasons instead of expecting a byte-for-byte copy of an older function.
+    if 'reconcilePublishedClaim' in text:
+        old_return = """  return ledger.slice(-480).map(entry => ({
+    ...entry,
+    salience: computePublishedTakeSalience(entry, source.season, source.week),
+  }));"""
+        new_return = """  return ledger.slice(-480).map(entry => reconcilePublishedClaim({
+    ...entry,
+    salience: computePublishedTakeSalience(entry, source.season, source.week),
+  }));"""
+        if new_func.count(old_return) != 1:
+            raise RuntimeError('Cannot locate ledger salience return for quality integration')
+        new_func = new_func.replace(old_return, new_return, 1)
+        start = text.find('function addLedgerEntries(')
+        end = text.find('\nfunction applySharedAssessments(', start)
+        if start < 0 or end < 0:
+            raise RuntimeError('Cannot locate the existing ledger entry function')
+        text = text[:start] + new_func + '\n' + text[end:]
+    else:
+        text = replace_once(text, old_func, new_func, 'addLedgerEntries')
+    text = replace_once(text,
+        """  await savePublishedTakeLedgerState('entertainer', issue.season, updatedEntState);\n  await savePublishedTakeLedgerState('analyst', issue.season, updatedAnaState);\n  await persistLocalPdfExtractionMetadata(issue.id, issue.newsletter as NewsletterShape, recovered).catch(error => {""",
+        """  await savePublishedTakeLedgerState('entertainer', issue.season, updatedEntState);\n  await savePublishedTakeLedgerState('analyst', issue.season, updatedAnaState);\n\n  const issueEntEntries = updatedEntState.entries.filter(entry => entry.sourceNewsletterId === issue.id);\n  const issueAnaEntries = updatedAnaState.entries.filter(entry => entry.sourceNewsletterId === issue.id);\n  await updateClancyCareerMemory({\n    season: issue.season,\n    week: issue.week,\n    entries: [\n      ...issueEntEntries.map(entry => ({ speaker: 'Mason Reed' as const, entry })),\n      ...issueAnaEntries.map(entry => ({ speaker: 'Westy' as const, entry })),\n    ],\n  }).catch(error => {\n    console.warn('[TakeLedger] Clancy career memory update failed:', error instanceof Error ? error.message : String(error));\n  });\n\n  if (issue.episodeType === 'championship' || issue.episodeType === 'season_finale') {\n    const masonReview = buildSeasonSelfReview('entertainer', issue.season, entMem, updatedEntState.entries);\n    const westyReview = buildSeasonSelfReview('analyst', issue.season, anaMem, updatedAnaState.entries);\n    await Promise.all([\n      saveSeasonSelfReview('entertainer', issue.season, masonReview),\n      saveSeasonSelfReview('analyst', issue.season, westyReview),\n    ]).catch(error => {\n      console.warn('[TakeLedger] season self-review save failed:', error instanceof Error ? error.message : String(error));\n    });\n  }\n\n  await persistLocalPdfExtractionMetadata(issue.id, issue.newsletter as NewsletterShape, recovered).catch(error => {""",
+        'post-ledger memory intelligence')
+    LEDGER.write_text(text, encoding='utf-8')
+
+
+def patch_receipts() -> None:
+    text = RECEIPTS.read_text(encoding='utf-8')
+    if 'clancyHistoryAside' in text:
+        return
+    text = replace_once(text,
+        "import { loadPublishedTakeLedgerState } from './published-take-store';",
+        "import { computePublishedTakeSalience, loadPublishedTakeLedgerState } from './published-take-store';\nimport { loadClancyCareerMemory, type ClancyCareerMemory } from './memory-intelligence';",
+        'receipt imports')
+    text = replace_once(text,
+        """function handoff(speaker: 'Mason Reed' | 'Westy' | 'Mason Reed & Westy' | 'Editorial'): string {\n  if (speaker === 'Mason Reed & Westy') return 'Gentlemen?';\n  if (speaker === 'Editorial') return 'The corrected record stands.';\n  return `${speaker}?`;\n}\n""",
+        """function handoff(speaker: 'Mason Reed' | 'Westy' | 'Mason Reed & Westy' | 'Editorial'): string {\n  if (speaker === 'Mason Reed & Westy') return 'Gentlemen?';\n  if (speaker === 'Editorial') return 'The corrected record stands.';\n  return `${speaker}?`;\n}\n\nfunction clancyHistoryAside(memory: ClancyCareerMemory | null, subject?: string): string {\n  if (!memory || !subject) return '';\n  const target = normalize(subject);\n  const thread = Object.values(memory.subjectThreads).find(row => normalize(row.subject) === target);\n  if (!thread || thread.count < 2) return '';\n  return ` ${subject} has found its way back to this desk ${thread.count} times already.`;\n}\n""",
+        'clancy aside helper')
+    text = replace_once(text,
+        "  const receipts: ReceiptItem[] = [];\n  const priorIssue = await latestPriorIssue(input.season, input.week - 1);\n",
+        "  const receipts: ReceiptItem[] = [];\n  const priorIssue = await latestPriorIssue(input.season, input.week - 1);\n  const clancyMemory = await loadClancyCareerMemory(input.season).catch(() => null);\n",
+        'clancy load')
+    text = text.replace("The archive is annoyingly cooperative for once. ${handoff(speaker)}`", "The archive is annoyingly cooperative for once.${clancyHistoryAside(clancyMemory, chosen)} ${handoff(speaker)}`")
+    text = text.replace("I checked twice; the result remained uncooperative. ${handoff(speaker)}`", "I checked twice; the result remained uncooperative.${clancyHistoryAside(clancyMemory, chosen)} ${handoff(speaker)}`")
+    text = replace_once(text,
+        ".filter(entry => (entry.status === 'reversed' || entry.status === 'weakened') && entry.previousClaim);\n    const reversal = reversals[0];",
+        ".filter(entry => (entry.status === 'reversed' || entry.status === 'weakened') && entry.previousClaim)\n      .sort((a, b) => computePublishedTakeSalience(b, input.season, input.week) - computePublishedTakeSalience(a, input.season, input.week));\n    const reversal = reversals[0];",
+        'reversal salience')
+    text = text.replace("The archive has a long memory and very little tact. ${handoff(speaker)}`", "The archive has a long memory and very little tact.${clancyHistoryAside(clancyMemory, reversal.subject)}${reversal.changeReason ? ` Recorded reason: ${reversal.changeReason.note}` : ''} ${handoff(speaker)}`")
+    text = replace_once(text,
+        "      .filter(entry => entry.memorable || entry.claimType === 'prediction' || entry.claimType === 'reaction')\n      .reverse();\n",
+        "      .filter(entry => entry.memorable || entry.claimType === 'prediction' || entry.claimType === 'reaction')\n      .sort((a, b) => computePublishedTakeSalience(b, input.season, input.week) - computePublishedTakeSalience(a, input.season, input.week));\n",
+        'take salience ordering')
+    text = text.replace("The calendar moved on; the quote declined to. ${handoff(speaker)}`", "The calendar moved on; the quote declined to.${clancyHistoryAside(clancyMemory, entry.subject)} ${handoff(speaker)}`")
+    text = text.replace("One of those numbers was always going to age loudly. ${handoff('Mason Reed & Westy')}`", "One of those numbers was always going to age loudly.${clancyHistoryAside(clancyMemory, biggest.westy.team)} ${handoff('Mason Reed & Westy')}`")
+    text = text.replace("The ranking has been invited back for questioning. ${handoff(list.speaker)}`", "The ranking has been invited back for questioning.${clancyHistoryAside(clancyMemory, ranking.team)} ${handoff(list.speaker)}`")
+    RECEIPTS.write_text(text, encoding='utf-8')
+
+
+def patch_source_pack() -> None:
+    text = SOURCE_PACK.read_text(encoding='utf-8')
+    if 'careerContinuity' in text and 'topSalientMemories' in text:
+        return
+    text = replace_once(text,
+        "import { loadPublishedTakeLedgerState } from '@/lib/newsletter/published-take-store';",
+        "import { computePublishedTakeSalience, loadPublishedTakeLedgerState } from '@/lib/newsletter/published-take-store';\nimport { loadCareerSeasonReviews, loadClancyCareerMemory } from '@/lib/newsletter/memory-intelligence';",
+        'source-pack imports')
+    text = replace_once(text,
+        "    masonTakeState,\n    westyTakeState,\n  ] = await Promise.all([",
+        "    masonTakeState,\n    westyTakeState,\n    masonSeasonReviews,\n    westySeasonReviews,\n    clancyCareerMemory,\n  ] = await Promise.all([",
+        'source pack destructuring')
+    text = replace_once(text,
+        "    loadPublishedTakeLedgerState('entertainer', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null, extractionVersion: 0 })),\n    loadPublishedTakeLedgerState('analyst', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null, extractionVersion: 0 })),\n  ]);\n",
+        "    loadPublishedTakeLedgerState('entertainer', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null, extractionVersion: 0 })),\n    loadPublishedTakeLedgerState('analyst', season).catch(() => ({ entries: [], processedNewsletterIds: [], updatedAt: null, extractionVersion: 0 })),\n    loadCareerSeasonReviews('entertainer', season, 6).catch(() => []),\n    loadCareerSeasonReviews('analyst', season, 6).catch(() => []),\n    loadClancyCareerMemory(season).catch(() => null),\n  ]);\n\n  const masonSalientMemories = masonTakeState.entries\n    .map(entry => ({ ...entry, salience: computePublishedTakeSalience(entry, season, snapshotWeek) }))\n    .sort((a, b) => (b.salience ?? 0) - (a.salience ?? 0))\n    .slice(0, 40);\n  const westySalientMemories = westyTakeState.entries\n    .map(entry => ({ ...entry, salience: computePublishedTakeSalience(entry, season, snapshotWeek) }))\n    .sort((a, b) => (b.salience ?? 0) - (a.salience ?? 0))\n    .slice(0, 40);\n",
+        'source pack promises')
+    text = replace_once(text,
+        "      continuity: 'Use publishedContinuity as the primary receipt system for what Mason and Westy previously argued. Use botContinuity.currentSeason for each host\\'s evolving personality, learned lessons, team/player relationships, co-host dynamics, and earned recurring bits. Preserve each host\\'s individual history. When new evidence changes a take, acknowledge the prior position and explain why it strengthened, weakened, or reversed. Do not force callbacks where they are not relevant.',\n      finalOutput: 'Return a polished PDF with no AI/process/meta language inside the newsletter.',\n",
+        "      continuity: 'Use publishedContinuity as the primary receipt system for what Mason and Westy previously argued. Use botContinuity.currentSeason for each host\\'s evolving personality, learned lessons, team/player relationships, co-host dynamics, and earned recurring bits. Preserve each host\\'s individual history. When new evidence changes a take, acknowledge the prior position and explain why it strengthened, weakened, or reversed. Do not force callbacks where they are not relevant.',\n      characterMemory: 'Use careerContinuity for long-term growth. Season self-reviews are durable lessons and career context, not weekly talking points. Clancy career memory lets him recognize recurring receipts and running accountability threads without becoming a third football pundit.',\n      finalOutput: 'Return a polished PDF with no AI/process/meta language inside the newsletter.',\n",
+        'source pack directive')
+    text = replace_once(text,
+        "      'Take-ledger entries preserve host attribution, source issue, subject, stance, confidence, and whether the position strengthened, weakened, reversed, resolved, or proved wrong.',\n",
+        "      'Take-ledger entries preserve host attribution, source issue, subject, stance, confidence, and whether the position strengthened, weakened, reversed, resolved, or proved wrong.',\n      'Each take now carries deterministic salience. Higher scores deserve priority based on recency, importance, emotional weight, confidence, later references, and whether the take materially changed or failed.',\n      'When a take changes, changeReason distinguishes a true miss or evaluation update from changed circumstances such as injury, role, transaction, performance evidence, or new information.',\n",
+        'source pack data notes')
+    text = replace_once(text,
+        "      westy: westyTakeState.entries,\n      processedNewsletterIds: {\n",
+        "      westy: westyTakeState.entries,\n      topSalientMemories: {\n        mason: masonSalientMemories,\n        westy: westySalientMemories,\n      },\n      processedNewsletterIds: {\n",
+        'salient pack')
+    text = replace_once(text,
+        "        'A callback should identify the prior position accurately and then connect it to the current evidence.',\n      ],\n    },\n    botContinuity: {\n",
+        "        'A callback should identify the prior position accurately and then connect it to the current evidence.',\n        'Use topSalientMemories first when choosing long-term callbacks. Low-salience history should stay in the background unless directly relevant.',\n        'If changeReason says circumstances_changed, do not frame the update as hypocrisy or a prediction miss.',\n      ],\n    },\n    careerContinuity: {\n      seasonSelfReviews: { mason: masonSeasonReviews, westy: westySeasonReviews },\n      clancy: clancyCareerMemory,\n      instructions: [\n        'Season self-reviews summarize what each pundit actually learned, missed, got right, and carried forward. Use them to make growth gradual and consistent across years.',\n        'Clancy remembers recurring subjects, famous receipts, and prior accountability threads. He may make a dry callback when it earns one, but he remains a moderator/historian rather than a third fantasy analyst.',\n      ],\n    },\n    botContinuity: {\n",
+        'career continuity pack')
+    SOURCE_PACK.write_text(text, encoding='utf-8')
+
+
+def patch_test() -> None:
+    if not TEST.exists():
+        return
+    text = TEST.read_text(encoding='utf-8')
+    if 'long-term newsletter memory intelligence' in text:
+        return
+    import_line = "import { readFileSync as readMemoryIntelligenceFile } from 'node:fs';\n"
+    if import_line not in text:
+        text = import_line + text
+    text += r'''
+
+describe('long-term newsletter memory intelligence', () => {
+  it('keeps salience, season reviews, Clancy career memory, and change reasons model-free', () => {
+    const store = readMemoryIntelligenceFile('src/lib/newsletter/published-take-store.ts', 'utf8');
+    const ledger = readMemoryIntelligenceFile('src/lib/newsletter/published-take-ledger.ts', 'utf8');
+    const intelligence = readMemoryIntelligenceFile('src/lib/newsletter/memory-intelligence.ts', 'utf8');
+    const sourcePack = readMemoryIntelligenceFile('src/app/api/admin/newsletter/external-export/route-core.ts', 'utf8');
+    expect(store).toContain('computePublishedTakeSalience');
+    expect(store).toContain('PublishedTakeChangeReason');
+    expect(ledger).toContain('inferChangeReason');
+    expect(ledger).toContain('buildSeasonSelfReview');
+    expect(intelligence).toContain('updateClancyCareerMemory');
+    expect(intelligence).toContain('seasonSelfReview');
+    expect(sourcePack).toContain('topSalientMemories');
+    expect(sourcePack).toContain('careerContinuity');
+  });
+});
+'''
+    TEST.write_text(text, encoding='utf-8')
+
+
+def main() -> None:
+    for path in (STORE, LEDGER, RECEIPTS, SOURCE_PACK):
+        if not path.exists():
+            raise RuntimeError(f'Missing required newsletter memory file: {path}')
+    INTELLIGENCE.write_text(MEMORY_INTELLIGENCE_TS, encoding='utf-8')
+    patch_store()
+    patch_ledger()
+    patch_receipts()
+    patch_source_pack()
+    patch_test()
+    print('[newsletter-memory-intelligence] Added salience, season self-reviews, Clancy career memory, and change reasons without paid memory services.')
+
+
+if __name__ == '__main__':
+    main()

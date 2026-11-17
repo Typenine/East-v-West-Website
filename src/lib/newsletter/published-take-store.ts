@@ -29,14 +29,14 @@ export interface PublishedTakeLedgerEntry {
   stance: EditorialStance;
   confidence: number;
   memorable: boolean;
-  status: PublishedTakeStatus;
-  previousClaim?: string;
-  publishedAt: string;
   // Original published wording and classification remain auditable after repair.
   originalClaim?: string;
   originalClaimType?: EditorialClaimType;
   classificationVersion?: number;
   qualityReviewRequired?: boolean;
+  status: PublishedTakeStatus;
+  previousClaim?: string;
+  publishedAt: string;
 }
 
 export interface PublishedTakeLedgerState {

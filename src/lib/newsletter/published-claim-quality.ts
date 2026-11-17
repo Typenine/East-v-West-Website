@@ -66,7 +66,15 @@ export interface HistoricalQualityEntry {
 export function reconcilePublishedClaim<T extends HistoricalQualityEntry>(entry: T): T {
   if ((entry.classificationVersion ?? 0) >= PUBLISHED_CLAIM_QUALITY_VERSION) return entry;
   const cleaned = cleanPublishedClaim(entry.claim);
-  const nextType = classifyPublishedClaim(cleaned);
+  const conservative = classifyPublishedClaim(cleaned);
+  // The historical repair is intentionally narrow: remove false prediction
+  // labels, and promote unmistakable picks from generic evaluations. Keep
+  // past editorial/reaction/strategy labels unless explicitly reviewed.
+  const nextType = entry.claimType === 'prediction'
+    ? conservative
+    : entry.claimType === 'evaluation' && conservative === 'prediction'
+      ? 'prediction'
+      : entry.claimType;
   return {
     ...entry,
     ...(cleaned !== entry.claim && !entry.originalClaim ? { originalClaim: entry.claim } : {}),
