@@ -47,27 +47,29 @@ describe('historical luck calculations', () => {
     expect(report.teams[0].combinedLuck).toBe(0);
   });
 
-  it('allows the documented 2023 one-point correction without hiding the entire league', () => {
+  it('uses complete weekly results despite a mismatch in stored season points', () => {
     const report = calculateHistoricalLuck([game('2023', 1, 80, 70)], '2023', 1, 2);
     const alpha = report.teams.find((t) => t.name === 'Alpha')!;
-    alpha.rosterId = 8;
     alpha.pointsFor = 1296.96;
     const official = [
-      { rosterId: 8, wins: 1, losses: 0, ties: 0, fpts: 1295.96 },
+      { rosterId: 1, wins: 1, losses: 0, ties: 0, fpts: 1295.96 },
       { rosterId: 2, wins: 0, losses: 1, ties: 0, fpts: 70 },
     ];
-    expect(() => assertHistoricalLuckMatchesOfficial(report, official)).not.toThrow();
+    const discrepancies = assertHistoricalLuckMatchesOfficial(report, official);
+    expect(discrepancies).toEqual([{
+      rosterId: 1, name: 'Alpha', weeklyPoints: 1296.96, officialPoints: 1295.96,
+    }]);
 
     expect(() => assertHistoricalLuckMatchesOfficial(report, [
       { ...official[0], fpts: 1294.96 }, official[1],
-    ])).toThrow(/Finalized scoring/);
+    ])).not.toThrow();
 
     expect(() => assertHistoricalLuckMatchesOfficial(report, [
       { ...official[0], wins: 0 }, official[1],
     ])).toThrow(/Finalized records/);
 
-    expect(() => assertHistoricalLuckMatchesOfficial({ ...report, season: '2024' }, official))
-      .toThrow(/Finalized scoring/);
+    expect(() => assertHistoricalLuckMatchesOfficial(report, [official[0]]))
+      .toThrow(/Incomplete finalized/);
   });
 
   it('refuses partial historical or missing finalized weeks', () => {
