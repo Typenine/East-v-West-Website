@@ -20,6 +20,7 @@ import {
 
 type SortKey = 'wins' | 'losses' | 'ties' | 'fpts' | 'fptsAgainst';
 type SortDirection = 'asc' | 'desc';
+type LuckData = { luck: number; expectedWins: number; allPlayExpected: number; historicalExpected: number };
 
 const SEASON_OPTIONS = [CURRENT_SEASON, '2025', '2024', '2023'];
 const getPlayoffTeamsForSeason = (season: string) => season === '2026' ? 7 : 8;
@@ -29,7 +30,7 @@ const thClass = 'px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0
 export default function StandingsPage() {
   const [teams, setTeams] = useState<TeamData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [luckByRoster, setLuckByRoster] = useState<Record<number, { luck: number; expectedWins: number }>>({});
+  const [luckByRoster, setLuckByRoster] = useState<Record<number, LuckData>>({});
   const [luckStatus, setLuckStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState(CURRENT_SEASON);
@@ -77,12 +78,13 @@ export default function StandingsPage() {
         );
         if (!response.ok) throw new Error('Luck data unavailable');
         const payload = await response.json() as {
-          teams: Array<{ rosterId: number; luck: number; expectedWins: number }>;
+          teams: Array<LuckData & { rosterId: number }>;
         };
         if (!Array.isArray(payload.teams)) throw new Error('Invalid luck data');
         if (controller.signal.aborted) return;
         setLuckByRoster(Object.fromEntries(payload.teams.map((t) =>
-          [t.rosterId, { luck: t.luck, expectedWins: t.expectedWins }])));
+          [t.rosterId, { luck: t.luck, expectedWins: t.expectedWins,
+            allPlayExpected: t.allPlayExpected, historicalExpected: t.historicalExpected }])));
         setLuckStatus('ready');
       } catch {
         if (!controller.signal.aborted) setLuckStatus('unavailable');
@@ -224,7 +226,7 @@ export default function StandingsPage() {
                   <th scope="col" className={thClass} aria-sort={sortAriaSort('fptsAgainst')}>{sortHeader('fptsAgainst', 'PA')}</th>
                   <th scope="col" className={thClass} style={broadcastFaintTextStyle}>PA/G</th>
                   <th scope="col" className={thClass} style={broadcastFaintTextStyle}>Streak</th>
-                  <th scope="col" className={thClass} style={broadcastFaintTextStyle} title="Actual wins minus expected wins based on historical league scoring">Luck</th>
+                  <th scope="col" className={thClass} style={broadcastFaintTextStyle} title="Actual wins minus the average of All-Play and historical expected wins">Luck</th>
                 </tr>
               </thead>
               <tbody>
@@ -278,12 +280,11 @@ export default function StandingsPage() {
                         {streak && streak.type && streak.length > 0 ? `${streak.type}${streak.length}` : '—'}
                       </td>
                       <td
-                        className={`whitespace-nowrap px-4 py-3 text-sm font-bold tabular-nums sm:px-5 ${luckStatus === 'ready' && luckEntry
-                          ? luckEntry.luck > 0.005 ? 'text-emerald-400' : luckEntry.luck < -0.005 ? 'text-rose-400' : ''
-                          : ''}`}
-                        style={luckStatus === 'ready' && luckEntry && Math.abs(luckEntry.luck) > 0.005
-                          ? undefined : broadcastMutedTextStyle}
-                        title={luckEntry ? `Expected wins: ${luckEntry.expectedWins.toFixed(2)}` : undefined}
+                        className="whitespace-nowrap px-4 py-3 text-sm font-semibold tabular-nums sm:px-5"
+                        style={broadcastBodyTextStyle}
+                        title={luckEntry
+                          ? `Combined expected wins: ${luckEntry.expectedWins.toFixed(2)} (All-Play: ${luckEntry.allPlayExpected.toFixed(2)}, Historical: ${luckEntry.historicalExpected.toFixed(2)})`
+                          : undefined}
                       >
                         {luckStatus === 'loading' ? '…' : luckStatus === 'ready' && luckEntry
                           ? `${luckEntry.luck > 0 ? '+' : ''}${luckEntry.luck.toFixed(2)}`
@@ -300,12 +301,25 @@ export default function StandingsPage() {
             Seeds 1-{playoffTeams} qualify for the playoffs
           </div>
           <div className="border-t border-[var(--panel-hairline)] px-4 py-3 text-xs leading-relaxed sm:px-5" style={broadcastMutedTextStyle}>
-            <span className="font-bold" style={broadcastBodyTextStyle}>Luck:</span>{' '}
-            Actual wins minus expected wins. For each week, we check how often that team’s score would beat completed
-            East v. West regular-season scores since 2023, then add those weekly chances together.
-            Positive means more wins than expected; negative means fewer. Updates after every completed week.
+            <p>
+              <span className="font-bold" style={broadcastBodyTextStyle}>How Luck is calculated:</span>{' '}
+              We use two equally weighted models to estimate how many games a team should have won based on its weekly scores.
+            </p>
+            <p className="mt-1">
+              <span className="font-semibold" style={broadcastBodyTextStyle}>All-Play (50%):</span>{' '}
+              Each week, how often would the team&apos;s score beat the other 11 teams that same week?
+              <span className="ml-2 font-semibold" style={broadcastBodyTextStyle}>Historical (50%):</span>{' '}
+              Each week, how often would its score beat completed East v. West regular-season scores since 2023?
+            </p>
+            <p className="mt-1">
+              We add each model&apos;s weekly win probabilities to get two expected-win totals, then average them.
+              <span className="ml-2 font-semibold" style={broadcastBodyTextStyle}>Luck = Actual Wins − Average Expected Wins.</span>{' '}
+              Positive means more wins than expected; negative means fewer.
+              For example, 7 actual wins against 8.1 All-Play and 8.5 historical expected wins produces −1.3 Luck.
+              Recalculated after every completed week.
+            </p>
             {luckStatus === 'unavailable' && (
-              <span className="ml-2 font-semibold text-rose-400">Luck numbers are temporarily unavailable.</span>
+              <p className="mt-1 font-semibold">Luck numbers are temporarily unavailable.</p>
             )}
           </div>
         </BroadcastPanel>
