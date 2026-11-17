@@ -382,6 +382,7 @@ def patch_ledger() -> None:
   bot: BotName,
   source: { newsletterId: string; title: string | null; episodeType: string | null; season: number; week: number; publishedAt: string },
 ): PublishedTakeLedgerEntry[] {
+  const previousIssue = existing.filter(entry => entry.sourceNewsletterId === source.newsletterId);
   const ledger = existing.filter(entry => entry.sourceNewsletterId !== source.newsletterId);
   const candidates = candidateClaims(digest, bot);
 
@@ -407,7 +408,12 @@ def patch_ledger() -> None:
     }
 
     const entry: PublishedTakeLedgerEntry = {
-      id: `${source.newsletterId}:${bot}:${ledger.length + 1}`,
+      id: previousIssue.find(entry => entry.subjectType === claim.subjectType &&
+        entry.subject.toLowerCase() === claim.subject.toLowerCase() &&
+        (entry.claim.toLowerCase() === cleanedClaim.toLowerCase() ||
+         entry.originalClaim?.toLowerCase() === cleanedClaim.toLowerCase()))?.id ??
+        `${source.newsletterId}:${bot}:`+createHash('sha256')
+          .update(`${claim.subjectType}|${claim.subject}|${cleanedClaim}`).digest('hex').slice(0,20),
       sourceNewsletterId: source.newsletterId,
       title: source.title,
       episodeType: source.episodeType,
@@ -432,7 +438,7 @@ def patch_ledger() -> None:
     ledger.push(entry);
   }
 
-  return ledger.slice(-480).map(entry => ({
+  return ledger.map(entry => ({
     ...entry,
     salience: computePublishedTakeSalience(entry, source.season, source.week),
   }));
@@ -441,11 +447,11 @@ def patch_ledger() -> None:
     # normalization. Preserve that feature while installing salience and change
     # reasons instead of expecting a byte-for-byte copy of an older function.
     if 'reconcilePublishedClaim' in text:
-        old_return = """  return ledger.slice(-480).map(entry => ({
+        old_return = """  return ledger.map(entry => ({
     ...entry,
     salience: computePublishedTakeSalience(entry, source.season, source.week),
   }));"""
-        new_return = """  return ledger.slice(-480).map(entry => reconcilePublishedClaim({
+        new_return = """  return ledger.map(entry => reconcilePublishedClaim({
     ...entry,
     salience: computePublishedTakeSalience(entry, source.season, source.week),
   }));"""
