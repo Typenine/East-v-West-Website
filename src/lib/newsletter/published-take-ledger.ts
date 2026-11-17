@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import type { BotMemory, BotName } from '@/lib/newsletter/types';
 import { createEnhancedMemory } from '@/lib/newsletter/memory';
+import { reconcilePublishedClaim } from '@/lib/newsletter/published-claim-quality';
 import {
   extractUploadedPdfContinuity,
   type UploadedPdfContinuity,
@@ -359,7 +360,9 @@ function addLedgerEntries(
     });
   }
 
-  return ledger.slice(-480);
+  // Normalize PDF markers and classifications before the ledger is committed.
+  // Retain original text/type on any repaired statement for auditability.
+  return ledger.slice(-480).map(entry => reconcilePublishedClaim(entry));
 }
 
 function applySharedAssessments(mem: BotMemory, digest: EditorialMemoryDigest, week: number): void {

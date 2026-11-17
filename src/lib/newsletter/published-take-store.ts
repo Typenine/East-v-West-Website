@@ -32,6 +32,11 @@ export interface PublishedTakeLedgerEntry {
   status: PublishedTakeStatus;
   previousClaim?: string;
   publishedAt: string;
+  // Original published wording and classification remain auditable after repair.
+  originalClaim?: string;
+  originalClaimType?: EditorialClaimType;
+  classificationVersion?: number;
+  qualityReviewRequired?: boolean;
 }
 
 export interface PublishedTakeLedgerState {

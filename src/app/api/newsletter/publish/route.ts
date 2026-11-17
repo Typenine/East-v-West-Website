@@ -18,8 +18,7 @@ import {
   postToDiscordWebhook,
   verifyDiscordWebhook,
 } from '@/lib/utils/discord';
-import { updateBotMemoryFromPublish } from '@/lib/newsletter/publish-memory';
-import { recordPublishedTakeLedger } from '@/lib/newsletter/published-take-ledger';
+import { checkpointPublishedMemory } from '@/lib/newsletter/published-memory-checkpoint';
 import { recordPublishedEditorialIssue } from '@/lib/newsletter/editorial-tracking-store';
 import { EPISODE_WEEK_STORAGE } from '@/lib/newsletter/queue-target';
 import { getDb } from '@/server/db/client';
@@ -266,27 +265,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Recover PDF dialogue and commit the exact-ID attributed ledger FIRST.
-    // Character memories are hydrated from that ledger afterward, so PDFs and
-    // native structured issues take the same path. Failure must be visible.
-    let publishedLedgerSynced = false;
-    let characterMemorySynced = false;
-    let characterMemoryError: string | null = null;
-    try {
-      publishedLedgerSynced = await recordPublishedTakeLedger(target.id);
-      if (!publishedLedgerSynced) characterMemoryError = 'No attributable host dialogue recovered';
-    } catch (error) {
-      characterMemoryError = error instanceof Error ? error.message : String(error);
-      console.warn('[Publish] Published take ledger update failed:', error);
-    }
-    if (publishedLedgerSynced) {
-      try {
-        await updateBotMemoryFromPublish(target.id);
-        characterMemorySynced = true;
-      } catch (error) {
-        characterMemoryError = error instanceof Error ? error.message : String(error);
-        console.warn('[Publish] Character memory update failed:', error);
-      }
+    // Unify uploaded-PDF and native issue memory ingestion by exact issue ID.
+    const memorySync = await checkpointPublishedMemory(target.id);
+    if (memorySync.error) {
+      console.warn('[Publish] Character memory checkpoint incomplete:', memorySync.error);
     }
 
     // Store predictions and Stock Watch receipts only after the issue is officially published.
@@ -308,7 +290,7 @@ export async function POST(req: NextRequest) {
       success: true,
       published: true,
       alreadyPublished,
-      memorySync: { publishedLedgerSynced, characterMemorySynced, error: characterMemoryError },
+      memorySync,
       newsletterId: target.id,
       publicUrl,
       episodeType,

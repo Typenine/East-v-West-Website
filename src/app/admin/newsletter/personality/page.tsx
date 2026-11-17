@@ -153,6 +153,7 @@ export default function PersonalityConsolePage() {
 interface MemoryHealthData {
   season: number;
   publishedIssues: number;
+  latestPublishedIssue: { id: string; title: string | null; week: number } | null;
   bots: Record<'mason' | 'westy', {
     lastUpdated: string | null;
     takeCount: number;
@@ -161,6 +162,7 @@ interface MemoryHealthData {
     deepPlayerCount: number;
     growthLessons: number;
     predictionResults: { correct: number; wrong: number };
+    claimQuality: { predictions: number; needsReview: number; staleClassifications: number };
   }>;
   missingContinuity: Array<{ id: string; title: string | null; week: number }>;
 }
@@ -171,6 +173,7 @@ function MemoryHealthPanel() {
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState('');
+  const [dryRun, setDryRun] = useState<{ noWrites: boolean; title: string | null; mason: { existingIssueTakes: number; independentlyExtractedClaims: number; unmatchedQuoteCount: number; replayIdempotent: boolean }; westy: { existingIssueTakes: number; independentlyExtractedClaims: number; unmatchedQuoteCount: number; replayIdempotent: boolean } } | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     setMessage('');
@@ -185,6 +188,24 @@ function MemoryHealthPanel() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const runArchivedDryRun = async () => {
+    if (!health?.latestPublishedIssue) return;
+    setWorking(true);
+    setMessage('');
+    try {
+      const result = await adminFetch('/api/admin/newsletter/memory-health', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'dry-run', season: Number(season), issueId: health.latestPublishedIssue.id }),
+      });
+      setDryRun(result);
+      setMessage('Archived issue replayed in memory only. No newsletter was published and no Discord message was sent.');
+    } catch (err) {
+      setMessage(`Archived dry-run failed: ${err}`);
+    } finally {
+      setWorking(false);
+    }
+  };
   const rebuild = async () => {
     if (!confirm(`Rebuild Mason and Westy's deep relationships from the saved ${season} published-take ledger? This will preserve personality traits and prediction results.`)) return;
     setWorking(true);
@@ -231,6 +252,8 @@ function MemoryHealthPanel() {
                     <div className="text-sm">Deep player relationships: {health.bots[bot].deepPlayerCount}</div>
                     <div className="text-sm">Growth lessons: {health.bots[bot].growthLessons}</div>
                     <div className="text-sm">Graded predictions: {health.bots[bot].predictionResults.correct + health.bots[bot].predictionResults.wrong}</div>
+                    <div className="text-sm">Prediction-type takes: {health.bots[bot].claimQuality.predictions}</div>
+                    <div className="text-sm">Claims requiring review: {health.bots[bot].claimQuality.needsReview}</div>
                     <div className="text-xs text-[var(--muted)]">Last updated: {health.bots[bot].lastUpdated ?? 'Never'}</div>
                   </div>
                 ))}
@@ -246,6 +269,19 @@ function MemoryHealthPanel() {
             Rebuilds only relationship history from existing published takes. It does not invent lessons,
             change personality traits, grade unverified predictions, or call a paid AI model.
           </p>
+          {health?.latestPublishedIssue && (
+            <div className="border border-[var(--border)] rounded-lg p-3 space-y-2">
+              <div className="text-sm font-medium">No-publication test: {health.latestPublishedIssue.title ?? 'Latest archived issue'}</div>
+              <Button variant="secondary" onClick={runArchivedDryRun} disabled={loading || working}>Dry-run Archived Memory Cycle</Button>
+              {dryRun && (
+                <div className="text-xs text-[var(--muted)] space-y-1">
+                  <div>Mason: {dryRun.mason.existingIssueTakes} saved takes, {dryRun.mason.independentlyExtractedClaims} extracted, {dryRun.mason.unmatchedQuoteCount} unmatched, replay stable: {String(dryRun.mason.replayIdempotent)}</div>
+                  <div>Westy: {dryRun.westy.existingIssueTakes} saved takes, {dryRun.westy.independentlyExtractedClaims} extracted, {dryRun.westy.unmatchedQuoteCount} unmatched, replay stable: {String(dryRun.westy.replayIdempotent)}</div>
+                  <div>Writes performed: {dryRun.noWrites ? 'None' : 'Unexpected'}</div>
+                </div>
+              )}
+            </div>
+          )}
           <Button onClick={rebuild} disabled={loading || working || !health || health.publishedIssues === 0}>
             {working ? 'Rebuilding…' : 'Rebuild Published Relationships'}
           </Button>

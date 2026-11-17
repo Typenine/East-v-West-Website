@@ -90,7 +90,14 @@ export function hydratePublishedRelationships(
       const canonical = CANONICAL_TEAMS.get(entry.subject.toLowerCase());
       if (!canonical) continue;
       const rel = ensureTeam(memory, canonical);
-      if (!rel.takeHistory.some(item => item.season === entry.season && item.week === entry.week && item.take === take)) {
+      // Historical marker cleanup should update the existing entry, not
+      // create a second "memory" for the same published statement.
+      const originalTake = entry.originalClaim ? normalized(entry.originalClaim).slice(0, 420) : take;
+      const prior = rel.takeHistory.find(item =>
+        item.season === entry.season && item.week === entry.week &&
+        (item.take === take || item.take === originalTake));
+      if (prior) prior.take = take;
+      else {
         rel.takeHistory.push({ week: entry.week, season: entry.season, take, memorable: entry.memorable });
         rel.takeHistory = rel.takeHistory.slice(-30);
       }
@@ -101,13 +108,26 @@ export function hydratePublishedRelationships(
     } else if (entry.subjectType === 'player' && validPlayerName(entry.subject)) {
       const rel = ensurePlayer(memory, entry.subject, entry.relatedTeam);
       const event = `Published take: ${take}`;
-      if (!rel.history.some(item => item.week === entry.week && item.season === entry.season && item.event === event)) {
+      const originalTake = entry.originalClaim ? normalized(entry.originalClaim).slice(0, 420) : take;
+      const originalEvent = `Published take: ${originalTake}`;
+      const prior = rel.history.find(item => item.week === entry.week &&
+        item.season === entry.season && (item.event === event || item.event === originalEvent));
+      if (prior) prior.event = event;
+      else {
         rel.history.push({ week: entry.week, season: entry.season, event, impact: 0, emotional: entry.memorable });
         rel.history = rel.history.slice(-18);
       }
-      if (entry.claimType === 'prediction' && !rel.predictions.some(item => item.week === entry.week && item.prediction === take)) {
-        rel.predictions.push({ week: entry.week, prediction: take });
-        rel.predictions = rel.predictions.slice(-12);
+      if (entry.claimType !== 'prediction') {
+        rel.predictions = rel.predictions.filter(item => item.week !== entry.week ||
+          (item.prediction !== take && item.prediction !== originalTake));
+      } else {
+        const existingPrediction = rel.predictions.find(item => item.week === entry.week &&
+          (item.prediction === take || item.prediction === originalTake));
+        if (existingPrediction) existingPrediction.prediction = take;
+        else {
+          rel.predictions.push({ week: entry.week, prediction: take });
+          rel.predictions = rel.predictions.slice(-12);
+        }
       }
       playerTakes++;
     }

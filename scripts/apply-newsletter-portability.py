@@ -157,8 +157,8 @@ def main() -> None:
     publish_route = Path('src/app/api/newsletter/publish/route.ts')
     # Publishing now extracts PDF continuity before applying the exact-ID
     # character memory update. The old skip-PDF patch must NOT be applied.
-    if 'await updateBotMemoryFromPublish(target.id)' not in publish_route.read_text(encoding='utf-8'):
-        raise RuntimeError('Newsletter publish route is missing the exact-ID memory ingestion path')
+    if 'checkpointPublishedMemory(target.id)' not in publish_route.read_text(encoding='utf-8'):
+        raise RuntimeError('Newsletter publish route is missing the exact-ID memory ingestion checkpoint')
 
     export_route = Path('src/app/api/admin/newsletter/personality-export/route.ts')
     replace_once(

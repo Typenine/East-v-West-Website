@@ -6,6 +6,7 @@
  */
 
 import type { BotName } from './types';
+import { cleanPublishedClaim, classifyPublishedClaim } from './published-claim-quality';
 
 export type EditorialClaimType = 'evaluation' | 'prediction' | 'strategy' | 'reaction';
 export type EditorialStance = 'positive' | 'negative' | 'mixed' | 'neutral';
@@ -97,18 +98,15 @@ function parseBlocks(text: string): ContextBlock[] {
     .split(/\n{2,}/)
     .map(raw => {
       let body = raw.trim();
-      const teamMatch = body.match(/^\[\[TEAM:([^\]]+)\]\]\s*/i);
-      const team = teamMatch ? normalizeSpace(teamMatch[1]) : undefined;
-      if (teamMatch) body = body.slice(teamMatch[0].length);
-      const sectionMatch = body.match(/^\[\[SECTION:([^\]]+)\]\]\s*/i);
-      const section = sectionMatch ? normalizeSpace(sectionMatch[1]) : undefined;
-      if (sectionMatch) body = body.slice(sectionMatch[0].length);
-      if (!section && teamMatch) {
-        const secondSection = body.match(/^\[\[SECTION:([^\]]+)\]\]\s*/i);
-        if (secondSection) {
-          body = body.slice(secondSection[0].length);
-          return { body: body.trim(), team, section: normalizeSpace(secondSection[1]) };
-        }
+      let team: string | undefined;
+      let section: string | undefined;
+      // PDF extraction may emit the markers in either order.
+      for (;;) {
+        const marker = body.match(/^\[\[(TEAM|SECTION):([^\]]+)\]\]\s*/i);
+        if (!marker) break;
+        if (marker[1].toUpperCase() === 'TEAM') team = normalizeSpace(marker[2]);
+        else section = normalizeSpace(marker[2]);
+        body = body.slice(marker[0].length);
       }
       return { body: body.trim(), team, section };
     })
@@ -118,8 +116,13 @@ function parseBlocks(text: string): ContextBlock[] {
 function splitSentences(text: string): string[] {
   const normalized = normalizeSpace(text);
   if (!normalized) return [];
-  return (normalized.match(/[^.!?]+[.!?]+(?:["')\]]+)?|[^.!?]+$/g) ?? [normalized])
-    .map(normalizeSpace)
+  // Protect decimal stats and the league's "Mt. Lebanon" abbreviation so a
+  // sentence is never cut into an invented "My pick is Mt." memory.
+  const protectedText = normalized
+    .replace(/(\d)\.(?=\d)/g, '$1\uE000')
+    .replace(/\b(Mt|Mr|Mrs|Ms|Dr|St|Jr|Sr|vs)\./gi, '$1\uE000');
+  return (protectedText.match(/[^.!?]+[.!?]+(?:["')\]]+)?|[^.!?]+$/g) ?? [protectedText])
+    .map(sentence => normalizeSpace(sentence.replace(/\uE000/g, '.')))
     .filter(sentence => sentence.length >= 20 && sentence.length <= 520);
 }
 
@@ -140,15 +143,6 @@ function firstMentionByPosition(text: string, candidates: string[]): string | un
 function mentionIndex(text: string, candidate?: string): number {
   if (!candidate) return Number.POSITIVE_INFINITY;
   return text.toLowerCase().indexOf(candidate.toLowerCase());
-}
-
-function classifyClaimType(text: string, section?: string): EditorialClaimType {
-  const lower = text.toLowerCase();
-  if (/\b(wrong|missed|whiffed|changed my mind|change my mind|take the l|receipt|called it|revisit|reversing|walk that back|taking that back)\b/.test(lower)) return 'reaction';
-  if (/\b(my pick|championship pick|champion|wins? the league|make[s]? the playoffs|miss(?:es)? the playoffs|finish(?:es)?|bold prediction|i(?:'m| am) taking|i have .* over|will be|will finish|will make|will miss|going to|over .* in the final|defining championship player|lead regular-season points|highest-scoring)\b/.test(lower)) return 'prediction';
-  if (section && /OFFICIAL SEASON PICKS|BOLD PREDICTIONS/i.test(section) && /\b(first|second|third|top[- ]?two|top[- ]?three|playoff|final|points|championship|title|defining|over)\b/i.test(text)) return 'prediction';
-  if (/\b(trade|deal|draft|pick|asset|buy|sell|hold|rebuild|contend|roster construction|waiver|faab|allocation|cut|roster spot)\b/.test(lower)) return 'strategy';
-  return 'evaluation';
 }
 
 function classifyStance(text: string): EditorialStance {
@@ -196,11 +190,13 @@ function claimsForBot(bot: BotName, text: string, teamNames: string[], playerNam
 
   for (const block of parseBlocks(text.slice(0, MAX_HOST_CHARS))) {
     const blockTeam = block.team ? teams.find(team => team.toLowerCase() === block.team!.toLowerCase()) ?? block.team : undefined;
-    for (const sentence of splitSentences(block.body)) {
+    for (const rawSentence of splitSentences(block.body)) {
+      const sentence = cleanPublishedClaim(rawSentence);
+      if (sentence.length < 20) continue;
       const directTeam = firstMentionByPosition(sentence, teams);
       const team = directTeam ?? blockTeam;
       const player = firstMentionByPosition(sentence, players);
-      const claimType = classifyClaimType(sentence, block.section);
+      const claimType = classifyPublishedClaim(sentence, block.section);
       if (!team && !player && !isHighSignal(sentence, claimType, block.section)) {
         order += 1;
         continue;
