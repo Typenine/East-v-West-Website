@@ -28,6 +28,9 @@ describe('historical luck calculations', () => {
     expect(alpha.historicalLuck).toBe(0.38);
     expect(alpha.allPlayExpected).toBe(1);
     expect(alpha.allPlayLuck).toBe(0);
+    // Combine the two unrounded expected-win probabilities, 50/50.
+    expect(alpha.combinedExpected).toBe(0.81);
+    expect(alpha.combinedLuck).toBe(0.19);
   });
 
   it('treats ties as half-wins and excludes postseason scores', () => {
@@ -40,6 +43,8 @@ describe('historical luck calculations', () => {
     expect(report.teams[0].historicalExpected).toBe(0.5);
     expect(report.teams[0].historicalLuck).toBe(0);
     expect(report.teams[0].allPlayExpected).toBe(0.5);
+    expect(report.teams[0].combinedExpected).toBe(0.5);
+    expect(report.teams[0].combinedLuck).toBe(0);
   });
 
   it('refuses partial historical or missing finalized weeks', () => {
