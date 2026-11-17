@@ -8,6 +8,7 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Label from '@/components/ui/Label';
 import { Textarea } from '@/components/ui/Textarea';
+import BotBrainCenter from './BotBrainCenter';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,7 +93,7 @@ async function adminFetch(url: string, opts?: RequestInit) {
 export default function PersonalityConsolePage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [checked, setChecked] = useState(false);
-  const [activeTab, setActiveTab] = useState<'bots' | 'teams' | 'phrases' | 'preview' | 'memory'>('bots');
+  const [activeTab, setActiveTab] = useState<'brain' | 'bots' | 'teams' | 'phrases' | 'preview' | 'memory'>('brain');
 
   useEffect(() => {
     fetch('/api/admin-login', { credentials: 'include' })
@@ -105,6 +106,7 @@ export default function PersonalityConsolePage() {
   if (!isAdmin) return <div className="p-8 text-red-400">Admin access required.</div>;
 
   const tabs = [
+    { key: 'brain',   label: 'Bot Brain Center' },
     { key: 'bots',    label: 'Bot Settings' },
     { key: 'teams',   label: 'Team Cards' },
     { key: 'phrases', label: 'Phrase Pools' },
@@ -113,8 +115,8 @@ export default function PersonalityConsolePage() {
   ] as const;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      <SectionHeader title="Personality Console" subtitle="Admin bot and team narrative settings" />
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+      <SectionHeader title="Bot Brain Center" subtitle="Mason and Westy: memory, identity, personality, relationships and editorial review" />
 
       <div className="flex items-center gap-2 text-sm">
         <Link href="/admin/newsletter" className="text-[var(--muted)] hover:text-[var(--foreground)]">
@@ -123,12 +125,12 @@ export default function PersonalityConsolePage() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-[var(--border)]">
+      <div className="flex overflow-x-auto gap-1 border-b border-[var(--border)]">
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
+            className={`whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors ${
               activeTab === tab.key
                 ? 'border-b-2 border-[var(--accent)] text-[var(--foreground)]'
                 : 'text-[var(--muted)] hover:text-[var(--foreground)]'
@@ -139,6 +141,7 @@ export default function PersonalityConsolePage() {
         ))}
       </div>
 
+      {activeTab === 'brain'   && <BotBrainCenter onEditSettings={() => setActiveTab('bots')} />}
       {activeTab === 'bots'    && <BotSettingsPanel />}
       {activeTab === 'teams'   && <TeamCardsPanel />}
       {activeTab === 'phrases' && <PhrasesPanel />}
