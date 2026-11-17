@@ -593,7 +593,7 @@ export default function Navbar() {
                           <div
                             className={cn(
                               dropdownPanelClass,
-                              item.id === 'history' ? 'w-[22rem]' : item.id === 'draft' ? 'w-[16.5rem]' : 'w-[14.5rem]',
+                              item.id === 'draft' ? 'w-[16.5rem]' : 'w-[14.5rem]',
                             )}
                             role="menu"
                           >
