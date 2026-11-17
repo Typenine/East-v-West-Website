@@ -61,8 +61,10 @@ export async function GET(request: Request) {
       baselineCount: report.baselineCount,
       teams: report.teams.map((t) => ({
         rosterId: t.rosterId,
-        expectedWins: t.historicalExpected,
-        luck: t.historicalLuck,
+        expectedWins: t.combinedExpected,
+        luck: t.combinedLuck,
+        allPlayExpected: t.allPlayExpected,
+        historicalExpected: t.historicalExpected,
       })),
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
