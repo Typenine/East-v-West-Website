@@ -277,6 +277,7 @@ export async function POST(req: NextRequest) {
       console.warn('[Publish] Editorial tracking extraction failed (non-fatal):', error);
     });
 
+    const memoryWarning = Boolean(memorySync.error);
     const announcementPending = sendDiscord && (discordStatus === 'pending_retry' || discordStatus === 'not_configured');
     const message = !sendDiscord
       ? 'Newsletter published successfully. Discord was intentionally skipped.'
@@ -291,6 +292,8 @@ export async function POST(req: NextRequest) {
       published: true,
       alreadyPublished,
       memorySync,
+      memoryWarning,
+      memoryRetryLocation: memoryWarning ? '/admin/newsletter/personality' : null,
       newsletterId: target.id,
       publicUrl,
       episodeType,
@@ -300,8 +303,8 @@ export async function POST(req: NextRequest) {
       discordSkippedReason,
       announcementPending,
       retryAvailable: announcementPending,
-      message,
-    }, { status: announcementPending ? 202 : 200 });
+      message: memoryWarning ? message + ' WARNING: Character memory failed to sync. Open Newsletter Admin > Personality > Memory Health to retry the saved issue. Do not assume both hosts learned it.' : message,
+    }, { status: announcementPending || memoryWarning ? 202 : 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[Publish] Failed to publish newsletter:', message);

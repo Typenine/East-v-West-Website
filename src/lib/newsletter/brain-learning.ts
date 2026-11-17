@@ -20,6 +20,7 @@ export type LearningAnnotation = {
   pinned?: boolean;
   correction?: string;
   note?: string;
+  stanceOverride?: 'positive'|'negative'|'mixed'|'neutral';
 };
 export type ApprovedDevelopment = {
   id: string;
@@ -43,7 +44,7 @@ export type LearningAdmin = {
 export type LearnedBelief = {
   subjectType: PublishedTakeLedgerEntry['subjectType'];
   subject: string;
-  current: { receiptId: string; sourceNewsletterId: string; week: number; sourceLabel: string; publishedAt: string; statement: string; stance: string; claimType: string; confidence: number };
+  current: { receiptId: string; sourceNewsletterId: string; week: number; sourceLabel: string; publishedAt: string; statement: string; stance: string; focus: string | null; claimType: string; confidence: number };
   recentHistory: Array<{ receiptId: string; week: number; sourceLabel: string; statement: string; stance: string }>;
   earlierOpposingPosition?: { receiptId: string; week: number; sourceLabel: string; statement: string; stance: string };
   explicitRevision: boolean;
@@ -54,7 +55,8 @@ export type HostContrast = {
   subject: string;
   mason: { receiptId: string; stance: string; statement: string };
   westy: { receiptId: string; stance: string; statement: string };
-  kind: 'opposing_published_stances';
+  kind: 'opposing_published_stances' | 'different_published_focus';
+  reason: string;
 };
 export type LearningSuggestion = {
   id: string;
@@ -75,6 +77,7 @@ export type CharacterLearningProfile = {
   approvedLessons: Array<{ kind: string; text: string; receiptId: string | null }>;
   approvedVoice: ApprovedVoiceExample[];
   suggestedReview: LearningSuggestion[];
+  voiceCandidates: Array<{receiptId:string;sourceNewsletterId:string;sourceLabel:string;quote:string;reason:string}>;
   limitations: string[];
 };
 
@@ -125,6 +128,37 @@ export function publishedSourceLabel(entry:Pick<PublishedTakeLedgerEntry,'week'|
   return 'Special issue';
 }
 
+/**
+ * A factual topic emphasis is not a sentiment score. Two hosts may have
+ * different arguments without being labeled 'positive' and 'negative'.
+ */
+export function publishedFocus(claim:string):string|null {
+  if(/\b(?:tanking|benching|lineups?|starters?|start(?:ing|ed)?|sit(?:ting)?|intentional(?:ly)?\s+losing)\b/i.test(claim))
+    return 'lineup decisions';
+  if(/\b(?:trades?|roster construction|draft capital|draft picks?|future picks?|assets?|age curve|long.term|rebuild|taxi)\b/i.test(claim))
+    return 'roster building';
+  if(/\b(?:injur(?:ed|y|ies)|\bIR\b|\bPUP\b|bye|availability|healthy|returning from)\b/i.test(claim))
+    return 'player availability';
+  if(/\b(?:rankings?|wins?|loss(?:es)?|points?|scor(?:ing|ed)|playoffs?|standings|streak)\b/i.test(claim))
+    return 'competitive results';
+  return null;
+}
+function findVoiceCandidates(entries:PublishedTakeLedgerEntry[],admin:LearningAdmin) {
+  const approved=new Set((admin.voiceSamples??[]).map(x=>x.receiptId));
+  return [...entries].reverse().filter(e=>{
+    const quote=statement(e,admin);
+    return !approved.has(e.id) && valid(e,admin) &&
+      quote.length>=75 && quote.length<=330 &&
+      /\b(?:i think|i believe|i still|i'm|i am|i don't|my|here's|that's why|i would|i cannot|what i)\b/i.test(quote) &&
+      !/^\s*\d+|\s\/\s/.test(quote) &&
+      (e.subjectType==='league'||quote.toLowerCase().includes(e.subject.toLowerCase()));
+  }).slice(0,8).map(e=>({
+    receiptId:e.id,sourceNewsletterId:e.sourceNewsletterId,sourceLabel:publishedSourceLabel(e),
+    quote:statement(e,admin),
+    reason:'Possible authentic first-person voice example; review before approval.',
+  }));
+}
+
 function key(row: Pick<PublishedTakeLedgerEntry,'subjectType' | 'subject'>): string {
   return row.subjectType + ':' + row.subject.trim().toLocaleLowerCase('en-US');
 }
@@ -140,7 +174,9 @@ function groupBeliefs(entries: PublishedTakeLedgerEntry[], admin: LearningAdmin)
     const history=group.sort(chronology);
     const current=history[history.length-1];
     const prior=history.slice(0,-1).reverse().find(x => polarity(x.stance) &&
-      polarity(current.stance) && polarity(x.stance) !== polarity(current.stance));
+      polarity(admin.annotations?.[current.id]?.stanceOverride??current.stance) &&
+      polarity(admin.annotations?.[x.id]?.stanceOverride??x.stance) !==
+        polarity(admin.annotations?.[current.id]?.stanceOverride??current.stance));
     // Status changes are heuristic; only an explicit published admission counts
     // as an explicit reversal or correction.
     const explicitRevision = /\b(?:changed my mind|i was wrong about|i retract|walk that back|taking that back|i was too high|i was too low|no longer believe)\b/i.test(statement(current,admin));
@@ -149,9 +185,10 @@ function groupBeliefs(entries: PublishedTakeLedgerEntry[], admin: LearningAdmin)
       subject:current.subject,
       current:{ receiptId:current.id,sourceNewsletterId:current.sourceNewsletterId,week:current.week,
         sourceLabel:publishedSourceLabel(current),publishedAt:current.publishedAt,
-        statement:statement(current,admin),stance:current.stance,claimType:current.claimType,confidence:current.confidence },
-      recentHistory:history.slice(-4).reverse().map(x=>({receiptId:x.id,week:x.week,sourceLabel:publishedSourceLabel(x),statement:statement(x,admin),stance:x.stance})),
-      ...(prior?{earlierOpposingPosition:{receiptId:prior.id,week:prior.week,sourceLabel:publishedSourceLabel(prior),statement:statement(prior,admin),stance:prior.stance}}:{}),
+        statement:statement(current,admin),stance:admin.annotations?.[current.id]?.stanceOverride??current.stance,
+        focus:publishedFocus(statement(current,admin)),claimType:current.claimType,confidence:current.confidence },
+      recentHistory:history.slice(-4).reverse().map(x=>({receiptId:x.id,week:x.week,sourceLabel:publishedSourceLabel(x),statement:statement(x,admin),stance:admin.annotations?.[x.id]?.stanceOverride??x.stance})),
+      ...(prior?{earlierOpposingPosition:{receiptId:prior.id,week:prior.week,sourceLabel:publishedSourceLabel(prior),statement:statement(prior,admin),stance:admin.annotations?.[prior.id]?.stanceOverride??prior.stance}}:{}),
       explicitRevision,pinned:Boolean(admin.annotations?.[current.id]?.pinned),
     });
   }
@@ -160,23 +197,29 @@ function groupBeliefs(entries: PublishedTakeLedgerEntry[], admin: LearningAdmin)
 }
 
 function contrasts(own: LearnedBelief[], other: LearnedBelief[], bot: BotName): HostContrast[] {
-  const mapping = new Map(other.map(x=>[x.subjectType+':'+x.subject.toLowerCase(),x]));
-  const contrasts:HostContrast[]=[];
-  for(const belief of own){
-    const opposing=mapping.get(belief.subjectType+':'+belief.subject.toLowerCase());
-    if(!opposing)continue;
-    const a=polarity(belief.current.stance),b=polarity(opposing.current.stance);
-    if(!a||!b||a===b)continue;
-    const mason=bot==='entertainer'?belief:opposing;
-    const westy=bot==='analyst'?belief:opposing;
-    contrasts.push({
+  const mapping=new Map(other.map(x=>[x.subjectType+':'+x.subject.toLowerCase(),x]));
+  const result:HostContrast[]=[];
+  for(const belief of own) {
+    const opposite=mapping.get(belief.subjectType+':'+belief.subject.toLowerCase());
+    if(!opposite)continue;
+    const polarityA=polarity(belief.current.stance),polarityB=polarity(opposite.current.stance);
+    const opposing=Boolean(polarityA&&polarityB&&polarityA!==polarityB);
+    const different=Boolean(belief.current.focus&&opposite.current.focus&&belief.current.focus!==opposite.current.focus);
+    if(!opposing&&!different)continue;
+    const mason=bot==='entertainer'?belief:opposite,westy=bot==='analyst'?belief:opposite;
+    result.push({
       subjectType:belief.subjectType,subject:belief.subject,
       mason:{receiptId:mason.current.receiptId,stance:mason.current.stance,statement:mason.current.statement},
       westy:{receiptId:westy.current.receiptId,stance:westy.current.stance,statement:westy.current.statement},
-      kind:'opposing_published_stances',
+      kind:opposing?'opposing_published_stances':'different_published_focus',
+      reason:opposing
+        ? 'Opposing published sentiment labels, not proof of a prior conversation.'
+        : 'Different documented focus: Mason ('+(mason.current.focus??'unknown')+
+          ') and Westy ('+(westy.current.focus??'unknown')+'). This is not an established disagreement.',
     });
   }
-  return contrasts.slice(0,15);
+  return result.sort((x,y)=>Number(y.kind==='opposing_published_stances')-
+    Number(x.kind==='opposing_published_stances')).slice(0,15);
 }
 
 export function buildCharacterLearning(
@@ -227,9 +270,11 @@ export function buildCharacterLearning(
       accuracy:correct+wrong?Math.round(correct/(correct+wrong)*100):null,
       ungradedPredictions:Math.max(0,own.filter(x=>x.claimType==='prediction').length-correct-wrong-voided)},
     approvedLessons,approvedVoice,suggestedReview:suggestions,
+    voiceCandidates:findVoiceCandidates(ownEntries,admin),
     limitations:[
       'Published statements and approved annotations are the only sources of character positions.',
       'Opposing sentiment labels are possible contrasts, not proof of a spoken argument.',
+      'Different published focus is distinct framing, not an inferred contradiction.',
       'A prediction is scored only when an admin verifies its outcome and supplies evidence.',
       'Unverified changes do not alter personality traits or become hard lessons.',
       'Current positions exclude weak excerpts and matchup picks; they remain auditable in the complete ledger.',
@@ -248,6 +293,7 @@ export function compactCharacterLearning(profile:CharacterLearningProfile, maxBe
     approvedLessons:profile.approvedLessons.slice(-12),
     approvedVoice:profile.approvedVoice.slice(-8),
     suggestedReviewCount:profile.suggestedReview.length,
+    voiceCandidates:profile.voiceCandidates.slice(0,4),
     limitations:profile.limitations,
   };
 }

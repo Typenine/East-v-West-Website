@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/Textarea';
 type Bot = 'entertainer' | 'analyst';
 type View = 'overview' | 'memories' | 'relationships' | 'learning' | 'growth' | 'voice' | 'history';
 type ReviewStatus = 'unreviewed' | 'verified' | 'needs_review' | 'dismissed';
-type Annotation = { reviewStatus: ReviewStatus; pinned: boolean; note: string; correction: string; updatedAt: string };
+type Annotation = { reviewStatus: ReviewStatus; pinned: boolean; note: string; correction: string; stanceOverride?:'positive'|'negative'|'mixed'|'neutral'; updatedAt: string };
 type Receipt = {
   id: string; claim: string; subject: string; subjectType: string; claimType: string;
   season: number; week: number; sourceNewsletterId: string; title: string | null;
@@ -50,16 +50,17 @@ type BrainData = {
     schemaVersion:number; bot:Bot; receiptsConsidered:number; receiptsExcluded:number;
     currentBeliefs:Array<{
       subjectType:string;subject:string;pinned:boolean;explicitRevision:boolean;
-      current:{receiptId:string;sourceNewsletterId:string;week:number;sourceLabel:string;publishedAt:string;statement:string;stance:string;claimType:string;confidence:number};
+      current:{receiptId:string;sourceNewsletterId:string;week:number;sourceLabel:string;publishedAt:string;statement:string;stance:string;focus:string|null;claimType:string;confidence:number};
       recentHistory:Array<{receiptId:string;week:number;sourceLabel:string;statement:string;stance:string}>;
       earlierOpposingPosition?:{receiptId:string;week:number;sourceLabel:string;statement:string;stance:string};
     }>;
-    cohostContrasts:Array<{subject:string;kind:string;mason:{receiptId:string;stance:string;statement:string};westy:{receiptId:string;stance:string;statement:string}}>;
+    cohostContrasts:Array<{subject:string;kind:string;reason:string;mason:{receiptId:string;stance:string;statement:string};westy:{receiptId:string;stance:string;statement:string}}>;
     performance:{correct:number;wrong:number;void:number;accuracy:number|null;ungradedPredictions:number};
     verifiedOutcomes:Array<{receiptId:string;verdict:string;evidence:string;source:string;claim:string;subject:string}>;
     suggestedReview:Array<{id:string;kind:string;receiptId:string;reason:string}>;
     approvedLessons:Array<{kind:string;text:string;receiptId:string|null}>;
     approvedVoice:Array<{receiptId:string;quote:string;note:string}>;
+    voiceCandidates:Array<{receiptId:string;sourceNewsletterId:string;sourceLabel:string;quote:string;reason:string}>;
     limitations:string[];
   };
   total?: number; page?: number; pageSize?: number; entries?: Receipt[];
@@ -130,6 +131,7 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
   const [pinned, setPinned] = useState(false);
   const [note, setNote] = useState('');
   const [correction, setCorrection] = useState('');
+  const [stanceOverride,setStanceOverride] = useState('');
   const [voiceReason, setVoiceReason] = useState('');
   const [verdict, setVerdict] = useState<'correct' | 'wrong' | 'void'>('correct');
   const [outcomeEvidence, setOutcomeEvidence] = useState('');
@@ -170,6 +172,7 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
     setPinned(receipt.annotation?.pinned ?? false);
     setNote(receipt.annotation?.note ?? '');
     setCorrection(receipt.annotation?.correction ?? '');
+    setStanceOverride(receipt.annotation?.stanceOverride ?? '');
     setVoiceReason('');
     setVerdict(receipt.verifiedOutcome?.verdict ?? 'correct');
     setOutcomeEvidence(receipt.verifiedOutcome?.evidence ?? '');
@@ -354,11 +357,22 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
                   <div><Label className="text-xs">Correction / clarification</Label>
                     <Textarea value={correction} onChange={e=>setCorrection(e.target.value)} rows={2}
                       placeholder="What should the character remember instead, if necessary?" /></div>
+                  <div><Label className="text-xs">Reviewed opinion (optional)</Label>
+                    <select value={stanceOverride} onChange={e=>setStanceOverride(e.target.value)}
+                      className="block w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm">
+                      <option value="">Keep original extraction</option>
+                      <option value="positive">Positive</option>
+                      <option value="negative">Negative</option>
+                      <option value="mixed">Mixed</option>
+                      <option value="neutral">Neutral / factual</option>
+                    </select>
+                    <p className={muted+' text-xs mt-1'}>Only choose a stance supported by the original passage. This changes the active character profile, not the published transcript.</p>
+                  </div>
                   <div><Label className="text-xs">Editorial note</Label>
                     <Textarea value={note} onChange={e=>setNote(e.target.value)} rows={2}
                       placeholder="Why this matters, or why it should be disregarded" /></div>
                   <Button disabled={saving} onClick={()=>mutate('annotate',{
-                    receiptId:selected.id,reviewStatus,pinned,note,correction,
+                    receiptId:selected.id,reviewStatus,pinned,note,correction,stanceOverride,
                   })}>{saving?'Saving…':'Save Memory Review'}</Button>
                   <hr className="border-[var(--border)]" />
                   <h5 className="text-sm font-semibold">Natural voice example</h5>
@@ -466,13 +480,24 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
               <div className="space-y-3">
                 <div className={panel+' space-y-3'}>
                   <h4 className="font-semibold">Potential Mason / Westy differences</h4>
-                  <p className={muted+' text-xs'}>These are opposing sentiment labels in their separate published histories, not invented conversations.</p>
+                  <p className={muted+' text-xs'}>These show either opposing published stances or different documented subject emphasis. Neither establishes a previous argument.</p>
                   {data.learning?.cohostContrasts.length?data.learning.cohostContrasts.slice(0,8).map(item=>
                     <div key={item.subject} className="border-b border-[var(--border)] pb-3 space-y-1">
                       <div className="text-sm font-medium">{item.subject}</div>
+                      <p className={muted+' text-xs'}>{item.kind==='different_published_focus'?'Different emphasis':'Opposing stances'}: {item.reason}</p>
                       <p className="text-xs">Mason ({item.mason.stance}): {item.mason.statement}</p>
                       <p className="text-xs">Westy ({item.westy.stance}): {item.westy.statement}</p>
                     </div>):<p className={muted+' text-sm'}>No well-attributed opposing positions yet.</p>}
+                </div>
+                <div className={panel+' space-y-3'}>
+                  <h4 className="font-semibold">Candidate voice examples</h4>
+                  <p className={muted+' text-xs'}>These are real passages from this host, not automatically approved. Review and select the ones that actually sound natural.</p>
+                  {data.learning?.voiceCandidates.length?data.learning.voiceCandidates.map(item=>
+                    <div key={item.receiptId} className="border-b border-[var(--border)] pb-3 space-y-2">
+                      <span className={muted+' text-xs'}>{item.sourceLabel}</span>
+                      <p className="text-sm">{item.quote}</p>
+                      <button type="button" className="underline text-xs" onClick={()=>goToEvidence(item.receiptId)}>Review for Voice Library</button>
+                    </div>):<p className={muted+' text-sm'}>No suitable new first-person passages detected. You can still approve examples manually from Memories.</p>}
                 </div>
                 <div className={panel+' space-y-3'}>
                   <h4 className="font-semibold">Suggested review from past experiences</h4>

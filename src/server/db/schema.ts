@@ -200,6 +200,21 @@ export const botMemory = pgTable('bot_memory', {
   botSeasonIdx: index('bot_memory_bot_season_idx').on(t.bot, t.season),
 }));
 
+// Append-only published claims, outside the rolling active-memory JSON cache.
+export const botTakeArchive = pgTable('bot_take_archive', {
+  bot: botNameEnum('bot').notNull(),
+  season: integer('season').notNull(),
+  receiptId: text('receipt_id').notNull(),
+  sourceNewsletterId: text('source_newsletter_id').notNull(),
+  publishedAt: timestamp('published_at',{withTimezone:true}).notNull(),
+  payload: jsonb('payload').$type<Record<string,unknown>>().notNull(),
+  archivedAt: timestamp('archived_at',{withTimezone:true}).defaultNow().notNull(),
+}, t => ({
+  pk: primaryKey({ columns:[t.bot,t.season,t.receiptId] }),
+  issueIdx:index('bot_take_archive_issue_idx').on(t.season,t.sourceNewsletterId),
+  dateIdx:index('bot_take_archive_date_idx').on(t.bot,t.season,t.publishedAt,t.receiptId),
+}));
+
 // Forecast records - tracks prediction accuracy over the season
 export const forecastRecords = pgTable('forecast_records', {
   id: uuid('id').primaryKey().defaultRandom(),

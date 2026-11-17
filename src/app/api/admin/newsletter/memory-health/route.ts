@@ -4,6 +4,7 @@
  */
 import { NextRequest } from 'next/server';
 import { isAdminCookieValue } from '@/lib/auth/admin';
+import { checkpointPublishedMemory } from '@/lib/newsletter/published-memory-checkpoint';
 import { listNewslettersMeta, loadBotMemory, loadNewsletterById, saveBotMemory } from '@/server/db/newsletter-queries';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { synthesizePublishedIntelligence } from '@/lib/newsletter/editorial-memory';
@@ -79,6 +80,29 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!authorized(req)) return Response.json({ error: 'Forbidden' }, { status: 403 });
   const body = await req.json().catch(() => ({}));
+  if (body?.action === 'retry_issue') {
+    const season=readSeason(body.season);
+    const issueId=typeof body.issueId==='string'?body.issueId:'';
+    if(!season || !/^[0-9a-f-]{36}$/i.test(issueId))
+      return Response.json({error:'Invalid season or issue'},{status:400});
+    try {
+      const issue=await loadNewsletterById(issueId);
+      if(!issue||issue.season!==season||issue.status!=='published')
+        return Response.json({error:'Only saved published issues can be retried'},{status:404});
+      // No publishing call or Discord notification; exact-ID memory recovery only.
+      const memorySync=await checkpointPublishedMemory(issueId);
+      const health=await getHealth(season);
+      return Response.json({success:!memorySync.error,issueId,memorySync,health,
+        newsletterPublished:false,discordSent:false,
+        message:memorySync.error
+          ?'Memory recovery incomplete: '+memorySync.error
+          :'Both character memories synced from the saved issue. No republishing occurred.'
+      },{status:memorySync.error?422:200});
+    }catch(error) {
+      console.error('[memory-health:retry_issue]',error);
+      return Response.json({error:'Memory repair request failed'},{status:500});
+    }
+  }
   if (body?.action === 'dry-run') {
     const season = readSeason(body.season);
     const issueId = typeof body.issueId === 'string' ? body.issueId : '';

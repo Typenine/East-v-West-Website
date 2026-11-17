@@ -129,6 +129,50 @@ describe('source-grounded character learning',()=>{
     expect(publishedSourceLabel(recent)).toBe('Week 9');
     expect(learningWritingInstructions(x)).not.toContain('week 1787317300');
   });
+  it('finds different evidence-backed host framing when both stances are neutral',()=>{
+    const m=[
+      quote('m-focus','entertainer','Red Pandas',
+        'Red Pandas have to get the starting lineup right after another questionable benching decision this week.',
+        'neutral',9),
+    ];
+    const w=[
+      quote('w-focus','analyst','Red Pandas',
+        'Red Pandas need to protect future draft assets rather than chase immediate wins with a short-term trade.',
+        'neutral',9),
+    ];
+    const learning=buildCharacterLearning('entertainer',m,w);
+    expect(learning.cohostContrasts).toHaveLength(1);
+    expect(learning.cohostContrasts[0].kind).toBe('different_published_focus');
+    expect(learning.cohostContrasts[0].reason).toContain('not an established disagreement');
+    expect(learning.performance.accuracy).toBeNull();
+  });
+  it('offers authentic attributed voice candidates without approving them automatically',()=>{
+    const m=[
+      quote('voice-id','entertainer','Belleview Badgers',
+        "I think Belleview Badgers might have a plan here, but I'm not buying the quick turnaround until I see two good weeks in a row.",
+        'neutral',9),
+    ];
+    const learning=buildCharacterLearning('entertainer',m,[]);
+    expect(learning.voiceCandidates.map(x=>x.receiptId)).toContain('voice-id');
+    expect(learning.approvedVoice).toHaveLength(0);
+    expect(learningWritingInstructions(learning)).not.toContain('APPROVED VOICE EXAMPLE');
+    const reviewed=buildCharacterLearning('entertainer',m,[],{
+      voiceSamples:[{receiptId:'voice-id',quote:m[0].claim,note:'Natural uncertainty',
+        sourceNewsletterId:m[0].sourceNewsletterId}],
+    });
+    expect(reviewed.approvedVoice).toHaveLength(1);
+    expect(reviewed.voiceCandidates).toHaveLength(0);
+  });
+  it('honors a manually approved opinion label while preserving the published classification',()=>{
+    const source=quote('position-id','analyst','Red Pandas',
+      'Red Pandas keep trading future assets for shallow short-term relief, and I cannot support this approach.',
+      'neutral',9);
+    const profile=buildCharacterLearning('analyst',[source],[],{
+      annotations:{'position-id':{reviewStatus:'verified',stanceOverride:'negative'}},
+    });
+    expect(profile.currentBeliefs[0].current.stance).toBe('negative');
+    expect(source.stance).toBe('neutral');
+  });
   it('produces a bounded compact profile without copying the entire history into prompts',()=>{
     const own=Array.from({length:40},(_,i)=>quote('id'+i,'entertainer','Team '+i,'Team '+i+' has a meaningful published opinion backed by roster decisions and scoring trends '+i+'.',
       'positive',9));

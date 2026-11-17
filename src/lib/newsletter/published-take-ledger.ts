@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import type { BotMemory, BotName } from '@/lib/newsletter/types';
@@ -320,6 +321,7 @@ function addLedgerEntries(
   bot: BotName,
   source: { newsletterId: string; title: string | null; episodeType: string | null; season: number; week: number; publishedAt: string },
 ): PublishedTakeLedgerEntry[] {
+  const previousIssue=existing.filter(entry=>entry.sourceNewsletterId===source.newsletterId);
   const ledger = existing.filter(entry => entry.sourceNewsletterId !== source.newsletterId);
   const candidates = candidateClaims(digest, bot);
 
@@ -340,7 +342,12 @@ function addLedgerEntries(
     const status = statusForClaim(claim, previous);
 
     ledger.push({
-      id: `${source.newsletterId}:${bot}:${ledger.length + 1}`,
+      id: previousIssue.find(entry=>entry.subjectType===claim.subjectType &&
+        entry.subject.toLowerCase()===claim.subject.toLowerCase() &&
+        (entry.claim.toLowerCase()===cleanedClaim.toLowerCase() ||
+         entry.originalClaim?.toLowerCase()===cleanedClaim.toLowerCase()))?.id ??
+        `${source.newsletterId}:${bot}:`+createHash('sha256')
+          .update(`${claim.subjectType}|${claim.subject}|${cleanedClaim}`).digest('hex').slice(0,20),
       sourceNewsletterId: source.newsletterId,
       title: source.title,
       episodeType: source.episodeType,
@@ -362,7 +369,9 @@ function addLedgerEntries(
 
   // Normalize PDF markers and classifications before the ledger is committed.
   // Retain original text/type on any repaired statement for auditability.
-  return ledger.slice(-480).map(entry => reconcilePublishedClaim(entry));
+  // The append-only database stores every retained receipt. The compatibility
+  // JSON cache is separately bounded to protect existing consumers.
+  return ledger.map(entry => reconcilePublishedClaim(entry));
 }
 
 function applySharedAssessments(mem: BotMemory, digest: EditorialMemoryDigest, week: number): void {

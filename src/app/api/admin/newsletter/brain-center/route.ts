@@ -13,7 +13,7 @@ import { buildCharacterLearning, type VerifiedOutcome } from '@/lib/newsletter/b
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 type Review = 'unreviewed' | 'verified' | 'needs_review' | 'dismissed';
-type Annotation = { reviewStatus: Review; pinned: boolean; note: string; correction: string; updatedAt: string };
+type Annotation = { reviewStatus: Review; pinned: boolean; note: string; correction: string; stanceOverride?:'positive'|'negative'|'mixed'|'neutral'; updatedAt: string };
 type Sample = { id: string; receiptId: string; quote: string; note: string; sourceNewsletterId: string; addedAt: string };
 type Development = { id: string; kind: 'lesson' | 'bias' | 'improvement'; text: string; receiptId: string | null; status: 'proposed' | 'approved' | 'rejected'; createdAt: string; updatedAt: string };
 type BrainAdmin = { revision: number; annotations: Record<string, Annotation>; voiceSamples: Sample[]; developmentNotes: Development[]; outcomes: Record<string, VerifiedOutcome>; history: Array<{ at: string; action: string; receiptId?: string }> };
@@ -170,8 +170,11 @@ export async function POST(req:NextRequest) {
       if(!receipt)return Response.json({error:'Take not found'},{status:404});
       if(!['unreviewed','verified','needs_review','dismissed'].includes(String(body.reviewStatus)))
         return Response.json({error:'Invalid review status'},{status:400});
+      if(body.stanceOverride && !['positive','negative','mixed','neutral'].includes(String(body.stanceOverride)))
+        return Response.json({error:'Invalid character opinion label'},{status:400});
       next.annotations[receiptId]={reviewStatus:body.reviewStatus as Review,pinned:body.pinned===true,
-        note:cut(body.note,1000),correction:cut(body.correction,600),updatedAt:now};
+        note:cut(body.note,1000),correction:cut(body.correction,600),
+        ...(body.stanceOverride?{stanceOverride:body.stanceOverride as Annotation['stanceOverride']}:{}),updatedAt:now};
     }else if(action==='add_voice'){
       if(!receipt)return Response.json({error:'Take not found'},{status:404});
       if(next.voiceSamples.length>=60&&!next.voiceSamples.some(s=>s.receiptId===receiptId))

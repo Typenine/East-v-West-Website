@@ -209,6 +209,21 @@ function MemoryHealthPanel() {
       setWorking(false);
     }
   };
+  const retryIssue = async (issueId:string) => {
+    setWorking(true);
+    setMessage('');
+    try {
+      const result=await adminFetch('/api/admin/newsletter/memory-health',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'retry_issue',issueId,season:Number(season)}),
+      }) as {health:MemoryHealthData;message:string};
+      setHealth(result.health);
+      setMessage(result.message);
+    }catch(err) {
+      setMessage('Memory recovery incomplete: '+String(err));
+    }finally {setWorking(false);}
+  };
+
   const rebuild = async () => {
     if (!confirm(`Rebuild Mason and Westy's deep relationships from the saved ${season} published-take ledger? This will preserve personality traits and prediction results.`)) return;
     setWorking(true);
@@ -263,7 +278,14 @@ function MemoryHealthPanel() {
               </div>
               {health.missingContinuity.length > 0 && (
                 <div className="text-amber-300 text-sm">
-                  {health.missingContinuity.length} published issue(s) lack attributed continuity. Investigate before assuming the archive is complete.
+                  <p>{health.missingContinuity.length} published issue(s) have incomplete host memory. Retry the saved issue without publishing or notifying Discord.</p>
+                  <div className="mt-3 space-y-2">
+                    {health.missingContinuity.map(issue=><div key={issue.id} className="flex flex-wrap items-center justify-between gap-2 border border-amber-800/40 rounded-md p-2">
+                      <span>{issue.title || 'Untitled issue'}</span>
+                      <Button variant="secondary" disabled={loading||working}
+                        onClick={()=>void retryIssue(issue.id)}>{working?'Processing…':'Retry Memory Only'}</Button>
+                    </div>)}
+                  </div>
                 </div>
               )}
             </>

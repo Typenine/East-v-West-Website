@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { BotName } from '@/lib/newsletter/types';
 import { getDb } from '@/server/db/client';
-import { botMemory } from '@/server/db/schema';
+import { botMemory, botTakeArchive } from '@/server/db/schema';
 import type {
   EditorialClaimType,
   EditorialStance,
@@ -10,7 +10,7 @@ import type {
 // Increment when deterministic extraction changes require a one-time historical rebuild. Version 7 also rejects cached PDFs that predate structured season-pick receipts.
 export const PUBLISHED_CONTINUITY_VERSION = 7;
 const MAX_LEDGER_ENTRIES = 480;
-const MAX_PROCESSED_ISSUES = 240;
+// Processed issue IDs must not age out of the history manifest.
 
 export type PublishedTakeStatus = 'active' | 'strengthened' | 'weakened' | 'reversed' | 'resolved' | 'wrong';
 
@@ -65,7 +65,7 @@ function normalizeState(enhancedData: EnhancedData): PublishedTakeLedgerState {
 
   return {
     entries: entries.slice(-MAX_LEDGER_ENTRIES),
-    processedNewsletterIds: [...new Set(processed)].slice(-MAX_PROCESSED_ISSUES),
+    processedNewsletterIds: [...new Set(processed)],
     updatedAt: typeof rawState?.updatedAt === 'string' ? rawState.updatedAt : null,
     extractionVersion,
   };
@@ -76,17 +76,24 @@ export async function loadPublishedTakeLedgerState(
   season: number,
 ): Promise<PublishedTakeLedgerState> {
   const db = getDb();
-  const rows = await db
-    .select({ enhancedData: botMemory.enhancedData })
-    .from(botMemory)
-    .where(and(eq(botMemory.bot, bot), eq(botMemory.season, season)))
-    .limit(1);
-
-  if (!rows.length) {
-    return { entries: [], processedNewsletterIds: [], updatedAt: null, extractionVersion: PUBLISHED_CONTINUITY_VERSION };
+  const [rows, archive] = await Promise.all([
+    db.select({enhancedData:botMemory.enhancedData}).from(botMemory)
+      .where(and(eq(botMemory.bot,bot),eq(botMemory.season,season))).limit(1),
+    db.select({payload:botTakeArchive.payload}).from(botTakeArchive)
+      .where(and(eq(botTakeArchive.bot,bot),eq(botTakeArchive.season,season))),
+  ]);
+  const state=normalizeState((rows[0]?.enhancedData as EnhancedData|null)??{});
+  // Original archived receipts are retained indefinitely. Any currently cached
+  // reviewed classification/correction wins over its original archived copy.
+  const all=new Map<string,PublishedTakeLedgerEntry>();
+  for(const row of archive) {
+    const claim=row.payload as unknown as PublishedTakeLedgerEntry;
+    if(claim?.id)all.set(claim.id,claim);
   }
-
-  return normalizeState((rows[0].enhancedData as EnhancedData | null) ?? {});
+  for(const claim of state.entries)if(claim.id)all.set(claim.id,claim);
+  state.entries=[...all.values()].sort((a,b)=>
+    a.publishedAt.localeCompare(b.publishedAt)||a.id.localeCompare(b.id));
+  return state;
 }
 
 export async function savePublishedTakeLedgerState(
@@ -108,22 +115,34 @@ export async function savePublishedTakeLedgerState(
   const updatedAt = new Date().toISOString();
   const normalized: PublishedTakeLedgerState = {
     entries: state.entries.slice(-MAX_LEDGER_ENTRIES),
-    processedNewsletterIds: [...new Set(state.processedNewsletterIds)].slice(-MAX_PROCESSED_ISSUES),
+    processedNewsletterIds: [...new Set(state.processedNewsletterIds)],
     updatedAt,
     extractionVersion: state.extractionVersion,
   };
 
-  await db
-    .update(botMemory)
-    .set({
-      // A second writer may be updating personality/relationships at the same
-      // time. Merge the ledger keys in PostgreSQL rather than writing a stale
-      // copy of the entire enhanced_data object.
-      enhancedData: sql`COALESCE(${botMemory.enhancedData}, '{}'::jsonb) || ${JSON.stringify({
-        publishedTakeLedgerState: normalized,
-        publishedTakeLedger: normalized.entries,
-      })}::jsonb`,
-      updatedAt: new Date(),
-    })
-    .where(eq(botMemory.id, rows[0].id));
+  const completeEntries=JSON.stringify(state.entries);
+  const cachePatch=JSON.stringify({
+    publishedTakeLedgerState:normalized,
+    publishedTakeLedger:normalized.entries,
+  });
+  // One atomic SQL statement writes original receipts to the immutable archive
+  // and updates the compatibility cache without replacing unrelated bot fields.
+  await db.execute(sql`WITH archived AS (
+    INSERT INTO bot_take_archive (bot,season,receipt_id,source_newsletter_id,published_at,payload)
+    SELECT ${bot}::bot_name,${season},take->>'id',take->>'sourceNewsletterId',
+           COALESCE(NULLIF(take->>'publishedAt','')::timestamptz,NOW()),take
+    FROM jsonb_array_elements(${completeEntries}::jsonb) take
+    WHERE NULLIF(take->>'id','') IS NOT NULL
+      AND NULLIF(take->>'sourceNewsletterId','') IS NOT NULL
+    ON CONFLICT (bot,season,receipt_id) DO NOTHING
+    RETURNING receipt_id
+  ), updated_cache AS (
+    UPDATE bot_memory SET
+      enhanced_data=COALESCE(enhanced_data,'{}'::jsonb)||${cachePatch}::jsonb,
+      updated_at=NOW()
+    WHERE id=${rows[0].id}
+    RETURNING id
+  )
+  SELECT (SELECT COUNT(*) FROM archived) AS newly_archived,
+         (SELECT COUNT(*) FROM updated_cache) AS updated_rows`);
 }

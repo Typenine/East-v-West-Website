@@ -783,9 +783,9 @@ export default function EditorialWorkspace({
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ id: resolvedId, season: newsletter.season, week: newsletter.week, sendDiscord, html }),
         });
-        const data = await response.json() as { success?: boolean; message?: string; error?: string };
+        const data = await response.json() as { success?: boolean; message?: string; error?: string; memoryWarning?:boolean };
         if (!response.ok || data.success === false) throw new Error(data.error ?? data.message ?? 'Publish failed');
-        setPublishResult({ ok: true, message: data.message ?? 'Newsletter published.' });
+        setPublishResult({ ok: !data.memoryWarning, message: data.message ?? 'Newsletter published.' });
         await loadWorkspace(resolvedId);
       }
     } catch (error) {
