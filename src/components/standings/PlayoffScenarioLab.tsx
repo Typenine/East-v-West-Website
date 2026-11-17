@@ -26,6 +26,158 @@ type Props = {
 
 const CLINCHING_SCENARIO_START_WEEK = 11;
 
+type OutcomeCondition = {
+  week: number;
+  winnerId: number;
+  loserId: number;
+  description: string;
+};
+
+type DisplayMathScenario = {
+  rosterId: number;
+  status: 'clinched' | 'eliminated' | 'alive';
+  clinchPaths: OutcomeCondition[][];
+  eliminationPaths: OutcomeCondition[][];
+};
+
+function readableCondition(description: string) {
+  return description
+    .replace(/^Mt\. Lebanon Cake Eaters (?=wins|loses)/, 'Cake Eaters ')
+    .replace(/ wins$/, ' win')
+    .replace(/ loses$/, ' lose');
+}
+
+function findFutureOutcomePaths(
+  teams: PlayoffLabTeam[],
+  allGames: PlayoffLabGame[],
+  playoffTeams: number,
+  startWeek: number,
+  throughWeek: number,
+  targetId: number,
+  outcome: 'clinch' | 'elimination',
+): OutcomeCondition[][] {
+  const teamIndex = new Map(teams.map((team, index) => [team.rosterId, index] as const));
+  const targetIndex = teamIndex.get(targetId);
+  if (targetIndex === undefined) return [];
+
+  const baseWins = teams.map((team) => team.wins);
+  const ceilingWins = teams.map((team) =>
+    team.wins + allGames.filter((game) =>
+      game.aRosterId === team.rosterId || game.bRosterId === team.rosterId
+    ).length
+  );
+  const eligible = allGames
+    .filter((game) => game.week >= startWeek && game.week <= throughWeek)
+    .sort((a, b) => a.week - b.week || a.id.localeCompare(b.id));
+  const options: [OutcomeCondition, OutcomeCondition][] = eligible.map((game) => {
+    const format = (winnerId: number, loserId: number, winner: string, loser: string) => ({
+      week: game.week,
+      winnerId,
+      loserId,
+      description: winnerId === targetId
+        ? winner + ' wins'
+        : loserId === targetId
+          ? loser + ' loses'
+          : winner + ' beats ' + loser,
+    });
+    return [
+      format(game.aRosterId, game.bRosterId, game.aTeam, game.bTeam),
+      format(game.bRosterId, game.aRosterId, game.bTeam, game.aTeam),
+    ];
+  });
+
+  // A path is displayed only if its results guarantee qualification even
+  // under the worst remaining results and unknown points-for tiebreakers.
+  // Counting incompatible rivals as if they could all win is deliberately
+  // conservative: it can omit a valid path but cannot invent a clinch.
+  const guarantees = (conditions: OutcomeCondition[]) => {
+    const floor = baseWins.slice();
+    const ceiling = ceilingWins.slice();
+    for (const condition of conditions) {
+      const winnerIndex = teamIndex.get(condition.winnerId);
+      const loserIndex = teamIndex.get(condition.loserId);
+      if (winnerIndex === undefined || loserIndex === undefined) return false;
+      floor[winnerIndex] += 1;
+      ceiling[loserIndex] -= 1;
+    }
+
+    let rivals = 0;
+    for (let index = 0; index < teams.length; index += 1) {
+      if (index === targetIndex) continue;
+      if (outcome === 'clinch'
+        ? ceiling[index] >= floor[targetIndex]
+        : floor[index] > ceiling[targetIndex]) {
+        rivals += 1;
+      }
+    }
+    return rivals < playoffTeams ? outcome === 'clinch' : outcome === 'elimination';
+  };
+
+  const allPaths: OutcomeCondition[][] = [];
+  const maxConditions = Math.min(4, options.length);
+  for (let conditionCount = 1; conditionCount <= maxConditions; conditionCount += 1) {
+    const selected: number[] = [];
+    const search = (next: number) => {
+      if (selected.length === conditionCount) {
+        if (!selected.some((index) => eligible[index].week === throughWeek)) return;
+        for (let mask = 0; mask < (1 << conditionCount); mask += 1) {
+          const conditions = selected.map((index, offset) =>
+            options[index][(mask >> offset) & 1]
+          );
+          if (!guarantees(conditions)) continue;
+          if (conditions.some((_, removeIndex) =>
+            guarantees(conditions.filter((__, index) => index !== removeIndex))
+          )) continue;
+          allPaths.push(conditions);
+        }
+        return;
+      }
+
+      for (let index = next; index <= options.length - (conditionCount - selected.length); index += 1) {
+        selected.push(index);
+        search(index + 1);
+        selected.pop();
+      }
+    };
+    search(0);
+    if (allPaths.length > 0) break;
+  }
+
+  // Prefer conditions a team controls over paths made entirely of other results.
+  return allPaths
+    .sort((a, b) => {
+      const ownWins = (path: OutcomeCondition[]) =>
+        path.filter((condition) => condition.winnerId === targetId).length;
+      const ownLosses = (path: OutcomeCondition[]) =>
+        path.filter((condition) => condition.loserId === targetId).length;
+      return ownWins(b) - ownWins(a) || ownLosses(a) - ownLosses(b)
+        || a.map((condition) => condition.description).join('|')
+          .localeCompare(b.map((condition) => condition.description).join('|'));
+    })
+    .slice(0, 3);
+}
+
+function buildFutureMathScenarios(
+  teams: PlayoffLabTeam[],
+  games: PlayoffLabGame[],
+  playoffTeams: number,
+  startWeek: number,
+  throughWeek: number,
+  current: ReturnType<typeof buildMathScenarios>,
+): DisplayMathScenario[] {
+  return current.map((team) => ({
+    rosterId: team.rosterId,
+    status: team.status,
+    clinchPaths: team.status === 'alive'
+      ? findFutureOutcomePaths(teams, games, playoffTeams, startWeek, throughWeek, team.rosterId, 'clinch')
+      : [],
+    eliminationPaths: team.status === 'alive'
+      ? findFutureOutcomePaths(teams, games, playoffTeams, startWeek, throughWeek, team.rosterId, 'elimination')
+      : [],
+  }));
+}
+
+
 function recordLabel(team: PlayoffLabTeam) {
   return team.wins + '-' + team.losses + (team.ties ? '-' + team.ties : '');
 }
@@ -48,6 +200,7 @@ export default function PlayoffScenarioLab({
   const firstWeek = weeks[0] ?? scenarioStartWeek;
   const [activeWeek, setActiveWeek] = useState(firstWeek);
   const [activeTab, setActiveTab] = useState<'forecast' | 'clinching'>('forecast');
+  const [horizonWeek, setHorizonWeek] = useState(scenarioStartWeek);
 
   const results = useMemo(
     () => simulatePlayoffs(teams, games, picks, playoffTeams),
@@ -65,14 +218,38 @@ export default function PlayoffScenarioLab({
     () => new Map(teams.map((team) => [team.rosterId, team] as const)),
     [teams],
   );
-  const clinchingRows = [...mathScenarios].sort((left, right) => {
-    const a = teamByRoster.get(left.rosterId);
-    const b = teamByRoster.get(right.rosterId);
-    if (!a || !b) return 0;
-    if (b.wins !== a.wins) return b.wins - a.wins;
-    if (b.ties !== a.ties) return b.ties - a.ties;
-    return b.pointsFor - a.pointsFor;
-  });
+  const horizonWeeks = weeks.filter((week) =>
+    week >= scenarioStartWeek && week <= Math.min(regularSeasonEnd, scenarioStartWeek + 2)
+  );
+  const selectedHorizon = horizonWeeks.includes(horizonWeek)
+    ? horizonWeek
+    : scenarioStartWeek;
+  const clinchingRows = useMemo(() => {
+    const rows: DisplayMathScenario[] = selectedHorizon === scenarioStartWeek
+      ? mathScenarios.map((scenario) => ({
+          rosterId: scenario.rosterId,
+          status: scenario.status,
+          clinchPaths: scenario.clinchPaths.map((path) =>
+            path.split(' + ').map((description) => ({
+              week: scenarioStartWeek, winnerId: -1, loserId: -1, description,
+            }))
+          ),
+          eliminationPaths: scenario.eliminationPaths.map((path) =>
+            path.split(' + ').map((description) => ({
+              week: scenarioStartWeek, winnerId: -1, loserId: -1, description,
+            }))
+          ),
+        }))
+      : buildFutureMathScenarios(teams, games, playoffTeams, scenarioStartWeek, selectedHorizon, mathScenarios);
+    return rows.sort((left, right) => {
+      const a = teamByRoster.get(left.rosterId);
+      const b = teamByRoster.get(right.rosterId);
+      if (!a || !b) return 0;
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      if (b.ties !== a.ties) return b.ties - a.ties;
+      return b.pointsFor - a.pointsFor;
+    });
+  }, [selectedHorizon, scenarioStartWeek, mathScenarios, teams, games, playoffTeams, teamByRoster]);
 
   const selectedCount = Object.values(picks).filter(
     (value) => value !== null && value !== undefined,
@@ -357,7 +534,7 @@ export default function PlayoffScenarioLab({
           <CardHeader>
             <CardTitle>Clinching Status</CardTitle>
             <div className="mt-1 text-xs text-[var(--muted)]">
-              Mathematical playoff status only. Beginning in Week {CLINCHING_SCENARIO_START_WEEK}, the Lab also shows exact combinations of upcoming results that would clinch a berth or eliminate a team.
+              Mathematical playoff status and guaranteed result combinations. Select a week to see conditions that could secure a berth or cause elimination by that week. Future-week paths are sufficient, not necessarily exhaustive.
             </div>
           </CardHeader>
           <CardContent>
@@ -365,10 +542,29 @@ export default function PlayoffScenarioLab({
               {scenarioStartWeek > regularSeasonEnd
                 ? 'The regular season is complete, so playoff qualification is final.'
                 : showClinchingScenarios
-                  ? 'Week ' + String(scenarioStartWeek) + ' scenarios are based on every possible combination of this week\'s results. Points-for tiebreak possibilities stay alive until they can no longer affect qualification.'
+                  ? selectedHorizon === scenarioStartWeek
+                    ? 'Week ' + String(scenarioStartWeek) + ' scenarios check every possible combination of this week\'s results. Potential points-for tiebreaks are not treated as clinches.'
+                    : 'By Week ' + String(selectedHorizon) + ': these are short, sufficient paths involving at least one Week ' + String(selectedHorizon) + ' result. Earlier results in each path are hypothetical. Other paths may exist.'
                   : 'Clinching and elimination scenarios will activate in Week ' + String(CLINCHING_SCENARIO_START_WEEK) + '. Until then, this tab tracks only whether a team is mathematically alive, clinched, or eliminated.'}
             </div>
 
+            {showClinchingScenarios && horizonWeeks.length > 1 ? (
+              <div className="mb-4 flex flex-wrap gap-2" aria-label="Clinching scenario horizon">
+                {horizonWeeks.map((week) => (
+                  <button
+                    key={week}
+                    type="button"
+                    onClick={() => setHorizonWeek(week)}
+                    aria-pressed={selectedHorizon === week}
+                    className={selectedHorizon === week
+                      ? 'rounded-full border border-[var(--accent)] bg-[var(--accent)] px-3 py-1.5 text-xs font-black text-white'
+                      : 'rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--muted)] transition hover:text-[var(--text)]'}
+                  >
+                    {week === scenarioStartWeek ? 'Week ' + week : 'By Week ' + week}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="space-y-2">
               {clinchingRows.map((scenario) => {
                 const team = teamByRoster.get(scenario.rosterId);
@@ -413,23 +609,44 @@ export default function PlayoffScenarioLab({
                           </div>
                         ) : null}
 
-                        {showClinchingScenarios && scenario.status === 'alive' && scenario.clinchPaths.length === 0 && scenario.eliminationPaths.length === 0 ? (
+                        {showClinchingScenarios && !scheduleCoverage && scenario.status === 'alive' && scenario.clinchPaths.length === 0 && scenario.eliminationPaths.length === 0 ? (
                           <div className="mt-2 text-xs text-[var(--muted)]">
-                            No Week {scenarioStartWeek} clinching or elimination path yet.
+                            No short guaranteed clinching or elimination path found {selectedHorizon === scenarioStartWeek ? 'this week' : 'by Week ' + selectedHorizon}. Other combinations may still matter.
                           </div>
                         ) : null}
 
-                        {showClinchingScenarios && scenario.clinchPaths.length > 0 ? (
-                          <div className="mt-2 text-xs text-[var(--muted)]">
-                            <span className="font-bold text-emerald-300">Can clinch in Week {scenarioStartWeek}:</span>{' '}
-                            {scenario.clinchPaths.join(' OR ')}
+                        {showClinchingScenarios && !scheduleCoverage && ([
+                          { title: 'Can clinch', paths: scenario.clinchPaths, color: 'text-emerald-300' },
+                          { title: 'Can be eliminated', paths: scenario.eliminationPaths, color: 'text-rose-300' },
+                        ] as const).map((group) => group.paths.length > 0 ? (
+                          <div key={group.title} className="mt-3 text-xs text-[var(--muted)]">
+                            <div className={'font-bold ' + group.color}>
+                              {group.title} {selectedHorizon === scenarioStartWeek ? 'in' : 'by'} Week {selectedHorizon} if:
+                            </div>
+                            <div className="mt-1.5 space-y-2">
+                              {group.paths.map((path, pathIndex) => (
+                                <div key={pathIndex} className="rounded-lg border border-[var(--border)] bg-black/10 px-3 py-2">
+                                  {group.paths.length > 1 ? (
+                                    <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                                      Option {pathIndex + 1}
+                                    </div>
+                                  ) : null}
+                                  <ul className="ml-4 mt-1 list-disc space-y-1">
+                                    {path.map((condition, index) => (
+                                      <li key={index}>
+                                        {selectedHorizon !== scenarioStartWeek ? 'Week ' + condition.week + ': ' : ''}
+                                        {readableCondition(condition.description)}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ) : null}
-
-                        {showClinchingScenarios && scenario.eliminationPaths.length > 0 ? (
-                          <div className="mt-2 text-xs text-[var(--muted)]">
-                            <span className="font-bold text-rose-300">Can be eliminated in Week {scenarioStartWeek}:</span>{' '}
-                            {scenario.eliminationPaths.join(' OR ')}
+                        ) : null)}
+                        {showClinchingScenarios && scheduleCoverage && scenario.status === 'alive' ? (
+                          <div className="mt-2 text-xs text-amber-200">
+                            Exact paths are hidden until all remaining matchups load.
                           </div>
                         ) : null}
                       </div>
