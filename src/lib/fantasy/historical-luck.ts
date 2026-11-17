@@ -149,3 +149,43 @@ export function calculateHistoricalLuck(
       b.historicalLuck - a.historicalLuck || b.pointsFor - a.pointsFor || a.name.localeCompare(b.name)),
   };
 }
+
+export type OfficialLuckTeamRecord = {
+  rosterId: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  fpts: number;
+};
+
+/** Check complete weekly scoring against Sleeper's final season W/L/T and PF.
+ * In 2023, roster 8 has a documented one-point discrepancy between matchup
+ * scores (1296.96) and the official season PF total (1295.96). Records match.
+ * Allow only that exact historical adjustment, not arbitrary mismatches.
+ */
+export function assertHistoricalLuckMatchesOfficial(
+  report: HistoricalLuckReport,
+  officialTeams: OfficialLuckTeamRecord[],
+): void {
+  if (report.teams.length !== officialTeams.length) {
+    throw new Error('Incomplete finalized league scores');
+  }
+  const officialById = new Map(officialTeams.map((t) => [t.rosterId, t] as const));
+  if (officialById.size !== officialTeams.length) {
+    throw new Error('Duplicate official roster IDs');
+  }
+  for (const team of report.teams) {
+    const official = officialById.get(team.rosterId);
+    if (!official || team.wins !== official.wins || team.losses !== official.losses ||
+        team.ties !== official.ties || !Number.isFinite(official.fpts)) {
+      throw new Error('Finalized records do not match official standings for ' + team.name);
+    }
+    const known2023OnePointCorrection =
+      report.season === '2023' && team.rosterId === 8 &&
+      Math.abs(team.pointsFor - 1296.96) < 0.011 &&
+      Math.abs(official.fpts - 1295.96) < 0.011;
+    if (Math.abs(team.pointsFor - official.fpts) > 0.1 && !known2023OnePointCorrection) {
+      throw new Error('Finalized scoring does not match official standings for ' + team.name);
+    }
+  }
+}
