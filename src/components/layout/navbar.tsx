@@ -37,6 +37,9 @@ function isHrefActive(pathname: string, searchParams: URLSearchParams, href?: st
 }
 
 function isNavItemActive(item: UserNavItem, pathname: string, searchParams: URLSearchParams): boolean {
+  // Stats lives under /history/stats, but has its own top-level navigation menu.
+  if (item.id === 'stats') return matchesPath(pathname, '/history/stats');
+  if (item.id === 'history') return matchesPath(pathname, '/history') && !matchesPath(pathname, '/history/stats');
   if (isHrefActive(pathname, searchParams, item.href)) return true;
   if (item.children && item.children.length > 0) {
     const pathLevelMatch = item.children.some((child) => {

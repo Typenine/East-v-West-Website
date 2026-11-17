@@ -27,6 +27,7 @@ type SectionKey = 'league' | 'transactions' | 'more';
 type MoreSheetProps = {
   authLoading: boolean;
   historyItems: UserNavItem[];
+  statsItems: UserNavItem[];
   isAdmin: boolean;
   mediaItems: UserNavItem[];
   onAdminLogout: () => void;
@@ -58,6 +59,7 @@ const LEAGUE_ITEMS: UserNavItem[] = leagueConfigItems.some((item) => item.href =
 
 const TRANSACTION_ITEMS = USER_NAV_CONFIG.find((item) => item.id === 'transactions')?.children ?? [];
 const HISTORY_ITEMS = USER_NAV_CONFIG.find((item) => item.id === 'history')?.children ?? [];
+const STATS_ITEMS = USER_NAV_CONFIG.find((item) => item.id === 'stats')?.children ?? [];
 const MEDIA_ITEMS = USER_NAV_CONFIG.find((item) => item.id === 'media')?.children ?? [];
 const SUGGESTIONS_ITEM = USER_NAV_CONFIG.find((item) => item.id === 'suggestions');
 
@@ -72,6 +74,7 @@ const LEAGUE_PATHS = collectNavPaths(LEAGUE_ITEMS);
 const TRANSACTION_PATHS = collectNavPaths(TRANSACTION_ITEMS);
 const MORE_PATHS = collectNavPaths([
   ...HISTORY_ITEMS,
+  ...STATS_ITEMS,
   ...MEDIA_ITEMS,
   ...(SUGGESTIONS_ITEM ? [SUGGESTIONS_ITEM] : []),
 ]);
@@ -312,6 +315,7 @@ function MoreGroup({
 function MoreSheet({
   authLoading,
   historyItems,
+  statsItems,
   isAdmin,
   mediaItems,
   onAdminLogout,
@@ -325,6 +329,7 @@ function MoreSheet({
     <SheetFrame id="mobile-more-menu" onClose={onClose} title="More">
       <div className="space-y-5 pt-3">
         <MoreGroup label="History" items={historyItems} onClose={onClose} />
+        <MoreGroup label="Stats" items={statsItems} onClose={onClose} />
         <MoreGroup label="Media" items={mediaItems} onClose={onClose} />
 
         {suggestionsItem ? (
@@ -532,6 +537,7 @@ export default function MobileAppNav() {
         <MoreSheet
           authLoading={authLoading}
           historyItems={HISTORY_ITEMS}
+          statsItems={STATS_ITEMS}
           isAdmin={isAdmin}
           mediaItems={MEDIA_ITEMS}
           onAdminLogout={handleAdminLogout}
