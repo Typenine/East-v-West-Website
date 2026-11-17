@@ -4,6 +4,8 @@ import { ANALYST_BRAIN, ENTERTAINER_BRAIN, type BotBrain } from '@/lib/newslette
 import { buildStaticLeagueContext } from '@/lib/newsletter/league-knowledge';
 import { getAllTeamCards } from '@/lib/newsletter/team-narratives';
 import { getPublishedEditorialSnapshot } from '@/lib/newsletter/editorial-tracking-store';
+import { loadLearningProfilesForSeason } from '@/server/db/brain-learning-queries';
+import { compactCharacterLearning, learningWritingInstructions } from '@/lib/newsletter/brain-learning';
 import { getLeagueRulesContext } from '@/lib/newsletter';
 import { getLeagueIdForSeason } from '@/lib/constants/league';
 import { fetchComprehensiveLeagueData, fetchCurrentWeekContext } from '@/lib/newsletter/data-integration';
@@ -149,9 +151,10 @@ async function buildWritingRoom(season: number): Promise<Response> {
     loadAllPhrasePools(),
   ]);
 
+  const learned = await loadLearningProfilesForSeason(season);
   const phrasePools = Object.fromEntries(phraseRows.map(row => [row.poolKey, row.phrases]));
   const exportedAt = new Date().toISOString();
-  const markdown = buildWritingRoomMarkdown({
+  const baseMarkdown = buildWritingRoomMarkdown({
     season,
     exportedAt,
     mason: mergeBrain(ENTERTAINER_BRAIN, masonSettings),
@@ -164,6 +167,11 @@ async function buildWritingRoom(season: number): Promise<Response> {
     phrasePools,
   });
 
+  const markdown = baseMarkdown + '\n\n## Verified individual character development\n\n' +
+    'Only published attributed positions, approved voice examples, and manually verified outcomes guide the characters.\n\n' +
+    '### Mason Reed\n\n' + learningWritingInstructions(learned.mason) +
+    '\n\n### Trent Weston\n\n' + learningWritingInstructions(learned.westy) +
+    '\n\nOpposing sentiment labels are possible debates, not proof of a real conversation. Do not invent admissions.\n';
   return downloadResponse(
     markdown,
     `east-v-west-newsletter-writing-room-${season}.md`,
@@ -499,7 +507,21 @@ async function buildSourcePack(season: number, week: number, episodeType: string
 
   // Source Pack consumer reads editorialTracking independently of the legacy
   // forecastRecords, which may remain 0-0 for externally written PDFs.
-  Object.assign(sourcePack, { editorialTracking });
+  // Phase 3: separate grounded learning profiles; no AI or unverified grading.
+  const learned = await loadLearningProfilesForSeason(season);
+  Object.assign(sourcePack, {
+    editorialTracking,
+    characterLearning: {
+      mason: compactCharacterLearning(learned.mason, 16),
+      westy: compactCharacterLearning(learned.westy, 16),
+      instructions: [
+        'Use only each host\'s own published positions, approved coaching and verified outcomes.',
+        'Older stances are historical, not current; identify specific source evidence before claiming a reversal.',
+        'Only admin-verified outcomes are graded. Do not make up lessons, claims, or co-host arguments.',
+        'Approved voice examples guide natural dialogue without requiring repeated catchphrases.',
+      ],
+    },
+  });
 
   const suffix = week > 0 ? `-week-${week}` : '';
   return downloadResponse(

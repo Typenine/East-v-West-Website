@@ -8,7 +8,7 @@ import Label from '@/components/ui/Label';
 import { Textarea } from '@/components/ui/Textarea';
 
 type Bot = 'entertainer' | 'analyst';
-type View = 'overview' | 'memories' | 'relationships' | 'growth' | 'voice' | 'history';
+type View = 'overview' | 'memories' | 'relationships' | 'learning' | 'growth' | 'voice' | 'history';
 type ReviewStatus = 'unreviewed' | 'verified' | 'needs_review' | 'dismissed';
 type Annotation = { reviewStatus: ReviewStatus; pinned: boolean; note: string; correction: string; updatedAt: string };
 type Receipt = {
@@ -16,6 +16,7 @@ type Receipt = {
   season: number; week: number; sourceNewsletterId: string; title: string | null;
   originalClaim?: string; originalClaimType?: string; qualityReviewRequired?: boolean;
   status: string; publishedAt: string; annotation: Annotation | null; voiceSample: boolean;
+  verifiedOutcome?: { verdict: 'correct' | 'wrong' | 'void'; evidence: string; source: string; verifiedAt: string } | null;
   source: { id: string; title: string | null; week: number };
 };
 type DevelopmentNote = {
@@ -30,6 +31,7 @@ type BrainData = {
     takes: number; predictions: number; reviewPending: number; publishedIssues: number;
     processedIssues: number; teams: number; players: number; growthLessons: number;
     approvedDevelopments: number; voiceExamples: number;
+    learnedBeliefs: number; possibleContrasts: number; verifiedAccuracy: number | null; gradedPredictions: number; suggestedLessons: number;
   };
   teams?: Array<{
     name: string; stance: string; trust: number; takeCount?: number; takes?: number;
@@ -43,6 +45,23 @@ type BrainData = {
   }>;
   recent?: Array<{ id: string; claim: string; subject: string; week: number; type: string }>;
   proposed?: number;
+  learningSnapshot?: { performance: {correct:number;wrong:number;void:number;accuracy:number|null;ungradedPredictions:number}; beliefs: Array<{subject:string; current:{ statement:string; week:number }}>; contrasts: unknown[] };
+  learning?: {
+    schemaVersion:number; bot:Bot; receiptsConsidered:number; receiptsExcluded:number;
+    currentBeliefs:Array<{
+      subjectType:string;subject:string;pinned:boolean;explicitRevision:boolean;
+      current:{receiptId:string;sourceNewsletterId:string;week:number;statement:string;stance:string;claimType:string;confidence:number};
+      recentHistory:Array<{receiptId:string;week:number;statement:string;stance:string}>;
+      earlierOpposingPosition?:{receiptId:string;week:number;statement:string;stance:string};
+    }>;
+    cohostContrasts:Array<{subject:string;kind:string;mason:{receiptId:string;stance:string;statement:string};westy:{receiptId:string;stance:string;statement:string}}>;
+    performance:{correct:number;wrong:number;void:number;accuracy:number|null;ungradedPredictions:number};
+    verifiedOutcomes:Array<{receiptId:string;verdict:string;evidence:string;source:string;claim:string;subject:string}>;
+    suggestedReview:Array<{id:string;kind:string;receiptId:string;reason:string}>;
+    approvedLessons:Array<{kind:string;text:string;receiptId:string|null}>;
+    approvedVoice:Array<{receiptId:string;quote:string;note:string}>;
+    limitations:string[];
+  };
   total?: number; page?: number; pageSize?: number; entries?: Receipt[];
   growth?: {
     hardLessons: Array<{ week: number; season: number; lesson: string; context: string; appliedSince: boolean }>;
@@ -66,6 +85,7 @@ const sections: Array<{ key: View; label: string }> = [
   { key: 'overview', label: 'Overview' },
   { key: 'memories', label: 'Memories' },
   { key: 'relationships', label: 'Relationships' },
+  { key: 'learning', label: 'Learning' },
   { key: 'growth', label: 'Growth' },
   { key: 'voice', label: 'Voice Library' },
   { key: 'history', label: 'Issue History' },
@@ -111,6 +131,9 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
   const [note, setNote] = useState('');
   const [correction, setCorrection] = useState('');
   const [voiceReason, setVoiceReason] = useState('');
+  const [verdict, setVerdict] = useState<'correct' | 'wrong' | 'void'>('correct');
+  const [outcomeEvidence, setOutcomeEvidence] = useState('');
+  const [outcomeSource, setOutcomeSource] = useState('');
   const [relationshipType, setRelationshipType] = useState<'teams' | 'players'>('teams');
   const [expandedRelationship, setExpandedRelationship] = useState<string | null>(null);
   const [growthKind, setGrowthKind] = useState<'lesson' | 'bias' | 'improvement'>('lesson');
@@ -148,6 +171,9 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
     setNote(receipt.annotation?.note ?? '');
     setCorrection(receipt.annotation?.correction ?? '');
     setVoiceReason('');
+    setVerdict(receipt.verifiedOutcome?.verdict ?? 'correct');
+    setOutcomeEvidence(receipt.verifiedOutcome?.evidence ?? '');
+    setOutcomeSource(receipt.verifiedOutcome?.source ?? '');
   };
   async function mutate(action: string, payload: Record<string, unknown>) {
     setSaving(true); setMessage('');
@@ -330,6 +356,32 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
                   <Button variant="secondary" onClick={()=>{
                     setGrowthSource(selected.id);setGrowthText('');changeView('growth');
                   }}>Use as growth evidence</Button>
+                  {selected.claimType === 'prediction' && <div className="border-t border-[var(--border)] pt-3 space-y-2">
+                    <h5 className="font-semibold text-sm">Verified prediction outcome</h5>
+                    <p className={muted+' text-xs'}>Do not grade until the real result is known. A source and explanation are required. Only admin-verified outcomes change accountability records.</p>
+                    {selected.qualityReviewRequired && selected.annotation?.reviewStatus!=='verified' &&
+                      <p className="text-xs text-amber-400">This quote is flagged. Verify the quotation and save the review first.</p>}
+                    <select value={verdict} onChange={e=>setVerdict(e.target.value as typeof verdict)}
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm">
+                      <option value="correct">Correct</option><option value="wrong">Wrong</option><option value="void">Void / untestable</option>
+                    </select>
+                    <Label className="text-xs">What actually happened?</Label>
+                    <Textarea rows={3} value={outcomeEvidence} onChange={e=>setOutcomeEvidence(e.target.value)}
+                      placeholder="Describe the confirmed result and how it tests the prediction" />
+                    <Label className="text-xs">Traceable source</Label>
+                    <Input value={outcomeSource} onChange={e=>setOutcomeSource(e.target.value)}
+                      placeholder="Sleeper week, published results, or reference URL" />
+                    <Button disabled={saving || outcomeEvidence.trim().length<25 || outcomeSource.trim().length<8 ||
+                      (selected.qualityReviewRequired && selected.annotation?.reviewStatus!=='verified')}
+                      onClick={()=>mutate('verify_outcome',{receiptId:selected.id,verdict,evidence:outcomeEvidence,source:outcomeSource})}>
+                      Save Verified Outcome
+                    </Button>
+                    {selected.verifiedOutcome && <>
+                      <p className={muted+' text-xs'}>Recorded: {selected.verifiedOutcome.verdict} · {selected.verifiedOutcome.source}</p>
+                      <Button variant="secondary" disabled={saving}
+                        onClick={()=>mutate('clear_outcome',{receiptId:selected.id})}>Remove Grading</Button>
+                    </>}
+                  </div>}
                 </> : <>
                   <h4 className="font-semibold">Memory details</h4>
                   <p className={muted+' text-sm'}>Select a published take to see its source, attach a correction, pin it, or approve it as an example of authentic character dialogue.</p>
@@ -367,6 +419,57 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
                   </div>}
                 </button>
               ))}
+            </div>
+          </>}
+
+          {view === 'learning' && <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <Metric label="Current subject positions" value={data.learning?.currentBeliefs.length ?? 0} />
+              <Metric label="Verified correct / wrong" value={(data.learning?.performance.correct ?? 0)+' / '+(data.learning?.performance.wrong ?? 0)} />
+              <Metric label="Ungraded predictions" value={data.learning?.performance.ungradedPredictions ?? 0} />
+              <Metric label="Possible co-host contrasts" value={data.learning?.cohostContrasts.length ?? 0} />
+            </div>
+            <div className={panel+' space-y-3'}>
+              <h4 className="font-semibold">Evidence-based development</h4>
+              <p className={muted+' text-sm'}>Beliefs are reconstructed from each host’s own published statements. A contrast is not automatically a confirmed argument. Core traits never change just because a sentiment detector changes its label.</p>
+              <p className="text-sm">Verified prediction accuracy: {data.learning?.performance.accuracy===null?'Not enough graded results':(data.learning?.performance.accuracy??'Not yet measured')+'%'}</p>
+              <p className={muted+' text-xs'}>Approved lessons: {data.learning?.approvedLessons.length ?? 0} · Approved voice passages: {data.learning?.approvedVoice.length ?? 0} · Excluded / unverified takes: {data.learning?.receiptsExcluded ?? 0}</p>
+              <Button variant="secondary" onClick={()=>{setKind('prediction');changeView('memories');}}>Review Predictions</Button>
+            </div>
+            <div className="grid lg:grid-cols-2 gap-3">
+              <div className={panel+' space-y-3'}>
+                <h4 className="font-semibold">Current positions and past evidence</h4>
+                {(data.learning?.currentBeliefs ?? []).slice(0,26).map(item=><div key={item.subjectType+':'+item.subject} className="border-b border-[var(--border)] pb-3 space-y-1">
+                  <div className="flex gap-2 items-center text-xs"><span className="font-medium">{item.subject}</span>
+                    <span className={muted}>Week {item.current.week} · {item.current.stance}{item.pinned?' · Pinned':''}</span></div>
+                  <p className="text-sm">{item.current.statement}</p>
+                  {item.earlierOpposingPosition&&<p className={muted+' text-xs'}>Earlier opposing label (Week {item.earlierOpposingPosition.week}): {item.earlierOpposingPosition.statement}</p>}
+                  <button type="button" className="underline text-xs" onClick={()=>goToEvidence(item.current.receiptId)}>Review source evidence</button>
+                </div>)}
+                {!data.learning?.currentBeliefs.length&&<p className={muted+' text-sm'}>No usable subject positions in the published archive.</p>}
+              </div>
+              <div className="space-y-3">
+                <div className={panel+' space-y-3'}>
+                  <h4 className="font-semibold">Potential Mason / Westy differences</h4>
+                  <p className={muted+' text-xs'}>These are opposing sentiment labels in their separate published histories, not invented conversations.</p>
+                  {data.learning?.cohostContrasts.length?data.learning.cohostContrasts.slice(0,8).map(item=>
+                    <div key={item.subject} className="border-b border-[var(--border)] pb-3 space-y-1">
+                      <div className="text-sm font-medium">{item.subject}</div>
+                      <p className="text-xs">Mason ({item.mason.stance}): {item.mason.statement}</p>
+                      <p className="text-xs">Westy ({item.westy.stance}): {item.westy.statement}</p>
+                    </div>):<p className={muted+' text-sm'}>No well-attributed opposing positions yet.</p>}
+                </div>
+                <div className={panel+' space-y-3'}>
+                  <h4 className="font-semibold">Suggested review from past experiences</h4>
+                  <p className={muted+' text-xs'}>Nothing in this queue becomes a personality lesson until reviewed and approved.</p>
+                  {data.learning?.suggestedReview.length?data.learning.suggestedReview.map(item=>
+                    <div key={item.id} className="border-b border-[var(--border)] pb-2">
+                      <div className="text-xs font-medium">{item.kind}</div>
+                      <p className={muted+' text-xs my-1'}>{item.reason}</p>
+                      <button type="button" className="underline text-xs" onClick={()=>goToEvidence(item.receiptId)}>Inspect published statement</button>
+                    </div>):<p className={muted+' text-sm'}>No explicit reversals or verified prediction mistakes requiring review.</p>}
+                </div>
+              </div>
             </div>
           </>}
 

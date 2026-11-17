@@ -8,6 +8,7 @@ import { loadPublishedTakeLedgerState } from '@/lib/newsletter/published-take-st
 import { getDb } from '@/server/db/client';
 import { botMemory } from '@/server/db/schema';
 import type { BotName } from '@/lib/newsletter/types';
+import { buildCharacterLearning, type VerifiedOutcome } from '@/lib/newsletter/brain-learning';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,7 @@ type Review = 'unreviewed' | 'verified' | 'needs_review' | 'dismissed';
 type Annotation = { reviewStatus: Review; pinned: boolean; note: string; correction: string; updatedAt: string };
 type Sample = { id: string; receiptId: string; quote: string; note: string; sourceNewsletterId: string; addedAt: string };
 type Development = { id: string; kind: 'lesson' | 'bias' | 'improvement'; text: string; receiptId: string | null; status: 'proposed' | 'approved' | 'rejected'; createdAt: string; updatedAt: string };
-type BrainAdmin = { revision: number; annotations: Record<string, Annotation>; voiceSamples: Sample[]; developmentNotes: Development[]; history: Array<{ at: string; action: string; receiptId?: string }> };
+type BrainAdmin = { revision: number; annotations: Record<string, Annotation>; voiceSamples: Sample[]; developmentNotes: Development[]; outcomes: Record<string, VerifiedOutcome>; history: Array<{ at: string; action: string; receiptId?: string }> };
 function parseAdmin(raw: unknown): BrainAdmin {
   const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Partial<BrainAdmin> : {};
   return {
@@ -23,6 +24,7 @@ function parseAdmin(raw: unknown): BrainAdmin {
     annotations: s.annotations && typeof s.annotations === 'object' && !Array.isArray(s.annotations) ? s.annotations : {},
     voiceSamples: Array.isArray(s.voiceSamples) ? s.voiceSamples : [],
     developmentNotes: Array.isArray(s.developmentNotes) ? s.developmentNotes : [],
+    outcomes: s.outcomes && typeof s.outcomes === 'object' && !Array.isArray(s.outcomes) ? s.outcomes : {},
     history: Array.isArray(s.history) ? s.history : [],
   };
 }
@@ -36,18 +38,24 @@ export async function GET(req: NextRequest) {
   const bot = botOf(req.nextUrl.searchParams.get('bot'));
   const season = yearOf(req.nextUrl.searchParams.get('season'));
   const view = req.nextUrl.searchParams.get('view') ?? 'overview';
-  if (!bot || !season || !['overview','memories','relationships','growth','voice','history'].includes(view))
+  if (!bot || !season || !['overview','memories','relationships','growth','voice','history','learning'].includes(view))
     return Response.json({ error: 'Invalid query' }, { status: 400 });
   try {
     const db = getDb();
-    const [memory, ledger, allIssues, settings, rows] = await Promise.all([
+    const [memory, ledger, allIssues, settings, rows, partnerLedger, partnerRows] = await Promise.all([
       loadBotMemory(bot, season), loadPublishedTakeLedgerState(bot, season), listNewslettersMeta(season),
       loadBotSettings(bot),
       db.select({ enhancedData: botMemory.enhancedData }).from(botMemory).where(and(eq(botMemory.bot, bot), eq(botMemory.season, season))).limit(1),
+      loadPublishedTakeLedgerState(bot === 'entertainer' ? 'analyst' : 'entertainer',season),
+      db.select({ enhancedData: botMemory.enhancedData }).from(botMemory)
+        .where(and(eq(botMemory.bot,bot === 'entertainer' ? 'analyst' : 'entertainer'),eq(botMemory.season,season))).limit(1),
     ]);
     if (!memory || !rows.length) return Response.json({ error: 'No character memory for this season' }, { status: 404 });
     const raw = (rows[0].enhancedData ?? {}) as Record<string, unknown>;
     const admin = parseAdmin(raw.brainAdmin);
+    const partnerRaw=(partnerRows[0]?.enhancedData??{}) as Record<string,unknown>;
+    const partnerAdmin=parseAdmin(partnerRaw.brainAdmin);
+    const learning=buildCharacterLearning(bot,ledger.entries,partnerLedger.entries,admin,partnerAdmin);
     const issues = allIssues.filter(x => x.status === 'published');
     const source = new Map(issues.map(x => [x.id, x]));
     const brain = bot === 'entertainer' ? ENTERTAINER_BRAIN : ANALYST_BRAIN;
@@ -62,8 +70,14 @@ export async function GET(req: NextRequest) {
       growthLessons: memory.personalGrowth?.hardLessons.length ?? 0,
       approvedDevelopments: admin.developmentNotes.filter(n => n.status === 'approved').length,
       voiceExamples: admin.voiceSamples.length,
+      learnedBeliefs: learning.currentBeliefs.length,
+      possibleContrasts: learning.cohostContrasts.length,
+      verifiedAccuracy:learning.performance.accuracy,
+      gradedPredictions:learning.performance.correct+learning.performance.wrong,
+      suggestedLessons:learning.suggestedReview.length,
     };
     const common = { bot, season, view, summary, revision: admin.revision };
+    if (view === 'learning') return Response.json({ ...common, learning });
     if (view === 'overview') return Response.json({ ...common,
       teams: Object.values(memory.deepTeamRelationships ?? {}).filter(x => x.currentNarrative)
         .sort((a,b) => b.takeHistory.length - a.takeHistory.length).slice(0,8).map(x => ({
@@ -71,6 +85,7 @@ export async function GET(req: NextRequest) {
         })),
       recent: ledger.entries.slice(-6).reverse().map(x => ({ id:x.id, claim:x.claim, subject:x.subject, week:x.week, type:x.claimType })),
       proposed: admin.developmentNotes.filter(n=>n.status==='proposed').length,
+      learningSnapshot:{ performance:learning.performance,beliefs:learning.currentBeliefs.slice(0,5),contrasts:learning.cohostContrasts.slice(0,3)},
     });
     if (view === 'memories') {
       const q = cut(req.nextUrl.searchParams.get('q'),120).toLowerCase();
@@ -90,6 +105,7 @@ export async function GET(req: NextRequest) {
       return Response.json({ ...common, total: matches.length, page, pageSize,
         entries:matches.slice((page-1)*pageSize,page*pageSize).map(e=>({
           ...e, annotation:admin.annotations[e.id]??null, voiceSample: admin.voiceSamples.some(s=>s.receiptId===e.id),
+          verifiedOutcome:admin.outcomes[e.id]??null,
           source:source.get(e.sourceNewsletterId)
             ? { id:e.sourceNewsletterId, title:source.get(e.sourceNewsletterId)!.title, week:source.get(e.sourceNewsletterId)!.week }
             : { id:e.sourceNewsletterId, title:e.title, week:e.week },
@@ -110,6 +126,8 @@ export async function GET(req: NextRequest) {
       growth:memory.personalGrowth??{hardLessons:[],recognizedBiases:[],improvements:[],blindSpots:[]},
       speech:memory.speechPatterns??null,dynamics:memory.partnerDynamics??null,
       notes:admin.developmentNotes,changes:admin.history.slice(0,30),
+      learningSuggestions:learning.suggestedReview,
+      verifiedPerformance:learning.performance,
     });
     if (view==='voice') return Response.json({ ...common,
       identity:{ name:summary.name,role:summary.role,voice:{...brain.voice,...(settings?.voiceConfig??{})},
@@ -131,7 +149,7 @@ export async function POST(req:NextRequest) {
   if (!authorized(req)) return Response.json({error:'Forbidden'},{status:403});
   const body = await req.json().catch(()=>({})) as Record<string,unknown>;
   const bot=botOf(body.bot), season=yearOf(body.season), action=cut(body.action,30);
-  if (!bot||!season||!['annotate','add_voice','remove_voice','propose_growth','review_growth'].includes(action))
+  if (!bot||!season||!['annotate','add_voice','remove_voice','propose_growth','review_growth','verify_outcome','clear_outcome'].includes(action))
     return Response.json({error:'Invalid action'},{status:400});
   try {
     const db=getDb();
@@ -145,7 +163,7 @@ export async function POST(req:NextRequest) {
     const previous=parseAdmin(raw.brainAdmin);
     const next:BrainAdmin={...previous,revision:previous.revision+1,
       annotations:{...previous.annotations},voiceSamples:[...previous.voiceSamples],
-      developmentNotes:[...previous.developmentNotes],history:[...previous.history]};
+      developmentNotes:[...previous.developmentNotes],outcomes:{...previous.outcomes},history:[...previous.history]};
     const receiptId=cut(body.receiptId,180),receipt=ledger.entries.find(e=>e.id===receiptId);
     const now=new Date().toISOString();
     if(action==='annotate'){
@@ -164,6 +182,18 @@ export async function POST(req:NextRequest) {
     }else if(action==='remove_voice'){
       if(!next.voiceSamples.some(s=>s.receiptId===receiptId))return Response.json({error:'Example not found'},{status:404});
       next.voiceSamples=next.voiceSamples.filter(s=>s.receiptId!==receiptId);
+    }else if(action==='verify_outcome'){
+      if(!receipt||receipt.claimType!=='prediction')return Response.json({error:'A prediction receipt is required'},{status:400});
+      if(receipt.qualityReviewRequired&&next.annotations[receipt.id]?.reviewStatus!=='verified')
+        return Response.json({error:'Verify this flagged quotation before grading it'},{status:400});
+      const verdict=String(body.verdict),evidence=cut(body.evidence,1000),source=cut(body.source,350);
+      if(!['correct','wrong','void'].includes(verdict)||evidence.length<25||source.length<8)
+        return Response.json({error:'Choose a verdict and supply outcome evidence (25+ characters) and a traceable source (8+ characters)'},{status:400});
+      next.outcomes[receipt.id]={receiptId:receipt.id,verdict:verdict as VerifiedOutcome['verdict'],
+        evidence,source,verifiedAt:now};
+    }else if(action==='clear_outcome'){
+      if(!receipt||!next.outcomes[receipt.id])return Response.json({error:'Verified outcome not found'},{status:404});
+      delete next.outcomes[receipt.id];
     }else if(action==='propose_growth'){
       const kind=body.kind,text=cut(body.text,800);
       if(!['lesson','bias','improvement'].includes(String(kind))||text.length<15)

@@ -11,6 +11,8 @@ import {
   loadBotSettings,
 } from '@/server/db/personality-queries';
 import { loadBotMemory } from '@/server/db/newsletter-queries';
+import { loadLearningProfilesForSeason } from '@/server/db/brain-learning-queries';
+import { learningWritingInstructions, compactCharacterLearning, type CharacterLearningProfile } from '@/lib/newsletter/brain-learning';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -75,6 +77,7 @@ function renderBotMarkdown(payload: {
   currentState: unknown;
   adminSettings: unknown;
   phrasePools: Record<string, string[]>;
+  learning: CharacterLearningProfile;
 }): string {
   const { brain } = payload;
   return `# ${brain.displayName} — Claude Project Personality Pack
@@ -158,7 +161,17 @@ ${jsonBlock(payload.adminSettings)}
 
 ${jsonBlock(payload.phrasePools)}
 
-## Claude writing instruction
+## Evidence-backed character learning
+
+Grounded, attributed published positions and approved coaching. Only manually verified prediction outcomes count as correct or wrong.
+
+${learningWritingInstructions(payload.learning)}
+
+### Structured current learning state
+
+${jsonBlock(compactCharacterLearning(payload.learning, 16))}
+
+## ChatGPT writing instruction
 
 Write as ${brain.displayName}, not as an assistant describing ${brain.displayName}. Preserve the role, risk bias, pacing, blind spots, and evidence rules above. Use verbal tics sparingly and organically. Do not force catchphrases. When another host's material is provided, respond to what that host actually said rather than restarting the topic.
 `;
@@ -265,11 +278,13 @@ export async function GET(req: NextRequest) {
   const bot = botKey(pack);
 
   if (bot) {
-    const [settings, currentState, allPhrasePools] = await Promise.all([
+    const [settings, currentState, allPhrasePools, learnedProfiles] = await Promise.all([
       loadBotSettings(bot),
       loadBotMemory(bot, season),
       loadAllPhrasePools(),
+      loadLearningProfilesForSeason(season),
     ]);
+    const learning = bot === 'entertainer' ? learnedProfiles.mason : learnedProfiles.westy;
     const brain = mergeBrain(botBase(bot), settings);
     const relevantPrefix = bot === 'entertainer' ? 'mason_' : 'westy_';
     const phrasePools = Object.fromEntries(
@@ -286,6 +301,7 @@ export async function GET(req: NextRequest) {
       currentState,
       adminSettings: settings,
       phrasePools,
+      learning,
     };
     if (format === 'json') return responseWithDownload(JSON.stringify(payload, null, 2), botFileName(bot, season, format), 'application/json; charset=utf-8');
     return responseWithDownload(renderBotMarkdown(payload), botFileName(bot, season, format), 'text/markdown; charset=utf-8');
