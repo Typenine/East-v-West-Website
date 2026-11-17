@@ -43,7 +43,13 @@ export async function GET(request: Request) {
       }, { headers: { 'Cache-Control': 'no-store' } });
     }
     const report = calculateHistoricalLuck(dataset.games, season, throughWeek, teams.length);
-    assertHistoricalLuckMatchesOfficial(report, teams);
+    const discrepancies = assertHistoricalLuckMatchesOfficial(report, teams);
+    if (discrepancies.length) {
+      console.warn('[standings/luck] Weekly matchup and official PF disagree:', {
+        season,
+        discrepancies,
+      });
+    }
 
     return NextResponse.json({
       season,
