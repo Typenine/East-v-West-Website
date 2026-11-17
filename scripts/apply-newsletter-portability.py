@@ -155,18 +155,10 @@ def main() -> None:
     )
 
     publish_route = Path('src/app/api/newsletter/publish/route.ts')
-    replace_once(
-        publish_route,
-        '''    await updateBotMemoryFromPublish(target.season, target.week).catch(error => {
-      console.warn('[Publish] Bot memory update failed (non-fatal):', error);
-    });''',
-        '''    const isUploadedPdf = target.newsletter.sections.some(section => section.type === 'UploadedPdf');
-    if (!isUploadedPdf) {
-      await updateBotMemoryFromPublish(target.season, target.week).catch(error => {
-        console.warn('[Publish] Bot memory update failed (non-fatal):', error);
-      });
-    }''',
-    )
+    # Publishing now extracts PDF continuity before applying the exact-ID
+    # character memory update. The old skip-PDF patch must NOT be applied.
+    if 'await updateBotMemoryFromPublish(target.id)' not in publish_route.read_text(encoding='utf-8'):
+        raise RuntimeError('Newsletter publish route is missing the exact-ID memory ingestion path')
 
     export_route = Path('src/app/api/admin/newsletter/personality-export/route.ts')
     replace_once(

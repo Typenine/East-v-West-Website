@@ -212,7 +212,7 @@ export async function loadBotMemory(bot: BotName, season: number): Promise<BotMe
  */
 export async function saveBotMemory(bot: BotName, season: number, memory: BotMemory): Promise<void> {
   const db = getDb();
-  const isEnhanced = 'personality' in memory || 'predictions' in memory || 'partnerDynamics' in memory;
+  const isEnhanced = 'personality' in memory || 'predictions' in memory || 'partnerDynamics' in memory || 'deepTeamRelationships' in memory || 'deepPlayerRelationships' in memory;
 
   const existing = await db
     .select({ id: botMemory.id })
@@ -220,21 +220,9 @@ export async function saveBotMemory(bot: BotName, season: number, memory: BotMem
     .where(and(eq(botMemory.bot, bot), eq(botMemory.season, season)))
     .limit(1);
 
-  let currentEnhancedData: Record<string, unknown> = {};
-  if (existing.length) {
-    try {
-      const rows = await db
-        .select({ enhancedData: botMemory.enhancedData })
-        .from(botMemory)
-        .where(eq(botMemory.id, existing[0].id))
-        .limit(1);
-      currentEnhancedData = ((rows[0]?.enhancedData as Record<string, unknown> | null) ?? {});
-    } catch (err) {
-      if (!isMissingEnhancedMemoryColumn(err)) throw err;
-    }
-  }
-
-  const enhancedData: Record<string, unknown> = { ...currentEnhancedData };
+  // Construct only the fields owned by character memory. Independent data
+  // (published take ledger, continuity snapshots) is merged by PostgreSQL.
+  const enhancedData: Record<string, unknown> = {};
   if (isEnhanced) {
     const enhanced = memory as BotMemory;
     const set = (key: string, value: unknown) => {
@@ -272,7 +260,7 @@ export async function saveBotMemory(bot: BotName, season: number, memory: BotMem
         .set({
           summaryMood: dbSummaryMood,
           teams: memory.teams,
-          enhancedData,
+          enhancedData: sql`COALESCE(${botMemory.enhancedData}, '{}'::jsonb) || ${JSON.stringify(enhancedData)}::jsonb`,
           editorialCorrections: (memory.editorialCorrections ?? []) as unknown as Array<Record<string, unknown>>,
           updatedAt: new Date(),
         })
@@ -338,7 +326,8 @@ def replace_between(text: str, start: str, end: str, replacement: str) -> str:
 
 def patch_queries() -> None:
     text = QUERIES.read_text(encoding='utf-8')
-    text = text.replace("import { eq, and, ne, desc } from 'drizzle-orm';", "import { eq, and, ne, desc, lt } from 'drizzle-orm';")
+    text = text.replace("import { eq, and, ne, desc } from 'drizzle-orm';", "import { eq, and, ne, desc, lt, sql } from 'drizzle-orm';")
+    text = text.replace("import { eq, and, ne, desc, sql } from 'drizzle-orm';", "import { eq, and, ne, desc, lt, sql } from 'drizzle-orm';")
     import_anchor = "import type { BotMemory, BotName, RelationshipMemory } from '@/lib/newsletter/types';\n"
     import_with_memory = import_anchor + "import { createEnhancedMemory } from '@/lib/newsletter/memory';\n"
     if "createEnhancedMemory } from '@/lib/newsletter/memory'" not in text:
@@ -352,7 +341,7 @@ def patch_queries() -> None:
     required = [
         "previousPowerRankings: (enhancedData.previousPowerRankings",
         "recentOutputLog: enhancedData.recentOutputLog",
-        "const enhancedData: Record<string, unknown> = { ...currentEnhancedData };",
+        "const enhancedData: Record<string, unknown> = {};",
         "published take ledger",
         "carryPermanentMemoryIntoSeason",
         "lt(botMemory.season, season)",
