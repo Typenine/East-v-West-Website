@@ -150,6 +150,7 @@ export function calculateHistoricalLuck(
   };
 }
 
+
 export type OfficialLuckTeamRecord = {
   rosterId: number;
   wins: number;
@@ -158,15 +159,23 @@ export type OfficialLuckTeamRecord = {
   fpts: number;
 };
 
-/** Check complete weekly scoring against Sleeper's final season W/L/T and PF.
- * In 2023, roster 8 has a documented one-point discrepancy between matchup
- * scores (1296.96) and the official season PF total (1295.96). Records match.
- * Allow only that exact historical adjustment, not arbitrary mismatches.
+export type HistoricalScoreDiscrepancy = {
+  rosterId: number;
+  name: string;
+  weeklyPoints: number;
+  officialPoints: number;
+};
+
+/**
+ * The luck model is based on actual weekly matchup scores, not season PF totals.
+ * Sleeper's stored PF can differ from its game-by-game scores following corrections.
+ * Require all W/L/T records to match, but report PF discrepancies instead of
+ * hiding a season whose weekly results are complete and internally consistent.
  */
 export function assertHistoricalLuckMatchesOfficial(
   report: HistoricalLuckReport,
   officialTeams: OfficialLuckTeamRecord[],
-): void {
+): HistoricalScoreDiscrepancy[] {
   if (report.teams.length !== officialTeams.length) {
     throw new Error('Incomplete finalized league scores');
   }
@@ -174,18 +183,21 @@ export function assertHistoricalLuckMatchesOfficial(
   if (officialById.size !== officialTeams.length) {
     throw new Error('Duplicate official roster IDs');
   }
+  const discrepancies: HistoricalScoreDiscrepancy[] = [];
   for (const team of report.teams) {
     const official = officialById.get(team.rosterId);
     if (!official || team.wins !== official.wins || team.losses !== official.losses ||
         team.ties !== official.ties || !Number.isFinite(official.fpts)) {
       throw new Error('Finalized records do not match official standings for ' + team.name);
     }
-    const known2023OnePointCorrection =
-      report.season === '2023' && team.rosterId === 8 &&
-      Math.abs(team.pointsFor - 1296.96) < 0.011 &&
-      Math.abs(official.fpts - 1295.96) < 0.011;
-    if (Math.abs(team.pointsFor - official.fpts) > 0.1 && !known2023OnePointCorrection) {
-      throw new Error('Finalized scoring does not match official standings for ' + team.name);
+    if (Math.abs(team.pointsFor - official.fpts) > 0.1) {
+      discrepancies.push({
+        rosterId: team.rosterId,
+        name: team.name,
+        weeklyPoints: team.pointsFor,
+        officialPoints: official.fpts,
+      });
     }
   }
+  return discrepancies;
 }
