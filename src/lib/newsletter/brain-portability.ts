@@ -44,30 +44,40 @@ export interface BrainExportInput {
 const ACTIVE_TEAM_LIMIT=9;
 const ACTIVE_PLAYER_LIMIT=9;
 
-function lastTeamWeek(value: NonNullable<BotMemory['deepTeamRelationships']>[string]): number {
-  return value.takeHistory?.reduce((week,entry)=>Math.max(week,entry.week),0)??0;
-}
-function lastPlayerWeek(value: NonNullable<BotMemory['deepPlayerRelationships']>[string]): number {
-  return value.history?.reduce((week,entry)=>Math.max(week,entry.week),0)??0;
-}
-function teamSnapshot(memory:BotMemory) {
-  return Object.values(memory.deepTeamRelationships??{})
-    .sort((a,b)=>lastTeamWeek(b)-lastTeamWeek(a) ||
-      (b.takeHistory?.length??0)-(a.takeHistory?.length??0))
-    .slice(0,ACTIVE_TEAM_LIMIT).map(t=>({
+function teamSnapshot(memory:BotMemory, learning:CharacterLearningProfile) {
+  const current=new Map(learning.currentBeliefs.filter(x=>x.subjectType==='team')
+    .map((x,i)=>[x.subject.toLowerCase(),{item:x,rank:i}]));
+  const teams=Object.values(memory.deepTeamRelationships??{});
+  return teams.sort((a,b)=>{
+    const ar=current.get(a.teamName.toLowerCase())?.rank??1000;
+    const br=current.get(b.teamName.toLowerCase())?.rank??1000;
+    return ar-br || (b.takeHistory?.length??0)-(a.takeHistory?.length??0);
+  }).slice(0,ACTIVE_TEAM_LIMIT).map(t=>{
+    const belief=current.get(t.teamName.toLowerCase())?.item;
+    return {
       team:t.teamName,stance:t.stance,trust:t.trustLevel,
-      lastReferencedWeek:lastTeamWeek(t),recentPublishedTake:t.takeHistory?.at(-1)?.take?.slice(0,230)??null,
-      narrative:t.currentNarrative?.slice(0,230)??null,
-    }));
+      source:belief?.current.sourceLabel??null,
+      // Do not carry a stale or garbled unreviewed "currentNarrative"
+      // into the compact brain merely because hydration stored it last.
+      narrative:belief?.current.statement.slice(0,230)??null,
+    };
+  });
 }
-function playerSnapshot(memory:BotMemory) {
+function playerSnapshot(memory:BotMemory, learning:CharacterLearningProfile) {
+  const current=new Map(learning.currentBeliefs.filter(x=>x.subjectType==='player')
+    .map((x,i)=>[x.subject.toLowerCase(),{item:x,rank:i}]));
   return Object.values(memory.deepPlayerRelationships??{})
-    .sort((a,b)=>lastPlayerWeek(b)-lastPlayerWeek(a) ||
+    .sort((a,b)=>(current.get(a.playerName.toLowerCase())?.rank??1000) -
+      (current.get(b.playerName.toLowerCase())?.rank??1000) ||
       (b.history?.length??0)-(a.history?.length??0))
-    .slice(0,ACTIVE_PLAYER_LIMIT).map(p=>({
-      player:p.playerName,team:p.team??null,sentiment:p.sentiment,trust:p.trustLevel,
-      lastReferencedWeek:lastPlayerWeek(p),recentPublishedTake:p.history?.at(-1)?.event?.slice(0,230)??null,
-    }));
+    .slice(0,ACTIVE_PLAYER_LIMIT).map(p=>{
+      const belief=current.get(p.playerName.toLowerCase())?.item;
+      return {
+        player:p.playerName,team:p.team??null,sentiment:p.sentiment,trust:p.trustLevel,
+        source:belief?.current.sourceLabel??null,
+        recentPublishedTake:belief?.current.statement.slice(0,230)??null,
+      };
+    });
 }
 function cleanNotes(raw:unknown): string {
   return typeof raw==='string'?raw.slice(0,1000):'';
@@ -120,7 +130,7 @@ export function buildActiveBrain(input:BrainExportInput) {
       lastGeneratedWeek:input.currentMemory.lastGeneratedWeek??null,
     },
     learning,
-    relationshipSnapshot:{teams:teamSnapshot(input.currentMemory),players:playerSnapshot(input.currentMemory)},
+    relationshipSnapshot:{teams:teamSnapshot(input.currentMemory,input.learning),players:playerSnapshot(input.currentMemory,input.learning)},
     continuity:{
       publishedReceiptsRetained:input.publishedLedger.entries.length,
       publishedIssuesProcessed:input.publishedLedger.processedNewsletterIds.length,
@@ -196,9 +206,9 @@ export function renderActiveBrainMarkdown(data:ReturnType<typeof buildActiveBrai
     data.identity.adminNotes?'**Approved admin guidance:** '+data.identity.adminNotes:'',
     heading('Current positions with source receipts'),
     l.currentBeliefs.length?l.currentBeliefs.map(b=>
-      '- **'+b.subject+'** (Week '+b.current.week+', '+b.current.stance+', receipt '+b.current.receiptId+'): '+
+      '- **'+b.subject+'** ('+b.current.sourceLabel+', '+b.current.stance+', receipt '+b.current.receiptId+'): '+
       excerpt(b.current.statement,300)+(b.earlierOpposingPosition?
-        ' Earlier position, Week '+b.earlierOpposingPosition.week+': '+excerpt(b.earlierOpposingPosition.statement,135):'')
+        ' Earlier position, '+b.earlierOpposingPosition.sourceLabel+': '+excerpt(b.earlierOpposingPosition.statement,135):'')
     ).join('\n'):'- No attributable current positions have cleared review.',
     heading('Verified prediction history'),
     'Correct: '+l.performance.correct+'; wrong: '+l.performance.wrong+'; void: '+l.performance.void+
@@ -219,12 +229,12 @@ export function renderActiveBrainMarkdown(data:ReturnType<typeof buildActiveBrai
     heading('Recent team relationships'),
     data.relationshipSnapshot.teams.length?data.relationshipSnapshot.teams.map(x=>
       '- '+x.team+' | stance '+x.stance+' | trust '+x.trust+
-      ' | Week '+x.lastReferencedWeek+' | '+excerpt(x.narrative||x.recentPublishedTake||'',200)
+      ' | '+(x.source??'No vetted recent position')+' | '+excerpt(x.narrative||'',200)
     ).join('\n'):'- No team relationship history saved.',
     heading('Recent player relationships'),
     data.relationshipSnapshot.players.length?data.relationshipSnapshot.players.map(x=>
       '- '+x.player+' | '+x.sentiment+' | trust '+x.trust+
-      ' | Week '+x.lastReferencedWeek+' | '+excerpt(x.recentPublishedTake||'',200)
+      ' | '+(x.source??'No vetted recent position')+' | '+excerpt(x.recentPublishedTake||'',200)
     ).join('\n'):'- No player relationship history saved.',
     heading('Potential co-host differences'),
     l.cohostContrasts.length?l.cohostContrasts.map(x=>

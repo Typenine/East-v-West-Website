@@ -43,9 +43,9 @@ export type LearningAdmin = {
 export type LearnedBelief = {
   subjectType: PublishedTakeLedgerEntry['subjectType'];
   subject: string;
-  current: { receiptId: string; sourceNewsletterId: string; week: number; statement: string; stance: string; claimType: string; confidence: number };
-  recentHistory: Array<{ receiptId: string; week: number; statement: string; stance: string }>;
-  earlierOpposingPosition?: { receiptId: string; week: number; statement: string; stance: string };
+  current: { receiptId: string; sourceNewsletterId: string; week: number; sourceLabel: string; publishedAt: string; statement: string; stance: string; claimType: string; confidence: number };
+  recentHistory: Array<{ receiptId: string; week: number; sourceLabel: string; statement: string; stance: string }>;
+  earlierOpposingPosition?: { receiptId: string; week: number; sourceLabel: string; statement: string; stance: string };
   explicitRevision: boolean;
   pinned: boolean;
 };
@@ -91,12 +91,45 @@ function statement(entry: PublishedTakeLedgerEntry, admin: LearningAdmin): strin
 function polarity(raw: string): 'positive' | 'negative' | null {
   return raw === 'positive' || raw === 'negative' ? raw : null;
 }
+
+/**
+ * The ledger stores attributed transcript excerpts, not an editorially
+ * approved psychological profile. A quote can be correctly attributed and
+ * still be a fragment, scoreboard caption, or prediction about another team.
+ * Filter only the CURRENT OPINION projection; leave historical source intact.
+ */
+export function isUsableCurrentPosition(entry:PublishedTakeLedgerEntry,annotation?:LearningAnnotation):boolean {
+  const claim=(annotation?.correction?.trim()||entry.claim).trim();
+  if(entry.qualityReviewRequired && annotation?.reviewStatus!=='verified') return false;
+  if(claim.length<48 || claim.length>520) return false;
+  if(entry.claimType==='prediction') return false;
+  if(entry.claimType==='reaction' && !/\b(?:changed my mind|walk that back|i was wrong about|now believe|no longer believe|taking that back|i retract)\b/i.test(claim)) return false;
+  if(/^\s*\d+(?:\.\d+)?(?:\s+|$)/.test(claim) || /\s\/\s/.test(claim)) return false;
+  if(/^(?:then there'?s|that'?s the part|i'?m watching|i'?m with you|and this is why)\b/i.test(claim)) return false;
+  if(/\[\[|\]\]/.test(claim)) return false;
+  const subject=entry.subject.trim().toLowerCase();
+  if(!subject) return false;
+  if(entry.subjectType==='league')
+    return /\b(?:i think|i believe|i expect|we should|we need|my conclusion|i'?m not|i'?m going to)\b/i.test(claim);
+  // Without a stated subject, a disconnected sentence may have been
+  // attributed solely because of a neighboring table or section heading.
+  return claim.toLowerCase().includes(subject);
+}
+
+/** Special episodes use sentinel storage weeks, not NFL week numbers. */
+export function publishedSourceLabel(entry:Pick<PublishedTakeLedgerEntry,'week'|'episodeType'|'title'>):string {
+  if(entry.episodeType==='regular' && entry.week>=1 && entry.week<=18) return 'Week '+entry.week;
+  if(entry.title?.trim()) return entry.title.trim();
+  return 'Special issue';
+}
+
 function key(row: Pick<PublishedTakeLedgerEntry,'subjectType' | 'subject'>): string {
   return row.subjectType + ':' + row.subject.trim().toLocaleLowerCase('en-US');
 }
 function groupBeliefs(entries: PublishedTakeLedgerEntry[], admin: LearningAdmin): LearnedBelief[] {
   const groups = new Map<string, PublishedTakeLedgerEntry[]>();
   for(const row of entries) {
+    if(!isUsableCurrentPosition(row,admin.annotations?.[row.id])) continue;
     const id = key(row);
     groups.set(id, [...(groups.get(id) ?? []), row]);
   }
@@ -106,20 +139,22 @@ function groupBeliefs(entries: PublishedTakeLedgerEntry[], admin: LearningAdmin)
     const current=history[history.length-1];
     const prior=history.slice(0,-1).reverse().find(x => polarity(x.stance) &&
       polarity(current.stance) && polarity(x.stance) !== polarity(current.stance));
-    const explicitRevision = ['reversed','weakened','strengthened'].includes(current.status) ||
-      /\b(?:changed my mind|was wrong|i retract|walk that back|taking that back|i was too high|i was too low|no longer believe)\b/i.test(current.claim);
+    // Status changes are heuristic; only an explicit published admission counts
+    // as an explicit reversal or correction.
+    const explicitRevision = /\b(?:changed my mind|i was wrong about|i retract|walk that back|taking that back|i was too high|i was too low|no longer believe)\b/i.test(statement(current,admin));
     beliefs.push({
       subjectType:current.subjectType,
       subject:current.subject,
       current:{ receiptId:current.id,sourceNewsletterId:current.sourceNewsletterId,week:current.week,
+        sourceLabel:publishedSourceLabel(current),publishedAt:current.publishedAt,
         statement:statement(current,admin),stance:current.stance,claimType:current.claimType,confidence:current.confidence },
-      recentHistory:history.slice(-4).reverse().map(x=>({receiptId:x.id,week:x.week,statement:statement(x,admin),stance:x.stance})),
-      ...(prior?{earlierOpposingPosition:{receiptId:prior.id,week:prior.week,statement:statement(prior,admin),stance:prior.stance}}:{}),
+      recentHistory:history.slice(-4).reverse().map(x=>({receiptId:x.id,week:x.week,sourceLabel:publishedSourceLabel(x),statement:statement(x,admin),stance:x.stance})),
+      ...(prior?{earlierOpposingPosition:{receiptId:prior.id,week:prior.week,sourceLabel:publishedSourceLabel(prior),statement:statement(prior,admin),stance:prior.stance}}:{}),
       explicitRevision,pinned:Boolean(admin.annotations?.[current.id]?.pinned),
     });
   }
   return beliefs.sort((a,b)=> Number(b.pinned)-Number(a.pinned) ||
-    b.current.week-a.current.week || a.subject.localeCompare(b.subject));
+    b.current.publishedAt.localeCompare(a.current.publishedAt) || a.subject.localeCompare(b.subject));
 }
 
 function contrasts(own: LearnedBelief[], other: LearnedBelief[], bot: BotName): HostContrast[] {
@@ -195,6 +230,8 @@ export function buildCharacterLearning(
       'Opposing sentiment labels are possible contrasts, not proof of a spoken argument.',
       'A prediction is scored only when an admin verifies its outcome and supplies evidence.',
       'Unverified changes do not alter personality traits or become hard lessons.',
+      'Current positions exclude weak excerpts and matchup picks; they remain auditable in the complete ledger.',
+      'Positions are extracted from published text, not independent observations or human fact-checking.',
     ],
   };
 }
@@ -222,7 +259,7 @@ export function learningWritingInstructions(profile:CharacterLearningProfile): s
     'Keep the speaker’s natural voice; do not turn voice examples into repetitive catchphrases.',
   ];
   for(const b of profile.currentBeliefs.slice(0,8))
-    lines.push('CURRENT POSITION on '+b.subject+' (week '+b.current.week+', receipt '+b.current.receiptId+'): '+b.current.statement.slice(0,240));
+    lines.push('CURRENT POSITION on '+b.subject+' ('+b.current.sourceLabel+', receipt '+b.current.receiptId+'): '+b.current.statement.slice(0,240));
   for(const l of profile.approvedLessons.slice(-6))
     lines.push('APPROVED '+l.kind+': '+l.text.slice(0,270));
   for(const v of profile.approvedVoice.slice(-4))

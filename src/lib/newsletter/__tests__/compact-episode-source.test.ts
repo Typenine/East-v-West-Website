@@ -59,7 +59,7 @@ describe('compact source pack',()=>{
   });
   it('does not lose high-value archived receipts when they fall outside the recent window',()=>{
     const mason=Array.from({length:100},(_,i)=>take('m'+i,9));
-    const special={...mason[0],subject:'A special 2026 title pick'};
+    const special={...mason[0],subject:'A special 2026 title pick',claim:'A special 2026 title pick deserves lasting analysis because it concerns actual league asset decisions.'};
     mason[0]=special;
     const learning={
       mason:buildCharacterLearning('entertainer',mason,[]),

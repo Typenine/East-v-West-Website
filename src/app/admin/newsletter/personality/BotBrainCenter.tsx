@@ -50,9 +50,9 @@ type BrainData = {
     schemaVersion:number; bot:Bot; receiptsConsidered:number; receiptsExcluded:number;
     currentBeliefs:Array<{
       subjectType:string;subject:string;pinned:boolean;explicitRevision:boolean;
-      current:{receiptId:string;sourceNewsletterId:string;week:number;statement:string;stance:string;claimType:string;confidence:number};
-      recentHistory:Array<{receiptId:string;week:number;statement:string;stance:string}>;
-      earlierOpposingPosition?:{receiptId:string;week:number;statement:string;stance:string};
+      current:{receiptId:string;sourceNewsletterId:string;week:number;sourceLabel:string;publishedAt:string;statement:string;stance:string;claimType:string;confidence:number};
+      recentHistory:Array<{receiptId:string;week:number;sourceLabel:string;statement:string;stance:string}>;
+      earlierOpposingPosition?:{receiptId:string;week:number;sourceLabel:string;statement:string;stance:string};
     }>;
     cohostContrasts:Array<{subject:string;kind:string;mason:{receiptId:string;stance:string;statement:string};westy:{receiptId:string;stance:string;statement:string}}>;
     performance:{correct:number;wrong:number;void:number;accuracy:number|null;ungradedPredictions:number};
@@ -456,9 +456,9 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
                 <h4 className="font-semibold">Current positions and past evidence</h4>
                 {(data.learning?.currentBeliefs ?? []).slice(0,26).map(item=><div key={item.subjectType+':'+item.subject} className="border-b border-[var(--border)] pb-3 space-y-1">
                   <div className="flex gap-2 items-center text-xs"><span className="font-medium">{item.subject}</span>
-                    <span className={muted}>Week {item.current.week} · {item.current.stance}{item.pinned?' · Pinned':''}</span></div>
+                    <span className={muted}>{item.current.sourceLabel} · {item.current.stance}{item.pinned?' · Pinned':''}</span></div>
                   <p className="text-sm">{item.current.statement}</p>
-                  {item.earlierOpposingPosition&&<p className={muted+' text-xs'}>Earlier opposing label (Week {item.earlierOpposingPosition.week}): {item.earlierOpposingPosition.statement}</p>}
+                  {item.earlierOpposingPosition&&<p className={muted+' text-xs'}>Earlier opposing label ({item.earlierOpposingPosition.sourceLabel}): {item.earlierOpposingPosition.statement}</p>}
                   <button type="button" className="underline text-xs" onClick={()=>goToEvidence(item.current.receiptId)}>Review source evidence</button>
                 </div>)}
                 {!data.learning?.currentBeliefs.length&&<p className={muted+' text-sm'}>No usable subject positions in the published archive.</p>}

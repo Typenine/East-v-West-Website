@@ -3,6 +3,8 @@ import {
   buildCharacterLearning,
   compactCharacterLearning,
   learningWritingInstructions,
+  isUsableCurrentPosition,
+  publishedSourceLabel,
   type LearningAdmin,
 } from '../brain-learning';
 import type { PublishedTakeLedgerEntry } from '../published-take-store';
@@ -17,12 +19,13 @@ const quote=(id:string,bot:'entertainer'|'analyst',subject:string,claim:string,s
 
 const mason=[
   quote('m1','entertainer','Belleview Badgers','The Belleview Badgers are clearly rebuilding, but they have some upside.','positive',4),
-  quote('m2','entertainer','Belleview Badgers','The Badgers might actually be on a different trajectory after these moves.','positive',9),
+  quote('m2','entertainer','Belleview Badgers','Belleview Badgers might actually be on a different trajectory after these moves.','positive',9),
   quote('m3','entertainer','Red Pandas','I am taking Red Pandas to win the league this year.','positive',8,'prediction'),
+  quote('m4','entertainer','Red Pandas','Red Pandas have two healthy paths to a playoff run, and I like their available options.','positive',9),
 ];
 const westy=[
-  quote('w1','analyst','Belleview Badgers','The Badgers are still too thin at running back to contend this season.','negative',9),
-  quote('w2','analyst','Red Pandas','Their roster construction is a big weakness in the playoffs.','negative',9),
+  quote('w1','analyst','Belleview Badgers','Belleview Badgers are still too thin at running back to contend this season.','negative',9),
+  quote('w2','analyst','Red Pandas','Red Pandas have a major roster construction weakness heading into the playoffs.','negative',9),
 ];
 
 describe('source-grounded character learning',()=>{
@@ -67,7 +70,7 @@ describe('source-grounded character learning',()=>{
       developmentNotes:[{id:'approved1',kind:'bias',text:'Mason sometimes mistakes early momentum for sustainable depth.',
         receiptId:'m2',status:'approved'},{id:'rejected',kind:'lesson',text:'A rejected lesson must not be exported.',
         receiptId:'m1',status:'rejected'}],
-      voiceSamples:[{receiptId:'m2',quote:'The Badgers might actually be on a different trajectory after these moves.',
+      voiceSamples:[{receiptId:'m2',quote:'Belleview Badgers might actually be on a different trajectory after these moves.',
         note:'Succinct enthusiasm without fake catchphrases',sourceNewsletterId:'issue-9'}],
     };
     const before=JSON.stringify(mason);
@@ -87,8 +90,8 @@ describe('source-grounded character learning',()=>{
 
   it('recognizes an explicitly acknowledged changed opinion without grading it',()=>{
     const own=[
-      quote('a','analyst','Cascade Marauders','This team is too weak to compete.','negative',3),
-      {...quote('b','analyst','Cascade Marauders','I changed my mind after they beat the favorite.','positive',10),
+      quote('a','analyst','Cascade Marauders','Cascade Marauders are too weak to compete this season and their roster still needs work.','negative',3),
+      {...quote('b','analyst','Cascade Marauders','I changed my mind about Cascade Marauders after they beat the favorite in a real contest.','positive',10),
         status:'reversed' as const},
     ];
     const x=buildCharacterLearning('analyst',own,[]);
@@ -99,8 +102,35 @@ describe('source-grounded character learning',()=>{
     expect(x.performance.accuracy).toBeNull();
   });
 
+  it('does not promote unrelated matchup picks, captions or generic filler into persistent beliefs',()=>{
+    const flawed=[
+      quote('f1','analyst','Double Trouble',"Lebanon Cake Eaters Double Trouble / Detroit Dawgs Double Trouble Detroit Dawgs I'm watching the lineups.",'neutral',9),
+      quote('f2','analyst','Bimg Bamg Boomg',"Then there's Bimg Bamg Boomg.",'neutral',9),
+      quote('f3','analyst','Belleview Badgers',"I am taking Elemental Heroes to win tonight.",'neutral',9,'prediction'),
+      quote('f4','analyst','Belleview Badgers',"I'm watching the lineups and waiting to see who starts.",'neutral',9),
+      quote('f5','analyst','Bimg Bamg Boomg','Bimg Bamg Boomg has the higher season points total and the worse record.','neutral',8),
+    ];
+    expect(flawed.slice(0,4).every(x=>!isUsableCurrentPosition(x))).toBe(true);
+    expect(isUsableCurrentPosition(flawed[4])).toBe(true);
+    const x=buildCharacterLearning('analyst',flawed,[]);
+    expect(x.currentBeliefs).toHaveLength(1);
+    expect(x.currentBeliefs[0].current.receiptId).toBe('f5');
+    expect(x.receiptsConsidered).toBe(5);
+  });
+  it('never treats special-edition storage timestamps as NFL weeks or as recency',()=>{
+    const early={...quote('special','entertainer','Belleview Badgers',
+      'Belleview Badgers are a team that should draft more running backs before contending.', 'negative',1787317300),
+      title:'2026 Free Agency',episodeType:'special',publishedAt:'2026-08-21T13:00:00Z'};
+    const recent=quote('week9','entertainer','Red Pandas',
+      'Red Pandas can turn these strong performances into meaningful playoff momentum.', 'positive',9);
+    const x=buildCharacterLearning('entertainer',[early,recent],[]);
+    expect(x.currentBeliefs[0].subject).toBe('Red Pandas');
+    expect(x.currentBeliefs[1].current.sourceLabel).toBe('2026 Free Agency');
+    expect(publishedSourceLabel(recent)).toBe('Week 9');
+    expect(learningWritingInstructions(x)).not.toContain('week 1787317300');
+  });
   it('produces a bounded compact profile without copying the entire history into prompts',()=>{
-    const own=Array.from({length:40},(_,i)=>quote('id'+i,'entertainer','Team '+i,'This is a substantial published opinion number '+i+'.',
+    const own=Array.from({length:40},(_,i)=>quote('id'+i,'entertainer','Team '+i,'Team '+i+' has a meaningful published opinion backed by roster decisions and scoring trends '+i+'.',
       'positive',9));
     const x=buildCharacterLearning('entertainer',own,[]);
     const short=compactCharacterLearning(x,6);

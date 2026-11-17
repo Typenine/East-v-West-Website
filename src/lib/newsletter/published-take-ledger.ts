@@ -390,14 +390,14 @@ function markProcessed(state: PublishedTakeLedgerState, newsletterId: string): P
   const baseProcessed = state.extractionVersion < PUBLISHED_CONTINUITY_VERSION ? [] : state.processedNewsletterIds;
   return {
     ...state,
-    extractionVersion: PUBLISHED_CONTINUITY_VERSION,
+    extractionVersion: Math.max(state.extractionVersion, PUBLISHED_CONTINUITY_VERSION),
     processedNewsletterIds: [...new Set([...baseProcessed, newsletterId])],
   };
 }
 
 export async function recordPublishedTakeLedger(newsletterId: string, canonicalPlayerNames: string[] = []): Promise<boolean> {
   const issue = await loadNewsletterById(newsletterId);
-  if (!issue) return false;
+  if (!issue || issue.status !== 'published') return false;
 
   const [initialEntState, initialAnaState] = await Promise.all([
     loadPublishedTakeLedgerState('entertainer', issue.season),
@@ -407,8 +407,8 @@ export async function recordPublishedTakeLedger(newsletterId: string, canonicalP
 
   const sections = (issue.newsletter?.sections ?? []) as NewsletterSection[];
   const recovered = await recoverContinuity(sections, issue.title || 'East v. West Newsletter', forcePdfRefresh);
-  if (!recovered.entertainerText.trim() && !recovered.analystText.trim()) {
-    console.warn(`[TakeLedger] ${newsletterId} contains no attributable Mason/Westy text`);
+  if (!recovered.entertainerText.trim() || !recovered.analystText.trim()) {
+    console.warn(`[TakeLedger] ${newsletterId} requires attributable dialogue from both hosts before marking either processed`);
     return false;
   }
 
@@ -491,7 +491,9 @@ export async function ensurePublishedTakeLedgerForSeason(
     loadPublishedTakeLedgerState('analyst', season),
   ]);
   const refreshedForVersion = entState.extractionVersion < PUBLISHED_CONTINUITY_VERSION || anaState.extractionVersion < PUBLISHED_CONTINUITY_VERSION;
-  const processed = refreshedForVersion ? new Set<string>() : new Set([...entState.processedNewsletterIds, ...anaState.processedNewsletterIds]);
+  // An episode is complete only when BOTH characters have ingested it.
+  // A union silently hides one-sided checkpoint failures and prevents repairs.
+  const processed = refreshedForVersion ? new Set<string>() : new Set(entState.processedNewsletterIds.filter(id => anaState.processedNewsletterIds.includes(id)));
   let alreadyProcessed = 0;
   let backfilled = 0;
   const unresolvedIssueIds: string[] = [];
