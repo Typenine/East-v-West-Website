@@ -15,7 +15,7 @@ export interface EditorialWorkspaceProps {
   embedded?: boolean;
   onHtmlUpdate?: (html: string) => void;
   onClose?: () => void;
-  onPublish?: () => void;
+  onPublish?: () => Promise<{ok:boolean;message:string}>;
   publishing?: boolean;
   setFinalizeResult?: (result: { ok: boolean; message: string } | null) => void;
 }
@@ -776,8 +776,10 @@ export default function EditorialWorkspace({
     }
     try {
       if (onPublish) {
-        onPublish();
-        setPublishResult({ ok: true, message: 'Publish request sent.' });
+        // Embedded editor must wait for the actual publication checkpoint.
+        // A request being sent is not evidence that either host learned it.
+        const outcome = await onPublish();
+        setPublishResult(outcome);
       } else {
         const response = await fetch('/api/newsletter/publish', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',

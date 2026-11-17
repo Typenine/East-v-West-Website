@@ -559,7 +559,7 @@ function AdminNewsletterPageInner() {
 
   // sendDiscord defaults ON (primary Publish announces); pass false for "Publish (no Discord)".
   const handlePublish = async (sendDiscord = true) => {
-    if (!gen.html || !gen.meta) return;
+    if (!gen.html || !gen.meta) return {ok:false,message:'No finalized newsletter is ready to publish.'};
     setPublishing(true);
     setPublishResult(null);
     try {
@@ -576,11 +576,15 @@ function AdminNewsletterPageInner() {
         body: JSON.stringify({ season: parseInt(season), week: wNum, id: existing?.id, sendDiscord, html: editHtml ?? gen.html }),
       });
       const data = await res.json() as { message?: string; error?: string; success?:boolean; memoryWarning?:boolean };
-      setPublishResult({ ok: res.ok && data.success !== false && !data.memoryWarning,
-        message: data.message ?? data.error ?? (res.ok ? 'Published!' : 'Failed') });
+      const result={ok:res.ok && data.success !== false && !data.memoryWarning,
+        message:data.message ?? data.error ?? (res.ok?'Published!':'Failed')};
+      setPublishResult(result);
       if (res.ok) setSavedReload(k => k + 1);
+      return result;
     } catch (err) {
-      setPublishResult({ ok: false, message: err instanceof Error ? err.message : 'Publish failed' });
+      const result={ok:false,message:err instanceof Error ? err.message : 'Publish failed'};
+      setPublishResult(result);
+      return result;
     } finally {
       setPublishing(false);
     }

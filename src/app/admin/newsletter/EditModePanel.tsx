@@ -10,7 +10,7 @@ export interface EditModePanelProps {
   html: string | null;
   onHtmlUpdate: (html: string) => void;
   onClose: () => void;
-  onPublish: () => void;
+  onPublish: () => Promise<{ok:boolean;message:string}>;
   publishing: boolean;
   finalizeResult: { ok: boolean; message: string } | null;
   setFinalizeResult: (result: { ok: boolean; message: string } | null) => void;

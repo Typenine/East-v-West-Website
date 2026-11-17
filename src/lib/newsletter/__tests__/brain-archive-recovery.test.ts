@@ -38,7 +38,7 @@ describe('permanent archive and safe publication recovery',()=>{
   it('retrying never publishes or sends Discord',()=>{
     const route=read('src/app/api/admin/newsletter/memory-health/route.ts');
     expect(route).toContain("body?.action === 'retry_issue'");
-    expect(route).toContain('checkpointPublishedMemory(issueId)');
+    expect(route).toContain('checkpointAndRecordPublishedMemory(issueId)');
     expect(route).toContain('discordSent:false');
     expect(route).not.toContain('publishNewsletter(');
     expect(route).not.toContain('postDiscord');
@@ -61,6 +61,13 @@ describe('permanent archive and safe publication recovery',()=>{
     expect(generator).toContain('!data.memoryWarning');
     expect(saved).toContain('memoryWarningMessage');
     expect(read('src/app/api/newsletter/publish/route.ts')).toContain('checkpointAndRecordPublishedMemory(target.id)');
+  });
+  it('embedded newsletter editor waits for the actual publish outcome',()=>{
+    const editor=read('src/app/admin/newsletter/EditorialWorkspace.tsx');
+    const panel=read('src/app/admin/newsletter/EditModePanel.tsx');
+    expect(editor).toContain('const outcome = await onPublish()');
+    expect(editor).not.toContain("message: 'Publish request sent.'");
+    expect(panel).toContain('onPublish: () => Promise<{ok:boolean;message:string}>');
   });
   it('warns when either host fails to ingest a published issue',()=>{
     const route=read('src/app/api/newsletter/publish/route.ts');
