@@ -246,7 +246,7 @@ export default function ExternalNewsletterWritingRoomPage() {
           )}
 
           <div className="rounded-lg border border-blue-800/50 bg-blue-950/20 px-4 py-3 text-xs leading-5 text-blue-200">
-            Recommended request after uploading the files: <strong>Generate the selected East v. West newsletter as a finished PDF. Follow the permanent Writing Room instructions, use the Episode Source Pack for current facts, and use Mason's and Westy's separate Active Brains for their individual voices and historical views. Do not invent disagreements, prediction results, or character growth. Keep the full established episode length and format.</strong>
+            Recommended request after uploading the files: <strong>Generate the selected East v. West newsletter as a finished PDF. Follow the permanent Writing Room instructions, use the Episode Source Pack for current facts, and use the separate Mason and Westy Active Brains for their individual voices and historical views. Do not invent disagreements, prediction results, or character growth. Keep the full established episode length and format.</strong>
           </div>
         </CardContent>
       </Card>
