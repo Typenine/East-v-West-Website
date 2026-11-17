@@ -266,17 +266,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Existing memory evolution still runs for the normal structured pipeline.
-    await updateBotMemoryFromPublish(target.season, target.week).catch(error => {
-      console.warn('[Publish] Bot memory update failed (non-fatal):', error);
-    });
-
-    // Exact-ID take ledger is the authoritative published-opinion checkpoint.
-    // It also handles externally uploaded PDFs because their upload step extracts
-    // attributable Mason/Westy continuity into the stored newsletter section.
-    await recordPublishedTakeLedger(target.id).catch(error => {
-      console.warn('[Publish] Published take ledger update failed (non-fatal):', error);
-    });
+    // Recover PDF dialogue and commit the exact-ID attributed ledger FIRST.
+    // Character memories are hydrated from that ledger afterward, so PDFs and
+    // native structured issues take the same path. Failure must be visible.
+    let publishedLedgerSynced = false;
+    let characterMemorySynced = false;
+    let characterMemoryError: string | null = null;
+    try {
+      publishedLedgerSynced = await recordPublishedTakeLedger(target.id);
+      if (!publishedLedgerSynced) characterMemoryError = 'No attributable host dialogue recovered';
+    } catch (error) {
+      characterMemoryError = error instanceof Error ? error.message : String(error);
+      console.warn('[Publish] Published take ledger update failed:', error);
+    }
+    if (publishedLedgerSynced) {
+      try {
+        await updateBotMemoryFromPublish(target.id);
+        characterMemorySynced = true;
+      } catch (error) {
+        characterMemoryError = error instanceof Error ? error.message : String(error);
+        console.warn('[Publish] Character memory update failed:', error);
+      }
+    }
 
     // Store predictions and Stock Watch receipts only after the issue is officially published.
     // Re-publishing or re-exporting does not duplicate them.
@@ -297,6 +308,7 @@ export async function POST(req: NextRequest) {
       success: true,
       published: true,
       alreadyPublished,
+      memorySync: { publishedLedgerSynced, characterMemorySynced, error: characterMemoryError },
       newsletterId: target.id,
       publicUrl,
       episodeType,

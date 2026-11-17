@@ -92,7 +92,7 @@ async function adminFetch(url: string, opts?: RequestInit) {
 export default function PersonalityConsolePage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [checked, setChecked] = useState(false);
-  const [activeTab, setActiveTab] = useState<'bots' | 'teams' | 'phrases' | 'preview'>('bots');
+  const [activeTab, setActiveTab] = useState<'bots' | 'teams' | 'phrases' | 'preview' | 'memory'>('bots');
 
   useEffect(() => {
     fetch('/api/admin-login', { credentials: 'include' })
@@ -109,6 +109,7 @@ export default function PersonalityConsolePage() {
     { key: 'teams',   label: 'Team Cards' },
     { key: 'phrases', label: 'Phrase Pools' },
     { key: 'preview', label: 'Preview Tool' },
+    { key: 'memory', label: 'Memory Health' },
   ] as const;
 
   return (
@@ -142,6 +143,115 @@ export default function PersonalityConsolePage() {
       {activeTab === 'teams'   && <TeamCardsPanel />}
       {activeTab === 'phrases' && <PhrasesPanel />}
       {activeTab === 'preview' && <PreviewPanel />}
+      {activeTab === 'memory' && <MemoryHealthPanel />}
+    </div>
+  );
+}
+
+// ── Published Memory Health ───────────────────────────────────────────────────
+
+interface MemoryHealthData {
+  season: number;
+  publishedIssues: number;
+  bots: Record<'mason' | 'westy', {
+    lastUpdated: string | null;
+    takeCount: number;
+    processedIssues: number;
+    deepTeamCount: number;
+    deepPlayerCount: number;
+    growthLessons: number;
+    predictionResults: { correct: number; wrong: number };
+  }>;
+  missingContinuity: Array<{ id: string; title: string | null; week: number }>;
+}
+
+function MemoryHealthPanel() {
+  const [season, setSeason] = useState('2026');
+  const [health, setHealth] = useState<MemoryHealthData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [message, setMessage] = useState('');
+  const load = useCallback(async () => {
+    setLoading(true);
+    setMessage('');
+    try {
+      setHealth(await adminFetch(`/api/admin/newsletter/memory-health?season=${encodeURIComponent(season)}`));
+    } catch (err) {
+      setMessage(`Unable to load memory health: ${err}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [season]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const rebuild = async () => {
+    if (!confirm(`Rebuild Mason and Westy's deep relationships from the saved ${season} published-take ledger? This will preserve personality traits and prediction results.`)) return;
+    setWorking(true);
+    setMessage('');
+    try {
+      const result = await adminFetch('/api/admin/newsletter/memory-health', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'rehydrate', season: Number(season) }),
+      });
+      setHealth(result.health);
+      setMessage('Published relationships rebuilt. Existing takes, personality traits and prediction results were preserved.');
+    } catch (err) {
+      setMessage(`Memory rebuild failed: ${err}`);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader><CardTitle>Published Memory Health</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="w-28">
+              <Label className="block text-xs mb-1">Season</Label>
+              <Input type="number" min={2020} max={2100} value={season} onChange={e => setSeason(e.target.value)} />
+            </div>
+            <Button variant="secondary" onClick={load} disabled={loading || working}>
+              {loading ? 'Loading…' : 'Refresh'}
+            </Button>
+          </div>
+          {health && (
+            <>
+              <p className="text-sm text-[var(--muted)]">{health.publishedIssues} published issues in {health.season}.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(['mason', 'westy'] as const).map(bot => (
+                  <div key={bot} className="border border-[var(--border)] rounded-lg p-4 space-y-2">
+                    <div className="font-semibold">{bot === 'mason' ? 'Mason Reed' : 'Westy'}</div>
+                    <div className="text-sm">Issues processed: {health.bots[bot].processedIssues}/{health.publishedIssues}</div>
+                    <div className="text-sm">Stored takes: {health.bots[bot].takeCount}</div>
+                    <div className="text-sm">Deep team relationships: {health.bots[bot].deepTeamCount}</div>
+                    <div className="text-sm">Deep player relationships: {health.bots[bot].deepPlayerCount}</div>
+                    <div className="text-sm">Growth lessons: {health.bots[bot].growthLessons}</div>
+                    <div className="text-sm">Graded predictions: {health.bots[bot].predictionResults.correct + health.bots[bot].predictionResults.wrong}</div>
+                    <div className="text-xs text-[var(--muted)]">Last updated: {health.bots[bot].lastUpdated ?? 'Never'}</div>
+                  </div>
+                ))}
+              </div>
+              {health.missingContinuity.length > 0 && (
+                <div className="text-amber-300 text-sm">
+                  {health.missingContinuity.length} published issue(s) lack attributed continuity. Investigate before assuming the archive is complete.
+                </div>
+              )}
+            </>
+          )}
+          <p className="text-sm text-[var(--muted)]">
+            Rebuilds only relationship history from existing published takes. It does not invent lessons,
+            change personality traits, grade unverified predictions, or call a paid AI model.
+          </p>
+          <Button onClick={rebuild} disabled={loading || working || !health || health.publishedIssues === 0}>
+            {working ? 'Rebuilding…' : 'Rebuild Published Relationships'}
+          </Button>
+          {message && <p className="text-sm text-[var(--muted)]">{message}</p>}
+        </CardContent>
+      </Card>
     </div>
   );
 }

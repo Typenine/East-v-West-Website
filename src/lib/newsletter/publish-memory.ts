@@ -8,10 +8,10 @@
  * when a generator is working with only one BotMemory object.
  */
 
-import { loadBotMemory, saveBotMemory, loadStagedNewsletter } from '@/server/db/newsletter-queries';
-import { getDb } from '@/server/db/client';
-import { newsletters } from '@/server/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { loadBotMemory, loadNewsletterById, saveBotMemory, loadStagedNewsletter } from '@/server/db/newsletter-queries';
+import { createEnhancedMemory } from '@/lib/newsletter/memory';
+import { loadPublishedTakeLedgerState } from '@/lib/newsletter/published-take-store';
+import { hydratePublishedRelationships } from '@/lib/newsletter/published-memory-hydration';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import type {
   BotMemory,
@@ -287,90 +287,109 @@ function applyDigest(mem: BotMemory, digest: EditorialMemoryDigest, bot: BotName
   }
 }
 
-export async function updateBotMemoryFromPublish(season: number, week: number): Promise<void> {
-  try {
-    const db = getDb();
-    const rows = await db.select().from(newsletters)
-      .where(and(eq(newsletters.season, season), eq(newsletters.week, week)))
-      .limit(1);
-    if (!rows.length) {
-      console.warn(`[PublishMemory] No newsletter found for s${season}w${week} — skipping`);
-      return;
-    }
-
-    const content = rows[0].content as { sections?: SectionContent[] } | null;
-    const publishedSections = content?.sections ?? [];
-    if (!publishedSections.length) return;
-
-    const [entMem, anaMem] = await Promise.all([
-      loadBotMemory('entertainer', season),
-      loadBotMemory('analyst', season),
-    ]);
-    const memories: Record<BotName, BotMemory | null> = { entertainer: entMem, analyst: anaMem };
-
-    const teamNames = unique([
-      ...TEAM_NAMES,
-      ...Object.keys(entMem?.teams ?? {}),
-      ...Object.keys(anaMem?.teams ?? {}),
-      ...Object.keys(entMem?.deepTeamRelationships ?? {}),
-      ...Object.keys(anaMem?.deepTeamRelationships ?? {}),
-    ]);
-    const playerNames = unique([
-      ...collectPlayerNames(publishedSections),
-      ...Object.values(entMem?.deepPlayerRelationships ?? {}).map(r => r.playerName),
-      ...Object.values(anaMem?.deepPlayerRelationships ?? {}).map(r => r.playerName),
-    ]);
-
-    const digest = await synthesizePublishedIntelligence({
-      season,
-      week,
-      teamNames,
-      playerNames,
-      entertainerText: unique(collectBotText(publishedSections, 'entertainer')).join('\n'),
-      analystText: unique(collectBotText(publishedSections, 'analyst')).join('\n'),
-    });
-
-    const staged = await loadStagedNewsletter(season, week).catch(() => null);
-    let originalSections: SectionContent[] | null = null;
-    if (staged?.generatedContent) {
-      const gcLower = Object.fromEntries(Object.entries(staged.generatedContent).map(([k, v]) => [k.toLowerCase(), v]));
-      originalSections = publishedSections.map(pub => {
-        const stagedSection = staged.generatedContent[pub.type] ?? gcLower[pub.type?.toLowerCase() ?? ''];
-        return stagedSection ? {
-          ...pub,
-          bot1_text: stagedSection.entertainer ?? pub.bot1_text,
-          bot2_text: stagedSection.analyst ?? pub.bot2_text,
-        } : pub;
-      });
-    }
-
-    for (const { bot, field } of [
-      { bot: 'entertainer' as const, field: 'bot1_text' as const },
-      { bot: 'analyst' as const, field: 'bot2_text' as const },
-    ]) {
-      const mem = memories[bot];
-      if (!mem) {
-        console.warn(`[PublishMemory] ${bot}: no season ${season} memory record`);
-        continue;
-      }
-
-      if (originalSections) {
-        const corrections = diffSections(publishedSections, originalSections, field);
-        if (corrections.length) {
-          const entry: EditorialCorrectionEntry = { season, week, source: 'editorial_review', corrections };
-          if (!mem.editorialCorrections) mem.editorialCorrections = [];
-          const idx = mem.editorialCorrections.findIndex(e => e.season === season && e.week === week);
-          if (idx >= 0) mem.editorialCorrections[idx] = entry;
-          else mem.editorialCorrections.push(entry);
-        }
-      }
-
-      applyDigest(mem, digest, bot, season, week);
-      await saveBotMemory(bot, season, mem);
-      const ownClaims = digest.claims.filter(c => c.bot === bot).length;
-      console.log(`[PublishMemory] ${hostLabel(bot)} intelligence saved: ${ownClaims} claims; shared team/player dossiers refreshed`);
-    }
-  } catch (err) {
-    console.error('[PublishMemory] updateBotMemoryFromPublish failed (non-fatal):', err instanceof Error ? err.message : String(err));
+/**
+ * Bring one EXACT published issue into both character memories. In particular,
+ * PDF uploads use the same post-extraction path as native newsletter sections.
+ * This is safe to replay: claims and relationship history are deduplicated.
+ */
+export async function updateBotMemoryFromPublish(newsletterId: string): Promise<{
+  masonClaims: number;
+  westyClaims: number;
+  masonTeams: number;
+  westyTeams: number;
+  masonPlayers: number;
+  westyPlayers: number;
+}> {
+  const issue = await loadNewsletterById(newsletterId);
+  if (!issue || issue.status !== 'published') {
+    throw new Error(`Cannot ingest missing/unpublished newsletter ${newsletterId}`);
   }
+  const { season, week } = issue;
+  const publishedSections = (issue.newsletter?.sections ?? []) as SectionContent[];
+  if (!publishedSections.length) throw new Error(`Newsletter ${newsletterId} has no sections`);
+
+  const [entMem, anaMem, entLedger, anaLedger] = await Promise.all([
+    loadBotMemory('entertainer', season),
+    loadBotMemory('analyst', season),
+    loadPublishedTakeLedgerState('entertainer', season),
+    loadPublishedTakeLedgerState('analyst', season),
+  ]);
+  const memories: Record<BotName, BotMemory> = {
+    entertainer: entMem ?? createEnhancedMemory('entertainer', season),
+    analyst: anaMem ?? createEnhancedMemory('analyst', season),
+  };
+  const teamNames = unique([
+    ...TEAM_NAMES,
+    ...Object.keys(memories.entertainer.teams ?? {}),
+    ...Object.keys(memories.analyst.teams ?? {}),
+  ]);
+  const playerNames = unique([
+    ...collectPlayerNames(publishedSections),
+    ...Object.values(memories.entertainer.deepPlayerRelationships ?? {}).map(r => r.playerName),
+    ...Object.values(memories.analyst.deepPlayerRelationships ?? {}).map(r => r.playerName),
+    ...entLedger.entries.filter(e => e.subjectType === 'player').map(e => e.subject),
+    ...anaLedger.entries.filter(e => e.subjectType === 'player').map(e => e.subject),
+  ]);
+  const entertainerText = unique(collectBotText(publishedSections, 'entertainer')).join('\n');
+  const analystText = unique(collectBotText(publishedSections, 'analyst')).join('\n');
+  if (!entertainerText.trim() && !analystText.trim()) {
+    throw new Error(`Newsletter ${newsletterId} has no attributable host dialogue`);
+  }
+  const digest = await synthesizePublishedIntelligence({
+    season, week, teamNames, playerNames, entertainerText, analystText,
+  });
+
+  const staged = await loadStagedNewsletter(season, week).catch(() => null);
+  let originalSections: SectionContent[] | null = null;
+  if (staged?.generatedContent) {
+    const gcLower = Object.fromEntries(Object.entries(staged.generatedContent).map(([k, v]) => [k.toLowerCase(), v]));
+    originalSections = publishedSections.map(pub => {
+      const stagedSection = staged.generatedContent[pub.type] ?? gcLower[pub.type?.toLowerCase() ?? ''];
+      return stagedSection ? {
+        ...pub,
+        bot1_text: stagedSection.entertainer ?? pub.bot1_text,
+        bot2_text: stagedSection.analyst ?? pub.bot2_text,
+      } : pub;
+    });
+  }
+
+  const outcomes: Record<BotName, { claims: number; teams: number; players: number }> = {
+    entertainer: { claims: 0, teams: 0, players: 0 },
+    analyst: { claims: 0, teams: 0, players: 0 },
+  };
+  for (const { bot, field, ledger } of [
+    { bot: 'entertainer' as const, field: 'bot1_text' as const, ledger: entLedger },
+    { bot: 'analyst' as const, field: 'bot2_text' as const, ledger: anaLedger },
+  ]) {
+    const mem = memories[bot];
+    if (originalSections) {
+      const corrections = diffSections(publishedSections, originalSections, field);
+      if (corrections.length) {
+        const entry: EditorialCorrectionEntry = { season, week, source: 'editorial_review', corrections };
+        if (!mem.editorialCorrections) mem.editorialCorrections = [];
+        const idx = mem.editorialCorrections.findIndex(e => e.season === season && e.week === week);
+        if (idx >= 0) mem.editorialCorrections[idx] = entry;
+        else mem.editorialCorrections.push(entry);
+      }
+    }
+    applyDigest(mem, digest, bot, season, week);
+    // The published ledger is already the audited, attributed historical record.
+    // Materialize each host's OWN views without guessing new traits or grading
+    // unresolved predictions. Replays do not duplicate relationship entries.
+    const hydrated = hydratePublishedRelationships(mem, ledger.entries);
+    await saveBotMemory(bot, season, mem);
+    outcomes[bot] = {
+      claims: digest.claims.filter(c => c.bot === bot).length,
+      teams: hydrated.teams,
+      players: hydrated.players,
+    };
+  }
+  return {
+    masonClaims: outcomes.entertainer.claims,
+    westyClaims: outcomes.analyst.claims,
+    masonTeams: outcomes.entertainer.teams,
+    westyTeams: outcomes.analyst.teams,
+    masonPlayers: outcomes.entertainer.players,
+    westyPlayers: outcomes.analyst.players,
+  };
 }

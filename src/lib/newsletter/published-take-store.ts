@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { BotName } from '@/lib/newsletter/types';
 import { getDb } from '@/server/db/client';
 import { botMemory } from '@/server/db/schema';
@@ -91,7 +91,7 @@ export async function savePublishedTakeLedgerState(
 ): Promise<void> {
   const db = getDb();
   const rows = await db
-    .select({ id: botMemory.id, enhancedData: botMemory.enhancedData })
+    .select({ id: botMemory.id })
     .from(botMemory)
     .where(and(eq(botMemory.bot, bot), eq(botMemory.season, season)))
     .limit(1);
@@ -100,7 +100,6 @@ export async function savePublishedTakeLedgerState(
     throw new Error(`Cannot save published take ledger before ${bot} ${season} memory exists.`);
   }
 
-  const current = ((rows[0].enhancedData as EnhancedData | null) ?? {});
   const updatedAt = new Date().toISOString();
   const normalized: PublishedTakeLedgerState = {
     entries: state.entries.slice(-MAX_LEDGER_ENTRIES),
@@ -112,11 +111,13 @@ export async function savePublishedTakeLedgerState(
   await db
     .update(botMemory)
     .set({
-      enhancedData: {
-        ...current,
+      // A second writer may be updating personality/relationships at the same
+      // time. Merge the ledger keys in PostgreSQL rather than writing a stale
+      // copy of the entire enhanced_data object.
+      enhancedData: sql`COALESCE(${botMemory.enhancedData}, '{}'::jsonb) || ${JSON.stringify({
         publishedTakeLedgerState: normalized,
         publishedTakeLedger: normalized.entries,
-      },
+      })}::jsonb`,
       updatedAt: new Date(),
     })
     .where(eq(botMemory.id, rows[0].id));

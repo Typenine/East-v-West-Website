@@ -3,7 +3,7 @@
  * Handles persistence of bot memory, forecast records, and newsletters
  */
 
-import { eq, and, ne, desc } from 'drizzle-orm';
+import { eq, and, ne, desc, sql } from 'drizzle-orm';
 import { getDb } from './client';
 import {
   botMemory,
@@ -118,7 +118,7 @@ export async function saveBotMemory(
   const db = getDb();
 
   // Extract enhanced data if present
-  const isEnhanced = 'personality' in memory || 'predictions' in memory || 'partnerDynamics' in memory;
+  const isEnhanced = 'personality' in memory || 'predictions' in memory || 'partnerDynamics' in memory || 'deepTeamRelationships' in memory || 'deepPlayerRelationships' in memory;
   
   // Build enhanced data object with all the extra fields
   const enhancedData: Record<string, unknown> = {};
@@ -163,7 +163,9 @@ export async function saveBotMemory(
         .set({
           summaryMood: dbSummaryMood,
           teams: memory.teams,
-          enhancedData: enhancedData,
+          // Atomically merge updated character fields into the stored JSONB. Do not
+          // replace the independent published-take ledger or other continuity data.
+          enhancedData: sql`COALESCE(${botMemory.enhancedData}, '{}'::jsonb) || ${JSON.stringify(enhancedData)}::jsonb`,
           editorialCorrections: (memory.editorialCorrections ?? []) as unknown as Array<Record<string, unknown>>,
           updatedAt: new Date(),
         })
