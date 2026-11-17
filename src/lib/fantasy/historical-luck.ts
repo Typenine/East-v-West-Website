@@ -17,6 +17,8 @@ export interface HistoricalLuckTeam {
   pointsFor: number;
   historicalExpected: number;
   historicalLuck: number;
+  combinedExpected: number;
+  combinedLuck: number;
   allPlayExpected: number;
   allPlayLuck: number;
   weeks: HistoricalLuckWeek[];
@@ -103,6 +105,7 @@ export function calculateHistoricalLuck(
       if (!team) {
         team = { rosterId: score.id, name: score.name, wins: 0, losses: 0,
           ties: 0, pointsFor: 0, historicalExpected: 0, historicalLuck: 0,
+          combinedExpected: 0, combinedLuck: 0,
           allPlayExpected: 0, allPlayLuck: 0, weeks: [] };
         teams.set(score.id, team);
       }
@@ -125,6 +128,9 @@ export function calculateHistoricalLuck(
 
   for (const team of teams.values()) {
     const actual = team.wins + team.ties / 2;
+    const combinedExpectedRaw = (team.historicalExpected + team.allPlayExpected) / 2;
+    team.combinedExpected = round2(combinedExpectedRaw);
+    team.combinedLuck = round2(actual - combinedExpectedRaw);
     team.pointsFor = round2(team.pointsFor);
     team.historicalLuck = round2(actual - team.historicalExpected);
     team.allPlayLuck = round2(actual - team.allPlayExpected);
