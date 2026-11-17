@@ -167,7 +167,7 @@ interface MemoryHealthData {
     predictionResults: { correct: number; wrong: number };
     claimQuality: { predictions: number; needsReview: number; staleClassifications: number };
   }>;
-  missingContinuity: Array<{ id: string; title: string | null; week: number }>;
+  missingContinuity: Array<{ id: string; title: string | null; week: number; reason?: string | null; memorySyncStatus?: string | null; lastAttempt?:string|null }>;
 }
 
 function MemoryHealthPanel() {
@@ -281,7 +281,9 @@ function MemoryHealthPanel() {
                   <p>{health.missingContinuity.length} published issue(s) have incomplete host memory. Retry the saved issue without publishing or notifying Discord.</p>
                   <div className="mt-3 space-y-2">
                     {health.missingContinuity.map(issue=><div key={issue.id} className="flex flex-wrap items-center justify-between gap-2 border border-amber-800/40 rounded-md p-2">
-                      <span>{issue.title || 'Untitled issue'}</span>
+                      <div><div>{issue.title || 'Untitled issue'}</div>
+                        {issue.reason && <p className="text-xs opacity-80 mt-1">{issue.reason}</p>}
+                      </div>
                       <Button variant="secondary" disabled={loading||working}
                         onClick={()=>void retryIssue(issue.id)}>{working?'Processing…':'Retry Memory Only'}</Button>
                     </div>)}

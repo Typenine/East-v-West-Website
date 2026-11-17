@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { checkpointPublishedMemory } from '../published-memory-checkpoint';
+import { checkpointPublishedMemory, checkpointAndRecordPublishedMemory } from '../published-memory-checkpoint';
 import { readFileSync } from 'node:fs';
 
 describe('published newsletter memory checkpoint', () => {
@@ -34,6 +34,36 @@ describe('published newsletter memory checkpoint', () => {
     expect(result.publishedLedgerSynced).toBe(true);
     expect(result.characterMemorySynced).toBe(false);
     expect(result.error).toContain('simulated storage outage');
+  });
+  it('records a durable failed checkpoint even after both ledgers were written',async()=>{
+    const order:string[]=[];
+    const persist=vi.fn(async (_id:string, result:{publishedLedgerSynced:boolean;characterMemorySynced:boolean;error:string|null})=>{
+      order.push('persist:'+String(result.characterMemorySynced));
+    });
+    const outcome=await checkpointAndRecordPublishedMemory('saved-issue',{
+      record:async()=>{order.push('ledger');return true},
+      update:async()=>{order.push('characters');throw Error('simulated character write failure')},
+    },persist);
+    expect(outcome.publishedLedgerSynced).toBe(true);
+    expect(outcome.characterMemorySynced).toBe(false);
+    expect(outcome.error).toContain('simulated character write failure');
+    expect(order).toEqual(['ledger','characters','persist:false']);
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+  it('reports a persistence failure instead of silently declaring green',async()=>{
+    const outcome=await checkpointAndRecordPublishedMemory('saved-issue',{
+      record:async()=>true, update:async()=>({}),
+    },async()=>{throw Error('database did not accept status')});
+    expect(outcome.characterMemorySynced).toBe(true);
+    expect(outcome.error).toContain('Memory sync status could not be saved');
+  });
+  it('persists successful fully attributed updates as complete',async()=>{
+    const persisted=vi.fn(async()=>{});
+    const outcome=await checkpointAndRecordPublishedMemory('saved-issue',{
+      record:async()=>true,update:async()=>({}),
+    },persisted);
+    expect(outcome).toEqual({publishedLedgerSynced:true,characterMemorySynced:true,error:null});
+    expect(persisted).toHaveBeenCalledWith('saved-issue',outcome);
   });
   it('only treats issues as complete when both host ledgers contain them', () => {
     const source = readFileSync('src/lib/newsletter/published-take-ledger.ts', 'utf8');

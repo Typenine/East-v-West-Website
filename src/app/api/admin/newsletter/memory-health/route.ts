@@ -3,8 +3,11 @@
  * No AI inference, personality grading, or external API calls are performed.
  */
 import { NextRequest } from 'next/server';
+import { eq } from 'drizzle-orm';
+import { getDb } from '@/server/db/client';
+import { newsletters } from '@/server/db/schema';
 import { isAdminCookieValue } from '@/lib/auth/admin';
-import { checkpointPublishedMemory } from '@/lib/newsletter/published-memory-checkpoint';
+import { checkpointAndRecordPublishedMemory } from '@/lib/newsletter/published-memory-checkpoint';
 import { listNewslettersMeta, loadBotMemory, loadNewsletterById, saveBotMemory } from '@/server/db/newsletter-queries';
 import { TEAM_NAMES } from '@/lib/constants/league';
 import { synthesizePublishedIntelligence } from '@/lib/newsletter/editorial-memory';
@@ -26,15 +29,19 @@ function readSeason(raw: unknown): number | null {
 }
 
 async function getHealth(season: number) {
-  const [mason, westy, masonLedger, westyLedger, allIssues] = await Promise.all([
+  const [mason, westy, masonLedger, westyLedger, allIssues, syncRows] = await Promise.all([
     loadBotMemory('entertainer', season),
     loadBotMemory('analyst', season),
     loadPublishedTakeLedgerState('entertainer', season),
     loadPublishedTakeLedgerState('analyst', season),
     listNewslettersMeta(season),
+    getDb().select({id:newsletters.id, memorySyncStatus:newsletters.memorySyncStatus,
+      memorySyncError:newsletters.memorySyncError, memorySyncCheckedAt:newsletters.memorySyncCheckedAt})
+      .from(newsletters).where(eq(newsletters.season,season)),
   ]);
   const issues = allIssues.filter(issue => issue.status === 'published');
   const publishedIds = new Set(issues.map(issue => issue.id));
+  const syncById = new Map(syncRows.map(row=>[row.id,row]));
   const healthFor = (memory: typeof mason, ledger: typeof masonLedger) => ({
     lastUpdated: memory?.updated_at ?? null,
     takeCount: ledger.entries.length,
@@ -64,8 +71,14 @@ async function getHealth(season: number) {
       westy: healthFor(westy, westyLedger),
     },
     missingContinuity: issues
-      .filter(issue => !masonLedger.processedNewsletterIds.includes(issue.id) || !westyLedger.processedNewsletterIds.includes(issue.id))
-      .map(issue => ({ id: issue.id, title: issue.title, week: issue.week })),
+      .filter(issue => !masonLedger.processedNewsletterIds.includes(issue.id) ||
+        !westyLedger.processedNewsletterIds.includes(issue.id) ||
+        syncById.get(issue.id)?.memorySyncStatus === 'failed')
+      .map(issue => ({ id: issue.id, title: issue.title, week: issue.week,
+        memorySyncStatus:syncById.get(issue.id)?.memorySyncStatus??null,
+        reason:syncById.get(issue.id)?.memorySyncError??
+          'One or both host ledgers have not processed this published issue',
+        lastAttempt:syncById.get(issue.id)?.memorySyncCheckedAt?.toISOString()??null })),
   };
 }
 
@@ -90,7 +103,7 @@ export async function POST(req: NextRequest) {
       if(!issue||issue.season!==season||issue.status!=='published')
         return Response.json({error:'Only saved published issues can be retried'},{status:404});
       // No publishing call or Discord notification; exact-ID memory recovery only.
-      const memorySync=await checkpointPublishedMemory(issueId);
+      const memorySync=await checkpointAndRecordPublishedMemory(issueId);
       const health=await getHealth(season);
       return Response.json({success:!memorySync.error,issueId,memorySync,health,
         newsletterPublished:false,discordSent:false,

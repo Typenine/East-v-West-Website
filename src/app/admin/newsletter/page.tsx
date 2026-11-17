@@ -575,8 +575,9 @@ function AdminNewsletterPageInner() {
         // other published newsletter for the same slot (replace semantics).
         body: JSON.stringify({ season: parseInt(season), week: wNum, id: existing?.id, sendDiscord, html: editHtml ?? gen.html }),
       });
-      const data = await res.json() as { message?: string; error?: string };
-      setPublishResult({ ok: res.ok, message: data.message ?? data.error ?? (res.ok ? 'Published!' : 'Failed') });
+      const data = await res.json() as { message?: string; error?: string; success?:boolean; memoryWarning?:boolean };
+      setPublishResult({ ok: res.ok && data.success !== false && !data.memoryWarning,
+        message: data.message ?? data.error ?? (res.ok ? 'Published!' : 'Failed') });
       if (res.ok) setSavedReload(k => k + 1);
     } catch (err) {
       setPublishResult({ ok: false, message: err instanceof Error ? err.message : 'Publish failed' });

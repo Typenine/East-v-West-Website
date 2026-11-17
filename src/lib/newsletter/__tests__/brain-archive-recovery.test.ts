@@ -43,6 +43,25 @@ describe('permanent archive and safe publication recovery',()=>{
     expect(route).not.toContain('publishNewsletter(');
     expect(route).not.toContain('postDiscord');
   });
+  it('uses a durable status column rather than only a transient publish response',()=>{
+    const migration=read('drizzle/0026_newsletter_memory_sync_status.sql');
+    const schema=read('src/server/db/schema.ts');
+    const health=read('src/app/api/admin/newsletter/memory-health/route.ts');
+    const checkpoint=read('src/lib/newsletter/published-memory-checkpoint.ts');
+    expect(migration).toContain('memory_sync_status');
+    expect(migration).not.toMatch(/DROP|DELETE|TRUNCATE/i);
+    expect(schema).toContain('memorySyncStatus:');
+    expect(checkpoint).toContain('memorySyncStatus: result.error');
+    expect(health).toContain("memorySyncStatus === 'failed'");
+    expect(health).toContain('checkpointAndRecordPublishedMemory(issueId)');
+  });
+  it('shows failed character memory to the main generator and saved newsletter list',()=>{
+    const generator=read('src/app/admin/newsletter/page.tsx');
+    const saved=read('src/app/admin/newsletter/SavedNewsletters.tsx');
+    expect(generator).toContain('!data.memoryWarning');
+    expect(saved).toContain('memoryWarningMessage');
+    expect(read('src/app/api/newsletter/publish/route.ts')).toContain('checkpointAndRecordPublishedMemory(target.id)');
+  });
   it('warns when either host fails to ingest a published issue',()=>{
     const route=read('src/app/api/newsletter/publish/route.ts');
     const editor=read('src/app/admin/newsletter/EditorialWorkspace.tsx');

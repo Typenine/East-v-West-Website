@@ -419,6 +419,11 @@ export const newsletters = pgTable('newsletters', {
   episodeType: varchar('episode_type', { length: 64 }),
   // Track if newsletter was posted to Discord
   discordPostedAt: timestamp('discord_posted_at', { withTimezone: true }),
+  // Independent from publication/Discord: persisted success or failure of both host memory updates.
+  // Null is the historical unknown status for issues published before this tracking existed.
+  memorySyncStatus: varchar('memory_sync_status', { length: 16 }),
+  memorySyncError: text('memory_sync_error'),
+  memorySyncCheckedAt: timestamp('memory_sync_checked_at', { withTimezone: true }),
 }, (t) => ({
   seasonWeekIdx: index('newsletters_season_week_idx').on(t.season, t.week),
   statusIdx: index('newsletters_status_idx').on(t.status),

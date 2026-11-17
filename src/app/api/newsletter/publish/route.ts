@@ -18,7 +18,7 @@ import {
   postToDiscordWebhook,
   verifyDiscordWebhook,
 } from '@/lib/utils/discord';
-import { checkpointPublishedMemory } from '@/lib/newsletter/published-memory-checkpoint';
+import { checkpointAndRecordPublishedMemory } from '@/lib/newsletter/published-memory-checkpoint';
 import { recordPublishedEditorialIssue } from '@/lib/newsletter/editorial-tracking-store';
 import { EPISODE_WEEK_STORAGE } from '@/lib/newsletter/queue-target';
 import { getDb } from '@/server/db/client';
@@ -266,7 +266,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Unify uploaded-PDF and native issue memory ingestion by exact issue ID.
-    const memorySync = await checkpointPublishedMemory(target.id);
+    const memorySync = await checkpointAndRecordPublishedMemory(target.id);
     if (memorySync.error) {
       console.warn('[Publish] Character memory checkpoint incomplete:', memorySync.error);
     }

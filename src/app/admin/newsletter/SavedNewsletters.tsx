@@ -117,19 +117,22 @@ export default function SavedNewsletters({ season, onSelect, reloadKey }: Props)
   const publish = async (item: NewsletterMeta, sendDiscord: boolean, resendDiscord = false) => {
     setBusyId(item.id);
     setError(null);
+    let memoryWarningMessage: string | null = null;
     try {
       const response = await fetch('/api/newsletter/publish', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ id: item.id, season: item.season, week: item.week, sendDiscord, resendDiscord }),
       });
-      const data = await response.json() as { success?: boolean; error?: string; message?: string };
+      const data = await response.json() as { success?: boolean; error?: string; message?: string; memoryWarning?:boolean };
       if (!response.ok || data.success === false) throw new Error(data.error ?? data.message ?? 'Publish failed');
+      if (data.memoryWarning) memoryWarningMessage = data.message ?? 'Published, but character memory did not sync. Check Personality / Memory Health.';
     } catch (publishError) {
       setError(publishError instanceof Error ? publishError.message : 'Publish failed');
     } finally {
       setBusyId(null);
       setConfirmPublish(null);
       await Promise.all([load(true), loadWebhook()]);
+      if (memoryWarningMessage) setError(memoryWarningMessage);
     }
   };
 
