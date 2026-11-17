@@ -111,6 +111,8 @@ export function isUsableCurrentPosition(entry:PublishedTakeLedgerEntry,annotatio
   if(!subject) return false;
   if(entry.subjectType==='league')
     return /\b(?:i think|i believe|i expect|we should|we need|my conclusion|i'?m not|i'?m going to)\b/i.test(claim);
+  // An explicitly verified admin clarification may use a shortened team name.
+  if(annotation?.reviewStatus==='verified' && annotation.correction?.trim()) return true;
   // Without a stated subject, a disconnected sentence may have been
   // attributed solely because of a neighboring table or section heading.
   return claim.toLowerCase().includes(subject);

@@ -10,7 +10,7 @@ import type {PublishedTakeLedgerEntry} from '../published-take-store';
 function receipt(id:string,subject:string,stance:'positive'|'negative',week:number):PublishedTakeLedgerEntry {
   return {
     id,sourceNewsletterId:'issue-'+week,title:'Week '+week,episodeType:'regular',
-    season:2026,week,subjectType:'team',subject,claim:subject+' has a convincing case in Week '+week+'.',
+    season:2026,week,subjectType:'team',subject,claim:subject+' has a convincing case because of the roster decisions and the scoring trends observed in Week '+week+'.',
     claimType:'evaluation',stance,confidence:.8,memorable:false,status:'active',
     publishedAt:'2026-11-'+String(week).padStart(2,'0')+'T15:00:00.000Z',
   };
