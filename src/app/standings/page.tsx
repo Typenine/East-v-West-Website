@@ -29,6 +29,8 @@ const thClass = 'px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0
 export default function StandingsPage() {
   const [teams, setTeams] = useState<TeamData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [luckByRoster, setLuckByRoster] = useState<Record<number, { luck: number; expectedWins: number }>>({});
+  const [luckStatus, setLuckStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState(CURRENT_SEASON);
   const [streaks, setStreaks] = useState<Record<number, { type: 'W' | 'L' | 'T' | null; length: number }>>({});
@@ -62,6 +64,32 @@ export default function StandingsPage() {
   useEffect(() => {
     fetchStandings();
   }, [fetchStandings]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLuckByRoster({});
+    setLuckStatus('loading');
+    (async () => {
+      try {
+        const response = await fetch(
+          `/api/standings/luck?season=${encodeURIComponent(selectedYear)}`,
+          { signal: controller.signal, cache: 'no-store' },
+        );
+        if (!response.ok) throw new Error('Luck data unavailable');
+        const payload = await response.json() as {
+          teams: Array<{ rosterId: number; luck: number; expectedWins: number }>;
+        };
+        if (!Array.isArray(payload.teams)) throw new Error('Invalid luck data');
+        if (controller.signal.aborted) return;
+        setLuckByRoster(Object.fromEntries(payload.teams.map((t) =>
+          [t.rosterId, { luck: t.luck, expectedWins: t.expectedWins }])));
+        setLuckStatus('ready');
+      } catch {
+        if (!controller.signal.aborted) setLuckStatus('unavailable');
+      }
+    })();
+    return () => controller.abort();
+  }, [selectedYear]);
   
   const handleSort = (key: SortKey) => {
     let direction: SortDirection = 'desc';
@@ -196,12 +224,14 @@ export default function StandingsPage() {
                   <th scope="col" className={thClass} aria-sort={sortAriaSort('fptsAgainst')}>{sortHeader('fptsAgainst', 'PA')}</th>
                   <th scope="col" className={thClass} style={broadcastFaintTextStyle}>PA/G</th>
                   <th scope="col" className={thClass} style={broadcastFaintTextStyle}>Streak</th>
+                  <th scope="col" className={thClass} style={broadcastFaintTextStyle} title="Actual wins minus expected wins based on historical league scoring">Luck</th>
                 </tr>
               </thead>
               <tbody>
                 {teamsWithSeeds.map((team) => {
                   const accent = teamAccent(team.teamName);
                   const streak = streaks[team.rosterId];
+                  const luckEntry = luckByRoster[team.rosterId];
                   const gamesPlayed = team.wins + team.losses + team.ties;
                   const pointsForPerGame = gamesPlayed > 0 ? team.fpts / gamesPlayed : null;
                   const pointsAgainstPerGame = gamesPlayed > 0 ? team.fptsAgainst / gamesPlayed : null;
@@ -247,6 +277,18 @@ export default function StandingsPage() {
                       <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold sm:px-5" style={broadcastMutedTextStyle}>
                         {streak && streak.type && streak.length > 0 ? `${streak.type}${streak.length}` : '—'}
                       </td>
+                      <td
+                        className={`whitespace-nowrap px-4 py-3 text-sm font-bold tabular-nums sm:px-5 ${luckStatus === 'ready' && luckEntry
+                          ? luckEntry.luck > 0.005 ? 'text-emerald-400' : luckEntry.luck < -0.005 ? 'text-rose-400' : ''
+                          : ''}`}
+                        style={luckStatus === 'ready' && luckEntry && Math.abs(luckEntry.luck) > 0.005
+                          ? undefined : broadcastMutedTextStyle}
+                        title={luckEntry ? `Expected wins: ${luckEntry.expectedWins.toFixed(2)}` : undefined}
+                      >
+                        {luckStatus === 'loading' ? '…' : luckStatus === 'ready' && luckEntry
+                          ? `${luckEntry.luck > 0 ? '+' : ''}${luckEntry.luck.toFixed(2)}`
+                          : '—'}
+                      </td>
                     </tr>
                   );
                 })}
@@ -256,6 +298,15 @@ export default function StandingsPage() {
           <div className="flex items-center gap-2 border-t border-[var(--panel-hairline)] px-4 py-3 text-[10px] font-bold uppercase tracking-[0.14em] sm:px-5" style={broadcastMutedTextStyle}>
             <span className="h-0.5 w-8 bg-[#2563eb]" aria-hidden="true" />
             Seeds 1-{playoffTeams} qualify for the playoffs
+          </div>
+          <div className="border-t border-[var(--panel-hairline)] px-4 py-3 text-xs leading-relaxed sm:px-5" style={broadcastMutedTextStyle}>
+            <span className="font-bold" style={broadcastBodyTextStyle}>Luck:</span>{' '}
+            Actual wins minus expected wins. For each week, we check how often that team’s score would beat completed
+            East v. West regular-season scores since 2023, then add those weekly chances together.
+            Positive means more wins than expected; negative means fewer. Updates after every completed week.
+            {luckStatus === 'unavailable' && (
+              <span className="ml-2 font-semibold text-rose-400">Luck numbers are temporarily unavailable.</span>
+            )}
           </div>
         </BroadcastPanel>
       </div>
