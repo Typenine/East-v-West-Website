@@ -178,6 +178,197 @@ function buildFutureMathScenarios(
 }
 
 
+type SeedBounds = { min: number; max: number };
+type SeedPathView = {
+  team: PlayoffLabTeam;
+  guaranteed: boolean;
+  alreadyLocked: boolean;
+  needsTiebreak: boolean;
+  conditions: OutcomeCondition[];
+  label: string;
+};
+
+function getSeedPathViews(
+  teams: PlayoffLabTeam[],
+  games: PlayoffLabGame[],
+  selectedSeed: number,
+  scenarioStartWeek: number,
+  horizonWeek: number,
+  regularSeasonEnd: number,
+): SeedPathView[] {
+  const scheduled = games
+    .filter((game) => game.week >= scenarioStartWeek && game.week <= regularSeasonEnd)
+    .sort((a, b) => a.week - b.week || a.id.localeCompare(b.id));
+  // In Weeks 13–14 there are at most 12 games in a 12-team league.
+  // Keep the enumeration bounded if league settings ever change.
+  if (!teams.length || scheduled.length > 14) return [];
+
+  const teamIndex = new Map(teams.map((team, index) => [team.rosterId, index] as const));
+  const hCount = scheduled.filter((game) => game.week <= horizonWeek).length;
+  const n = scheduled.length;
+  const outcomeCount = 1 << n;
+  const currentWins = teams.map((team) => team.wins);
+  const currentTies = teams.map((team) => team.ties);
+  const gameIndices = scheduled.map((game) =>
+    [teamIndex.get(game.aRosterId) ?? -1, teamIndex.get(game.bRosterId) ?? -1] as const
+  );
+
+  const scenarios: SeedBounds[][] = Array.from({ length: outcomeCount }, (_, mask) => {
+    const wins = currentWins.slice();
+    for (let i = 0; i < n; i += 1) {
+      const [a, b] = gameIndices[i];
+      if (a < 0 || b < 0) continue;
+      wins[mask & (1 << i) ? b : a] += 1;
+    }
+    return wins.map((winCount, index) => {
+      let ahead = 0;
+      let tied = 0;
+      for (let other = 0; other < teams.length; other += 1) {
+        if (other === index) continue;
+        if (wins[other] > winCount || (wins[other] === winCount && currentTies[other] > currentTies[index])) {
+          ahead += 1;
+        } else if (wins[other] === winCount && currentTies[other] === currentTies[index]) {
+          tied += 1;
+        }
+      }
+      // Every ordering within a record tie remains potentially possible until
+      // future Points For (then Points Against) is known. Never call that locked.
+      return { min: ahead + 1, max: ahead + tied + 1 };
+    });
+  });
+
+  const matches = (mask: number, indices: number[], expected: number) =>
+    indices.every((index) => Boolean(mask & (1 << index)) === Boolean(expected & (1 << index)));
+
+  const gameOutcome = (index: number, mask: number, teamId: number): OutcomeCondition => {
+    const game = scheduled[index];
+    const bWon = Boolean(mask & (1 << index));
+    const winnerId = bWon ? game.bRosterId : game.aRosterId;
+    const loserId = bWon ? game.aRosterId : game.bRosterId;
+    const winner = bWon ? game.bTeam : game.aTeam;
+    const loser = bWon ? game.aTeam : game.bTeam;
+    return {
+      week: game.week,
+      winnerId,
+      loserId,
+      description: winnerId === teamId
+        ? winner + ' wins'
+        : loserId === teamId
+          ? loser + ' loses'
+          : winner + ' beats ' + loser,
+    };
+  };
+
+  // A short result path is "guaranteed" only when ALL unresolved games and
+  // ALL points-for tie orderings still leave the team at exactly that seed.
+  const guarantees = (teamIdx: number, indices: number[], expected: number) => {
+    for (let mask = 0; mask < outcomeCount; mask += 1) {
+      if (!matches(mask, indices, expected)) continue;
+      const { min, max } = scenarios[mask][teamIdx];
+      if (min !== selectedSeed || max !== selectedSeed) return false;
+    }
+    return true;
+  };
+
+  const simplify = (teamIdx: number, fixedMask: number) => {
+    const chosen = Array.from({ length: hCount }, (_, index) => index);
+    // Keep a team's own results in the path whenever useful. Delete
+    // unrelated result conditions first.
+    const removalOrder = [...chosen].sort((a, b) => {
+      const belongs = (index: number) => {
+        const [left, right] = gameIndices[index];
+        return left === teamIdx || right === teamIdx;
+      };
+      return Number(belongs(a)) - Number(belongs(b));
+    });
+    for (const index of removalOrder) {
+      const candidate = chosen.filter((value) => value !== index);
+      if (guarantees(teamIdx, candidate, fixedMask)) chosen.splice(chosen.indexOf(index), 1);
+    }
+    return chosen;
+  };
+
+  const strength = new Map(teams.map((team) => [team.rosterId, team.modelPpg] as const));
+  const upsetCount = (mask: number) => scheduled.reduce((total, game, index) => {
+    const aStrong = (strength.get(game.aRosterId) ?? 0) >= (strength.get(game.bRosterId) ?? 0);
+    const bWon = Boolean(mask & (1 << index));
+    return total + (aStrong === bWon ? 1 : 0);
+  }, 0);
+
+  return teams.flatMap((team, teamIdx): SeedPathView[] => {
+    const feasible = scenarios
+      .map((bounds, mask) => ({
+        mask,
+        bounds: bounds[teamIdx],
+      }))
+      .filter(({ bounds }) => bounds.min <= selectedSeed && bounds.max >= selectedSeed);
+    if (!feasible.length) return [];
+
+    const alreadyLocked = feasible.length === outcomeCount &&
+      scenarios.every((bounds) =>
+        bounds[teamIdx].min === selectedSeed && bounds[teamIdx].max === selectedSeed
+      );
+    // Look for an outcome of the selected week(s) that makes a seed
+    // guaranteed even after any later results. A Week 13 guarantee is
+    // therefore valid through the end of Week 14.
+    const guaranteedMasks: number[] = [];
+    const horizonCount = 1 << hCount;
+    for (let prefix = 0; prefix < horizonCount; prefix += 1) {
+      let works = true;
+      for (let mask = prefix; mask < outcomeCount; mask += horizonCount) {
+        const bounds = scenarios[mask][teamIdx];
+        if (bounds.min !== selectedSeed || bounds.max !== selectedSeed) {
+          works = false;
+          break;
+        }
+      }
+      if (works) guaranteedMasks.push(prefix);
+    }
+
+    if (alreadyLocked) {
+      return [{ team, guaranteed: true, alreadyLocked: true, needsTiebreak: false, conditions: [], label: 'Seed already secured' }];
+    }
+
+    if (guaranteedMasks.length) {
+      const candidates = guaranteedMasks.slice(0, 36).map((mask) => ({
+        mask,
+        indices: simplify(teamIdx, mask),
+      })).sort((a, b) =>
+        a.indices.length - b.indices.length || upsetCount(a.mask) - upsetCount(b.mask)
+      );
+      const chosen = candidates[0];
+      return [{
+        team, guaranteed: true, alreadyLocked: false, needsTiebreak: false,
+        conditions: chosen.indices.map((index) => gameOutcome(index, chosen.mask, team.rosterId)),
+        label: 'Can lock seed by Week ' + horizonWeek,
+      }];
+    }
+
+    // For an unsettled seed, show a concrete feasible outcome, NOT a
+    // mathematical guarantee. Prefer outcomes with no unresolved record tie,
+    // then fewer upsets relative to the current scoring model.
+    const bestExample = feasible.sort((a, b) => {
+      const aTie = a.bounds.min !== a.bounds.max;
+      const bTie = b.bounds.min !== b.bounds.max;
+      if (aTie !== bTie) return Number(aTie) - Number(bTie);
+      return upsetCount(a.mask) - upsetCount(b.mask) || a.mask - b.mask;
+    })[0];
+    const indices = Array.from({ length: hCount }, (_, index) => index);
+    return [{
+      team,
+      guaranteed: false,
+      alreadyLocked: false,
+      needsTiebreak: bestExample.bounds.min !== bestExample.bounds.max,
+      conditions: indices.map((index) => gameOutcome(index, bestExample.mask, team.rosterId)),
+      label: horizonWeek < regularSeasonEnd
+        ? 'Possible Week ' + horizonWeek + ' setup'
+        : 'Illustrative route to Seed #' + selectedSeed,
+    }];
+  }).sort((a, b) =>
+    b.team.wins - a.team.wins || b.team.ties - a.team.ties || b.team.pointsFor - a.team.pointsFor
+  );
+}
+
 function recordLabel(team: PlayoffLabTeam) {
   return team.wins + '-' + team.losses + (team.ties ? '-' + team.ties : '');
 }
@@ -199,7 +390,9 @@ export default function PlayoffScenarioLab({
   );
   const firstWeek = weeks[0] ?? scenarioStartWeek;
   const [activeWeek, setActiveWeek] = useState(firstWeek);
-  const [activeTab, setActiveTab] = useState<'forecast' | 'clinching'>('forecast');
+  const [activeTab, setActiveTab] = useState<'forecast' | 'clinching' | 'seeding'>('forecast');
+  const [selectedSeed, setSelectedSeed] = useState(1);
+  const [seedingWeek, setSeedingWeek] = useState(13);
   const [horizonWeek, setHorizonWeek] = useState(scenarioStartWeek);
 
   const results = useMemo(
@@ -256,6 +449,18 @@ export default function PlayoffScenarioLab({
   ).length;
   const activeGames = games.filter((game) => game.week === activeWeek);
   const showClinchingScenarios = scenarioStartWeek >= CLINCHING_SCENARIO_START_WEEK;
+  const showSeedingScenarios = scenarioStartWeek >= 13 && scenarioStartWeek <= regularSeasonEnd;
+  const seedingWeeks = weeks.filter((week) => week >= scenarioStartWeek && week <= regularSeasonEnd);
+  const selectedSeedingWeek = seedingWeeks.includes(seedingWeek) ? seedingWeek : scenarioStartWeek;
+  const seedingScheduleComplete = seedingWeeks.every((week) =>
+    games.filter((game) => game.week === week).length === teams.length / 2
+  );
+  const seedPaths = useMemo(() =>
+    activeTab === 'seeding' && showSeedingScenarios && seedingScheduleComplete && !scheduleCoverage
+      ? getSeedPathViews(teams, games, selectedSeed, scenarioStartWeek, selectedSeedingWeek, regularSeasonEnd)
+      : [],
+    [activeTab, showSeedingScenarios, seedingScheduleComplete, scheduleCoverage, teams, games, selectedSeed, scenarioStartWeek, selectedSeedingWeek, regularSeasonEnd]
+  );
   const activeLocked = activeGames.filter(
     (game) => picks[game.id] !== null && picks[game.id] !== undefined,
   ).length;
@@ -311,6 +516,17 @@ export default function PlayoffScenarioLab({
         >
           Clinching
         </button>
+        {showSeedingScenarios ? (
+          <button
+            type="button"
+            onClick={() => setActiveTab('seeding')}
+            className={activeTab === 'seeding'
+              ? 'rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-black text-white'
+              : 'rounded-lg px-4 py-2 text-xs font-bold text-[var(--muted)] transition hover:text-[var(--text)]'}
+          >
+            Seeding
+          </button>
+        ) : null}
       </div>
 
       {activeTab === 'forecast' ? (
@@ -529,7 +745,7 @@ export default function PlayoffScenarioLab({
         </div>
       </details>
         </>
-      ) : (
+      ) : activeTab === 'clinching' ? (
         <Card>
           <CardHeader>
             <CardTitle>Clinching Status</CardTitle>
@@ -655,6 +871,111 @@ export default function PlayoffScenarioLab({
                 );
               })}
             </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Playoff Seeding Scenarios</CardTitle>
+            <div className="mt-1 text-xs leading-5 text-[var(--muted)]">
+              Explore result paths for each individual playoff seed, starting in Week 13. Scenarios can look ahead to Week 14 before those games are played. The #1 seed receives the first-round bye.
+            </div>
+          </CardHeader>
+          <CardContent>
+            {scheduleCoverage || !seedingScheduleComplete ? (
+              <div className="rounded-lg border border-amber-400/35 bg-amber-400/[0.07] p-3 text-sm text-amber-100/90">
+                Seeding paths require all remaining matchups to load. Some games are missing, so no partial scenarios are being shown.
+              </div>
+            ) : (
+              <>
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  {seedingWeeks.map((week) => (
+                    <button
+                      key={week}
+                      type="button"
+                      aria-pressed={selectedSeedingWeek === week}
+                      onClick={() => setSeedingWeek(week)}
+                      className={selectedSeedingWeek === week
+                        ? 'rounded-full border border-[var(--accent)] bg-[var(--accent)] px-3 py-1.5 text-xs font-black text-white'
+                        : 'rounded-full border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--muted)] transition hover:text-[var(--text)]'}
+                    >
+                      {week === scenarioStartWeek ? 'Week ' + week : 'By Week ' + week}
+                    </button>
+                  ))}
+                </div>
+                <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-3 text-xs leading-5 text-[var(--muted)]">
+                  {selectedSeedingWeek < regularSeasonEnd
+                    ? 'Week ' + selectedSeedingWeek + ' paths show how those results could set up each final seed. A “Can lock” path guarantees the seed regardless of Week ' + regularSeasonEnd + ' or points-for tiebreaks. All other examples still depend on later results.'
+                    : 'These are concrete possible routes to final seeds, using remaining Week 13–14 matchups. “Can lock” paths guarantee a seed even if other games differ. Illustrative paths show one possible set of outcomes, not a prediction.'}
+                  {' '}Tied records are not treated as settled: the league uses overall record, Points For, then higher Points Against. A remaining tie can require commissioner resolution.
+                </div>
+                <div className="mb-4 flex flex-wrap gap-2" aria-label="Choose an individual playoff seed">
+                  {Array.from({ length: playoffTeams }, (_, index) => index + 1).map((seed) => (
+                    <button
+                      key={seed}
+                      type="button"
+                      aria-pressed={selectedSeed === seed}
+                      onClick={() => setSelectedSeed(seed)}
+                      className={selectedSeed === seed
+                        ? 'rounded-lg border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-xs font-black text-white'
+                        : 'rounded-lg border border-[var(--border)] bg-[var(--surface-strong)] px-3 py-2 text-xs font-bold text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--text)]'}
+                    >
+                      Seed #{seed}{seed === 1 ? ' · Bye' : ''}
+                    </button>
+                  ))}
+                </div>
+                <div className="mb-3 text-xs text-[var(--muted)]">
+                  {seedPaths.length} team{seedPaths.length === 1 ? '' : 's'} can still finish as Seed #{selectedSeed}.
+                </div>
+                <div className="space-y-3">
+                  {seedPaths.map((entry) => (
+                    <div key={entry.team.rosterId} className="rounded-xl border border-[var(--border)] bg-[var(--surface-strong)] p-3 sm:p-4">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <BroadcastTeamLogo team={entry.team.teamName} accent={teamAccent(entry.team.teamName)} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-black text-sm">{entry.team.teamName}</div>
+                          <div className="text-[11px] text-[var(--muted)]">{recordLabel(entry.team)} · PF/G {entry.team.actualPpg?.toFixed(1) ?? '—'}</div>
+                        </div>
+                        <span className={entry.guaranteed
+                          ? 'rounded-full border border-emerald-400/35 bg-emerald-400/10 px-2 py-1 text-[10px] font-bold text-emerald-300'
+                          : 'rounded-full border border-[var(--border)] px-2 py-1 text-[10px] font-bold text-[var(--muted)]'}>
+                          {entry.alreadyLocked ? 'Seed secured' : entry.guaranteed ? 'Can lock seed' : 'Seed possible'}
+                        </span>
+                      </div>
+                      <div className="mt-3 text-xs font-semibold text-[var(--text)]">{entry.label}</div>
+                      {entry.needsTiebreak ? (
+                        <div className="mt-1 text-xs text-amber-200">
+                          This example requires a record tiebreak. Points For may determine the seed.
+                        </div>
+                      ) : !entry.guaranteed ? (
+                        <div className="mt-1 text-xs text-[var(--muted)]">
+                          Illustrative, not sufficient on its own. Other outcomes can change the final seed.
+                        </div>
+                      ) : null}
+                      {entry.conditions.length ? (
+                        <details className="mt-2 rounded-lg border border-[var(--border)] bg-black/10" open={seedPaths.length <= 3}>
+                          <summary className="cursor-pointer px-3 py-2 text-xs font-bold">
+                            {entry.guaranteed ? 'Results needed to lock Seed #' : 'View example result path to Seed #'}{selectedSeed}
+                          </summary>
+                          <ul className="ml-7 mr-3 mb-3 list-disc space-y-1.5 text-xs text-[var(--muted)]">
+                            {entry.conditions.map((condition, index) => (
+                              <li key={index}>
+                                Week {condition.week}: {readableCondition(condition.description)}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : null}
+                    </div>
+                  ))}
+                  {!seedPaths.length ? (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-strong)] p-4 text-sm text-[var(--muted)]">
+                      No team can finish at this seed under the remaining scheduled outcomes.
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       )}
