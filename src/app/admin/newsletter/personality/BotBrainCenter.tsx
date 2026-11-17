@@ -219,6 +219,21 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
           <span className={muted+' text-xs'}>{value==='entertainer'?'Narrative and momentum':'Structure and long-term value'}</span>
         </button>)}
       </div>
+      <div className={panel+' flex flex-wrap items-center gap-2'}>
+        <span className={muted+' text-xs mr-1'}>Export selected character</span>
+        <a
+          href={'/api/admin/newsletter/brain-export?bot='+bot+'&depth=active&format=md&season='+encodeURIComponent(season)}
+          className="rounded-md bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
+          download
+        >Download Active Brain (.md)</a>
+        <a
+          href={'/api/admin/newsletter/brain-export?bot='+bot+'&depth=full&format=json&season='+encodeURIComponent(season)}
+          className="rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold hover:bg-[var(--surface)]"
+          download
+        >Download Full Brain (.json)</a>
+        <Link href="/admin/newsletter/external" className="text-xs underline ml-auto">Newsletter Writing Room</Link>
+        <span className={muted+' text-xs w-full'}>Active is sized for ChatGPT writing. Full is the retained website archive, including editorial reviews and history, not a weekly upload.</span>
+      </div>
       <nav className="flex gap-1 overflow-x-auto pb-2 border-b border-[var(--border)]" aria-label="Bot brain sections">
         {sections.map(section => <button key={section.key} type="button" onClick={() => changeView(section.key)}
           aria-current={view===section.key?'page':undefined}
@@ -547,7 +562,7 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
               </div>
               <div className={panel+' space-y-2'}>
                 <h4 className="font-semibold">Approved examples</h4>
-                <p className={muted+' text-xs'}>Collected for the later active-brain export phase. They are not automatically inserted into current newsletter prompts.</p>
+                <p className={muted+' text-xs'}>Approved voice examples are included in the Active Brain and newsletter Writing Room exports. They are not mandatory catchphrases.</p>
                 {data.samples?.length ? data.samples.map(s=><div key={s.id} className="border-t border-[var(--border)] pt-2 space-y-2">
                   <p className="text-sm">{s.quote}</p>
                   {s.note&&<p className={muted+' text-xs'}>{s.note}</p>}

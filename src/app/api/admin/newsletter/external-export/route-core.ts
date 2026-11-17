@@ -6,6 +6,7 @@ import { getAllTeamCards } from '@/lib/newsletter/team-narratives';
 import { getPublishedEditorialSnapshot } from '@/lib/newsletter/editorial-tracking-store';
 import { loadLearningProfilesForSeason } from '@/server/db/brain-learning-queries';
 import { compactCharacterLearning, learningWritingInstructions } from '@/lib/newsletter/brain-learning';
+import { compactEpisodeSourcePack } from '@/lib/newsletter/compact-episode-source';
 import { getLeagueRulesContext } from '@/lib/newsletter';
 import { getLeagueIdForSeason } from '@/lib/constants/league';
 import { fetchComprehensiveLeagueData, fetchCurrentWeekContext } from '@/lib/newsletter/data-integration';
@@ -179,7 +180,7 @@ async function buildWritingRoom(season: number): Promise<Response> {
   );
 }
 
-async function buildSourcePack(season: number, week: number, episodeType: string): Promise<Response> {
+async function buildSourcePack(season: number, week: number, episodeType: string, packSize: 'compact' | 'full' = 'full'): Promise<Response> {
   const leagueId = getLeagueIdForSeason(season);
   if (!leagueId) {
     return Response.json({ error: `No Sleeper league id configured for ${season}.` }, { status: 400 });
@@ -524,9 +525,10 @@ async function buildSourcePack(season: number, week: number, episodeType: string
   });
 
   const suffix = week > 0 ? `-week-${week}` : '';
+  const output = packSize === 'compact' ? compactEpisodeSourcePack(sourcePack, learned) : sourcePack;
   return downloadResponse(
-    JSON.stringify(sourcePack, null, 2),
-    `east-v-west-source-pack-${season}-${episodeType}${suffix}.json`,
+    JSON.stringify(output, null, 2),
+    `east-v-west-source-pack-${season}-${episodeType}${suffix}${packSize === 'compact' ? '-chatgpt-compact' : ''}.json`,
     'application/json; charset=utf-8',
   );
 }
@@ -540,14 +542,18 @@ export async function GET(req: NextRequest) {
   const weekRaw = Number(req.nextUrl.searchParams.get('week') || 0);
   const week = Number.isFinite(weekRaw) ? Math.max(0, Math.trunc(weekRaw)) : 0;
   const episodeType = (req.nextUrl.searchParams.get('episodeType') || 'regular').trim();
+  const packSize = req.nextUrl.searchParams.get('packSize') ?? 'full';
 
   if (!['writing-room', 'source-pack'].includes(kind)) {
     return Response.json({ error: 'kind must be writing-room or source-pack' }, { status: 400 });
   }
+  if (!['compact', 'full'].includes(packSize)) {
+    return Response.json({ error: 'packSize must be compact or full' }, { status: 400 });
+  }
 
   try {
     if (kind === 'writing-room') return await buildWritingRoom(season);
-    return await buildSourcePack(season, week, episodeType);
+    return await buildSourcePack(season, week, episodeType, packSize as 'compact' | 'full');
   } catch (error) {
     console.error('[newsletter/external-export]', error);
     return Response.json({

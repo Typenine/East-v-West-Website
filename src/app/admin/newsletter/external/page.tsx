@@ -24,6 +24,7 @@ export default function ExternalNewsletterWritingRoomPage() {
   const [week, setWeek] = useState('1');
   const [episodeType, setEpisodeType] = useState('preseason');
   const [downloading, setDownloading] = useState<'writing-room' | 'source-pack' | null>(null);
+  const [brainDownloading, setBrainDownloading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [uploadKey, setUploadKey] = useState(0);
 
@@ -46,7 +47,7 @@ export default function ExternalNewsletterWritingRoomPage() {
       .catch(() => {});
   }, []);
 
-  async function download(kind: 'writing-room' | 'source-pack') {
+  async function download(kind: 'writing-room' | 'source-pack', packSize: 'compact' | 'full' = 'compact') {
     setDownloading(kind);
     setMessage(null);
     try {
@@ -57,6 +58,7 @@ export default function ExternalNewsletterWritingRoomPage() {
       if (kind === 'source-pack') {
         params.set('episodeType', episodeType);
         params.set('week', String(safeWeek));
+        params.set('packSize', packSize);
       }
 
       const response = await fetch(`/api/admin/newsletter/external-export?${params.toString()}`, {
@@ -71,24 +73,57 @@ export default function ExternalNewsletterWritingRoomPage() {
       const blob = await response.blob();
       const fallback = kind === 'writing-room'
         ? `east-v-west-newsletter-writing-room-${safeSeason}.md`
-        : `east-v-west-source-pack-${safeSeason}-${episodeType}${safeWeek ? `-week-${safeWeek}` : ''}.json`;
+        : `east-v-west-source-pack-${safeSeason}-${episodeType}${safeWeek ? `-week-${safeWeek}` : ''}${packSize === 'compact' ? '-chatgpt-compact' : ''}.json`;
       const fileName = filenameFromDisposition(response.headers.get('Content-Disposition'), fallback);
       const href = URL.createObjectURL(blob);
       const anchor = Object.assign(document.createElement('a'), { href, download: fileName });
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(href);
+      window.setTimeout(() => URL.revokeObjectURL(href), 10000);
+      const fileKb = Math.max(1, Math.round(blob.size / 1024));
       setMessage({
         ok: true,
         text: kind === 'writing-room'
-          ? 'Writing Room downloaded. Keep this as the permanent project file.'
-          : 'Episode Source Pack downloaded. Upload it with the newsletter request.',
+          ? `Writing Room downloaded (${fileKb} KB). Keep this as the permanent project file.`
+          : `${packSize === 'compact' ? 'Compact' : 'Complete'} Episode Source Pack downloaded (${fileKb} KB). Upload the compact version with the two Active Brains for routine issues.`,
       });
     } catch (error) {
       setMessage({ ok: false, text: error instanceof Error ? error.message : 'Export failed.' });
     } finally {
       setDownloading(null);
+    }
+  }
+
+  async function downloadBrain(bot:'mason'|'westy',depth:'active'|'full') {
+    const key=bot+'-'+depth;
+    setBrainDownloading(key);setMessage(null);
+    try{
+      const params=new URLSearchParams({bot,depth,season:String(safeSeason),format:depth==='active'?'md':'json'});
+      const res=await fetch('/api/admin/newsletter/brain-export?'+params.toString(),{
+        credentials:'include',cache:'no-store',
+      });
+      if(!res.ok){
+        const error=await res.json().catch(()=>({})) as {error?:string};
+        throw new Error(error.error||'Brain export failed ('+res.status+')');
+      }
+      const blob=await res.blob();
+      const fileName=filenameFromDisposition(res.headers.get('Content-Disposition'),
+        bot+'-'+depth+'-brain-'+safeSeason+(depth==='active'?'.md':'.json'));
+      const href=URL.createObjectURL(blob);
+      const anchor=Object.assign(document.createElement('a'),{href,download:fileName});
+      document.body.appendChild(anchor);anchor.click();anchor.remove();
+      // Delayed cleanup lets Android/mobile download handlers consume the blob.
+      window.setTimeout(()=>URL.revokeObjectURL(href),10000);
+      const sizeKb=Math.max(1,Math.round(blob.size/1024));
+      setMessage({ok:true,text:(bot==='mason'?'Mason':'Westy')+' '+(depth==='active'?'Active':'Full')+
+        ' Brain saved ('+sizeKb+' KB). '+(depth==='active'
+        ? 'Upload this with the other Active Brain and Episode Source Pack for newsletter writing.'
+        : 'Keep this as a backup. It is not needed in ChatGPT for normal weekly writing.')});
+    }catch(error){
+      setMessage({ok:false,text:error instanceof Error?error.message:'Character export failed.'});
+    }finally{
+      setBrainDownloading(null);
     }
   }
 
@@ -108,7 +143,7 @@ export default function ExternalNewsletterWritingRoomPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader><CardTitle className="text-base">1. Writing Room</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm text-[var(--muted)]">
@@ -116,13 +151,19 @@ export default function ExternalNewsletterWritingRoomPage() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle className="text-base">2. Episode Source Pack</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">2. Active Brains</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm text-[var(--muted)]">
-            <p>Download a fresh pack for each issue. It contains the live roster, IR/taxi state, values, trades, draft, future picks, history, bot memory, and recent issue continuity.</p>
+            <p>Download Mason and Westy separately. These are curated, compact snapshots of their identities, evolving beliefs, approved voice examples, and lessons.</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle className="text-base">3. Finished PDF</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">3. Episode Source Pack</CardTitle></CardHeader>
+          <CardContent className="space-y-3 text-sm text-[var(--muted)]">
+            <p>Download a compact weekly pack containing live rosters, IR/taxi, trade and draft facts, plus targeted historical receipts. The full version remains available for deep dives.</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle className="text-base">4. Finished PDF</CardTitle></CardHeader>
           <CardContent className="space-y-3 text-sm text-[var(--muted)]">
             <p>Generate and review the newsletter in ChatGPT, then upload the finished PDF below. Publishing remains a separate admin action.</p>
           </CardContent>
@@ -166,13 +207,37 @@ export default function ExternalNewsletterWritingRoomPage() {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button variant="secondary" onClick={() => void download('writing-room')} disabled={downloading !== null}>
+            <Button variant="secondary" onClick={() => void download('writing-room')} disabled={downloading !== null || brainDownloading !== null}>
               {downloading === 'writing-room' ? 'Building Writing Room...' : 'Download Writing Room (.md)'}
             </Button>
-            <Button variant="primary" onClick={() => void download('source-pack')} disabled={downloading !== null}>
-              {downloading === 'source-pack' ? 'Building Source Pack...' : 'Download Episode Source Pack (.json)'}
+            <Button variant="primary" onClick={() => void download('source-pack', 'compact')} disabled={downloading !== null || brainDownloading !== null}>
+              {downloading === 'source-pack' ? 'Building Source Pack...' : 'Download Compact Episode Pack (.json)'}
+            </Button>
+            <Button variant="secondary" onClick={() => void download('source-pack', 'full')} disabled={downloading !== null || brainDownloading !== null}>
+              Download Complete Source Pack (.json)
             </Button>
           </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(['mason','westy'] as const).map(bot => (
+              <div key={bot} className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4 space-y-3">
+                <div>
+                  <div className="font-semibold text-sm">{bot==='mason'?'Mason Reed':'Trent “Westy” Weston'}</div>
+                  <p className="text-xs text-[var(--muted)] mt-1">Separate personality, beliefs, development, and source-backed continuity</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="primary" disabled={downloading!==null||brainDownloading!==null}
+                    onClick={()=>void downloadBrain(bot,'active')}>
+                    {brainDownloading===bot+'-active'?'Preparing…':'Download Active Brain (.md)'}
+                  </Button>
+                  <Button variant="secondary" disabled={downloading!==null||brainDownloading!==null}
+                    onClick={()=>void downloadBrain(bot,'full')}>
+                    {brainDownloading===bot+'-full'?'Preparing…':'Full Brain Backup (.json)'}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-[var(--muted)]">For each newsletter, use the Compact Episode Source Pack and both Active Brains. Keep the Writing Room in your ChatGPT project. Full Brain JSON files preserve retained history, reviews and source references for backup, not routine upload. Original newsletter PDFs remain on the website.</p>
 
           {message && (
             <div className={`rounded border px-3 py-2 text-xs ${message.ok ? 'border-emerald-700 bg-emerald-950/30 text-emerald-300' : 'border-red-700 bg-red-950/30 text-red-300'}`}>
@@ -181,7 +246,7 @@ export default function ExternalNewsletterWritingRoomPage() {
           )}
 
           <div className="rounded-lg border border-blue-800/50 bg-blue-950/20 px-4 py-3 text-xs leading-5 text-blue-200">
-            Recommended request after uploading the files: <strong>Generate the selected East v. West newsletter as a finished PDF. Treat the Writing Room as permanent instructions and the Source Pack as authoritative for the current league state. Mason and Westy should lead the issue with their own analysis, arguments, callbacks, and disagreements.</strong>
+            Recommended request after uploading the files: <strong>Generate the selected East v. West newsletter as a finished PDF. Follow the permanent Writing Room instructions, use the Episode Source Pack for current facts, and use Mason's and Westy's separate Active Brains for their individual voices and historical views. Do not invent disagreements, prediction results, or character growth. Keep the full established episode length and format.</strong>
           </div>
         </CardContent>
       </Card>
