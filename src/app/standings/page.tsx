@@ -123,6 +123,12 @@ export default function StandingsPage() {
             Playoff Lab
           </Link>
           <Link
+            href="/history/luck"
+            className="rounded-full border border-[var(--accent)] px-3 py-1.5 text-xs font-bold text-[var(--accent)] transition hover:bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
+          >
+            Luck Index
+          </Link>
+          <Link
             href="/power-rankings"
             className="rounded-full border border-[var(--accent)] px-3 py-1.5 text-xs font-bold text-[var(--accent)] transition hover:bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
           >
