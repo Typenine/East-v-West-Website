@@ -332,7 +332,7 @@ export default function BotBrainCenter({ onEditSettings }: { onEditSettings: () 
                   }}>Use as growth evidence</Button>
                 </> : <>
                   <h4 className="font-semibold">Memory details</h4>
-                  <p className={muted+' text-sm'}>Select a published take to see its source, attach a correction, pin it, or approve it as an example of the character's voice.</p>
+                  <p className={muted+' text-sm'}>Select a published take to see its source, attach a correction, pin it, or approve it as an example of authentic character dialogue.</p>
                 </>}
               </div>
             </div>
