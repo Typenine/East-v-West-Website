@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateHistoricalLuck } from '../src/lib/fantasy/historical-luck';
+import { assertHistoricalLuckMatchesOfficial, calculateHistoricalLuck } from '../src/lib/fantasy/historical-luck';
 import type { StatsGameRow } from '../src/lib/stats/types';
 
 function game(season: string, week: number, a: number, b: number, gameType: StatsGameRow['gameType'] = 'regular'): StatsGameRow {
@@ -45,6 +45,29 @@ describe('historical luck calculations', () => {
     expect(report.teams[0].allPlayExpected).toBe(0.5);
     expect(report.teams[0].combinedExpected).toBe(0.5);
     expect(report.teams[0].combinedLuck).toBe(0);
+  });
+
+  it('allows the documented 2023 one-point correction without hiding the entire league', () => {
+    const report = calculateHistoricalLuck([game('2023', 1, 80, 70)], '2023', 1, 2);
+    const alpha = report.teams.find((t) => t.name === 'Alpha')!;
+    alpha.rosterId = 8;
+    alpha.pointsFor = 1296.96;
+    const official = [
+      { rosterId: 8, wins: 1, losses: 0, ties: 0, fpts: 1295.96 },
+      { rosterId: 2, wins: 0, losses: 1, ties: 0, fpts: 70 },
+    ];
+    expect(() => assertHistoricalLuckMatchesOfficial(report, official)).not.toThrow();
+
+    expect(() => assertHistoricalLuckMatchesOfficial(report, [
+      { ...official[0], fpts: 1294.96 }, official[1],
+    ])).toThrow(/Finalized scoring/);
+
+    expect(() => assertHistoricalLuckMatchesOfficial(report, [
+      { ...official[0], wins: 0 }, official[1],
+    ])).toThrow(/Finalized records/);
+
+    expect(() => assertHistoricalLuckMatchesOfficial({ ...report, season: '2024' }, official))
+      .toThrow(/Finalized scoring/);
   });
 
   it('refuses partial historical or missing finalized weeks', () => {
