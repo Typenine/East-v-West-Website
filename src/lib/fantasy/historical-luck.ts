@@ -149,3 +149,55 @@ export function calculateHistoricalLuck(
       b.historicalLuck - a.historicalLuck || b.pointsFor - a.pointsFor || a.name.localeCompare(b.name)),
   };
 }
+
+
+export type OfficialLuckTeamRecord = {
+  rosterId: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  fpts: number;
+};
+
+export type HistoricalScoreDiscrepancy = {
+  rosterId: number;
+  name: string;
+  weeklyPoints: number;
+  officialPoints: number;
+};
+
+/**
+ * The luck model is based on actual weekly matchup scores, not season PF totals.
+ * Sleeper's stored PF can differ from its game-by-game scores following corrections.
+ * Require all W/L/T records to match, but report PF discrepancies instead of
+ * hiding a season whose weekly results are complete and internally consistent.
+ */
+export function assertHistoricalLuckMatchesOfficial(
+  report: HistoricalLuckReport,
+  officialTeams: OfficialLuckTeamRecord[],
+): HistoricalScoreDiscrepancy[] {
+  if (report.teams.length !== officialTeams.length) {
+    throw new Error('Incomplete finalized league scores');
+  }
+  const officialById = new Map(officialTeams.map((t) => [t.rosterId, t] as const));
+  if (officialById.size !== officialTeams.length) {
+    throw new Error('Duplicate official roster IDs');
+  }
+  const discrepancies: HistoricalScoreDiscrepancy[] = [];
+  for (const team of report.teams) {
+    const official = officialById.get(team.rosterId);
+    if (!official || team.wins !== official.wins || team.losses !== official.losses ||
+        team.ties !== official.ties || !Number.isFinite(official.fpts)) {
+      throw new Error('Finalized records do not match official standings for ' + team.name);
+    }
+    if (Math.abs(team.pointsFor - official.fpts) > 0.1) {
+      discrepancies.push({
+        rosterId: team.rosterId,
+        name: team.name,
+        weeklyPoints: team.pointsFor,
+        officialPoints: official.fpts,
+      });
+    }
+  }
+  return discrepancies;
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { CURRENT_SEASON, getLeagueIdForSeason } from '@/lib/constants/league';
-import { calculateHistoricalLuck } from '@/lib/fantasy/historical-luck';
+import { assertHistoricalLuckMatchesOfficial, calculateHistoricalLuck } from '@/lib/fantasy/historical-luck';
 import { getLeagueStatsDatasetV2 } from '@/lib/stats/league-stats-v2';
 import { getTeamsData } from '@/lib/utils/sleeper-api';
 
@@ -43,16 +43,12 @@ export async function GET(request: Request) {
       }, { headers: { 'Cache-Control': 'no-store' } });
     }
     const report = calculateHistoricalLuck(dataset.games, season, throughWeek, teams.length);
-    if (report.teams.length !== teams.length) {
-      throw new Error('Incomplete finalized league scores');
-    }
-    const teamRecordById = new Map(teams.map((t) => [t.rosterId, t] as const));
-    for (const team of report.teams) {
-      const official = teamRecordById.get(team.rosterId);
-      if (!official || team.wins !== official.wins || team.losses !== official.losses ||
-          team.ties !== official.ties || Math.abs(team.pointsFor - official.fpts) > 0.1) {
-        throw new Error('Finalized scores do not match official standings for ' + team.name);
-      }
+    const discrepancies = assertHistoricalLuckMatchesOfficial(report, teams);
+    if (discrepancies.length) {
+      console.warn('[standings/luck] Weekly matchup and official PF disagree:', {
+        season,
+        discrepancies,
+      });
     }
 
     return NextResponse.json({
