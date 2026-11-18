@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { TradeValue } from '@/lib/types/trade-analyzer';
-import { getObjectText } from '@/server/storage/r2';
+import { getObjectText, putObjectText } from '@/server/storage/r2';
+import { getKV } from '@/lib/server/kv';
 
 const KTC_R2_KEY = 'trade-analyzer/ktc.json';
 const KTC_R2_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -125,24 +126,72 @@ async function scrapeKTCLive(): Promise<KTCPlayer[]> {
 
 // Read KTC from R2 (written by scripts/refresh-ktc.ts on a residential IP).
 // Falls back to live scraping if R2 is unavailable or stale.
+/**
+ * The R2 value file is the cross-deployment cache. Previous behavior scraped
+ * 10 public pages on *every* cold Vercel instance once R2 exceeded 24 hours.
+ * Preserve live refreshes, write successful updates back to R2, and serve the
+ * most recently stored values if an upstream scrape is blocked.
+ */
 async function fetchKTC(): Promise<KTCPlayer[]> {
+  let lastStored: KTCPlayer[] = [];
   try {
     const text = await getObjectText({ key: KTC_R2_KEY });
     if (text) {
-      const stored = JSON.parse(text) as { players: KTCPlayer[]; updatedAt: string };
-      if (stored.players?.length > 0) {
-        const age = Date.now() - new Date(stored.updatedAt).getTime();
-        if (age < KTC_R2_TTL_MS) {
-          console.log(`[trade-analyzer] KTC from R2: ${stored.players.length} players, age ${Math.round(age / 3600000)}h`);
-          return stored.players;
+      const stored = JSON.parse(text) as { players?: KTCPlayer[]; updatedAt?: string };
+      if (Array.isArray(stored.players) && stored.players.length) {
+        lastStored = stored.players;
+        const age = Date.now() - Date.parse(stored.updatedAt || '');
+        if (Number.isFinite(age) && age >= 0 && age < KTC_R2_TTL_MS) {
+          return lastStored;
         }
-        console.log('[trade-analyzer] KTC R2 data is stale, falling back to live scrape');
       }
     }
   } catch (e) {
-    console.warn('[trade-analyzer] R2 read failed, falling back to live scrape:', e);
+    console.warn('[trade-analyzer] Could not read stored KTC values:', e);
   }
-  return scrapeKTCLive();
+
+  // A brief shared retry delay prevents every new deployment from re-running
+  // the same blocked scrape. This only applies when we have usable saved data.
+  // Without KV, retaining the normal live-refresh path is safer than refusing
+  // to update source values.
+  let kv: Awaited<ReturnType<typeof getKV>> = null;
+  if (lastStored.length) {
+    try {
+      kv = await getKV();
+      const nextRetry = kv ? Number(await kv.get('evw:ktc:next-scrape-at')) : 0;
+      if (Number.isFinite(nextRetry) && nextRetry > Date.now()) {
+        return lastStored;
+      }
+      if (kv) {
+        await kv.set('evw:ktc:next-scrape-at', String(Date.now() + 60 * 60 * 1000));
+        if (kv.expire) await kv.expire('evw:ktc:next-scrape-at', 3600);
+      }
+    } catch {
+      // Missing KV must never prevent trade values from loading.
+    }
+  }
+
+  const live = await scrapeKTCLive();
+  if (live.length > 0) {
+    // Keep the data reusable by all regions and all subsequent deployments.
+    // Refreshing the existing R2 object preserves the same format and callers.
+    try {
+      await putObjectText({
+        key: KTC_R2_KEY,
+        text: JSON.stringify({ updatedAt: new Date().toISOString(), players: live }),
+      });
+      if (kv) await kv.del('evw:ktc:next-scrape-at').catch(() => undefined);
+    } catch (error) {
+      console.warn('[trade-analyzer] Live KTC values loaded but R2 refresh failed:', error);
+    }
+    return live;
+  }
+
+  if (lastStored.length) {
+    console.warn('[trade-analyzer] KTC live refresh unavailable, using last saved values');
+    return lastStored;
+  }
+  return [];
 }
 
 // --- Helpers ---
