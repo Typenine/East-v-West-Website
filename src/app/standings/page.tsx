@@ -18,7 +18,7 @@ import {
   broadcastBodyTextStyle,
 } from '@/components/ui/BroadcastPanel';
 
-type SortKey = 'wins' | 'losses' | 'ties' | 'fpts' | 'fptsAgainst';
+type SortKey = 'wins' | 'losses' | 'ties' | 'fpts' | 'fptsAgainst' | 'luck';
 type SortDirection = 'asc' | 'desc';
 type LuckData = { luck: number; expectedWins: number; allPlayExpected: number; historicalExpected: number };
 
@@ -110,13 +110,32 @@ export default function StandingsPage() {
   const seedByRoster = new Map(officialOrder.map((team, index) => [team.rosterId, index + 1]));
   
   const sortedTeams = [...teams].sort((a, b) => {
-    if (a[sortConfig.key] > b[sortConfig.key]) {
+    const key = sortConfig.key;
+    if (key === 'luck') {
+      const aLuck = luckStatus === 'ready' ? luckByRoster[a.rosterId]?.luck : undefined;
+      const bLuck = luckStatus === 'ready' ? luckByRoster[b.rosterId]?.luck : undefined;
+      const aHasLuck = typeof aLuck === 'number' && Number.isFinite(aLuck);
+      const bHasLuck = typeof bLuck === 'number' && Number.isFinite(bLuck);
+
+      // Keep missing or still-loading luck data at the bottom, in either
+      // direction, and use official seed order for stable ties.
+      if (aHasLuck !== bHasLuck) return aHasLuck ? -1 : 1;
+      if (aHasLuck && bHasLuck) {
+        const difference = sortConfig.direction === 'desc'
+          ? bLuck! - aLuck!
+          : aLuck! - bLuck!;
+        if (difference !== 0) return difference;
+      }
+      return (seedByRoster.get(a.rosterId) ?? Infinity) -
+        (seedByRoster.get(b.rosterId) ?? Infinity);
+    }
+    if (a[key] > b[key]) {
       return sortConfig.direction === 'asc' ? 1 : -1;
     }
-    if (a[sortConfig.key] < b[sortConfig.key]) {
+    if (a[key] < b[key]) {
       return sortConfig.direction === 'asc' ? -1 : 1;
     }
-    if (sortConfig.key !== 'fpts') {
+    if (key !== 'fpts') {
       if (a.fpts > b.fpts) return -1;
       if (a.fpts < b.fpts) return 1;
     }
@@ -226,7 +245,7 @@ export default function StandingsPage() {
                   <th scope="col" className={thClass} aria-sort={sortAriaSort('fptsAgainst')}>{sortHeader('fptsAgainst', 'PA')}</th>
                   <th scope="col" className={thClass} style={broadcastFaintTextStyle}>PA/G</th>
                   <th scope="col" className={thClass} style={broadcastFaintTextStyle}>Streak</th>
-                  <th scope="col" className={thClass} style={broadcastFaintTextStyle} title="Actual wins minus the average of All-Play and historical expected wins">Luck</th>
+                  <th scope="col" className={thClass} aria-sort={sortAriaSort('luck')} title="Actual wins minus the average of All-Play and historical expected wins">{sortHeader('luck', 'Luck')}</th>
                 </tr>
               </thead>
               <tbody>
