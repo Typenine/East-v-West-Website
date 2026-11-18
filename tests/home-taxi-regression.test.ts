@@ -13,10 +13,12 @@ describe('homepage taxi tracker update', () => {
     expect(around).toContain("document.querySelector<HTMLElement>('.home-page .container')");
   });
 
-  it('shows saved audit results without running an audit on homepage visits', () => {
+  it('reuses cached taxi results and requests no more than one audit per day', () => {
     const banner = source('src/components/taxi/TaxiBanner.tsx');
     expect(banner).toContain('BroadcastPanel');
     expect(banner).toContain('fetch("/api/taxi/flags"');
+    expect(banner).toContain('fetch("/api/taxi/daily"');
+    expect(banner).toContain('method: "POST"');
     expect(banner).not.toContain('fetch("/api/taxi/report"');
     expect(banner).toContain('The latest run did not validate every team successfully');
   });
@@ -39,8 +41,11 @@ describe('homepage taxi tracker update', () => {
 
   it('records manual audits separately from official enforcement', () => {
     const report = source('src/app/api/taxi/report/route.ts');
-    expect(report).toContain("const runType = 'admin_rerun' as const");
-    expect(report).toContain('compliant: compliantOut');
+    const audit = source('src/lib/server/run-taxi-report.ts');
+    expect(report).toContain('isAdminCookieValue');
+    expect(report).toContain('runTaxiReport()');
+    expect(audit).toContain("const runType = 'admin_rerun' as const");
+    expect(audit).toContain('compliant: compliantOut');
   });
 
   it('accepts delayed scheduled runs throughout the target hour', () => {
