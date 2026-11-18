@@ -33,6 +33,46 @@ describe('historical luck calculations', () => {
     expect(alpha.combinedLuck).toBe(0.19);
   });
 
+  it('uses a common future-year historical pool when analyzing 2023', () => {
+    // A complete 2023 followed by Week 1 of 2024. Week 2 of 2024 is
+    // deliberately unfinished and must not enter the reference distribution.
+    const games = Array.from({ length: 14 }, (_, i) => game('2023', i + 1, 100, 50));
+    games.push(game('2024', 1, 250, 200));
+    games.push(game('2024', 2, 5, 500));
+
+    const original = calculateHistoricalLuck(games, '2023', 14, 2);
+    const updated = calculateHistoricalLuck(games, '2023', 14, 2, {
+      season: '2024',
+      throughWeek: 1,
+    });
+    expect(original.baselineCount).toBe(28);
+    expect(updated.baselineCount).toBe(30);
+    expect(updated.seasonCounts).toEqual([
+      { year: '2023', count: 28 },
+      { year: '2024', count: 2 },
+    ]);
+    const originalAlpha = original.teams.find((t) => t.name === 'Alpha')!;
+    const updatedAlpha = updated.teams.find((t) => t.name === 'Alpha')!;
+    expect(updatedAlpha.allPlayExpected).toBe(originalAlpha.allPlayExpected);
+    expect(updatedAlpha.allPlayExpected).toBe(14);
+    expect(originalAlpha.historicalExpected).toBe(10.5);
+    expect(updatedAlpha.historicalExpected).toBe(9.8);
+    expect(updatedAlpha.combinedExpected).toBe(11.9);
+    expect(updatedAlpha.combinedLuck).toBe(2.1);
+    expect(updatedAlpha.combinedLuck).not.toBe(originalAlpha.combinedLuck);
+  });
+
+  it('rejects an incomplete global comparison pool', () => {
+    const games = Array.from({ length: 14 }, (_, i) => game('2023', i + 1, 100, 50));
+    games.push(game('2024', 1, 250, 200));
+    expect(() => calculateHistoricalLuck(games, '2023', 14, 2, {
+      season: '2024', throughWeek: 2,
+    })).toThrow(/Finalized Week 2 of 2024/);
+    expect(() => calculateHistoricalLuck(games, '2023', 14, 2, {
+      season: '2025', throughWeek: 0,
+    })).toThrow(/Finalized Week 1 of 2024/);
+  });
+
   it('treats ties as half-wins and excludes postseason scores', () => {
     const report = calculateHistoricalLuck([
       game('2023', 1, 100, 100),
