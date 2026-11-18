@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { CURRENT_SEASON, getLeagueIdForSeason } from '@/lib/constants/league';
+import { CURRENT_SEASON, LEAGUE_IDS, getLeagueIdForSeason } from '@/lib/constants/league';
 import { assertHistoricalLuckMatchesOfficial, calculateHistoricalLuck } from '@/lib/fantasy/historical-luck';
 import { getLeagueStatsDatasetV2 } from '@/lib/stats/league-stats-v2';
 import { getTeamsData } from '@/lib/utils/sleeper-api';
@@ -18,18 +18,34 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'invalid_season' }, { status: 400 });
   }
   try {
-    const [dataset, teams] = await Promise.all([
+    const [dataset, teams, currentSeasonTeams] = await Promise.all([
       getLeagueStatsDatasetV2(),
       getTeamsData(leagueId, {
         forceFresh: season === CURRENT_SEASON,
         timeoutMs: 8000,
         retries: 1,
       }),
+      season === CURRENT_SEASON
+        ? Promise.resolve(null)
+        : getTeamsData(LEAGUE_IDS.CURRENT, {
+            forceFresh: true,
+            timeoutMs: 8000,
+            retries: 1,
+          }),
     ]);
     if (teams.length < 2) throw new Error('Missing league rosters');
 
+    // Every season must share the same reference pool. Sleeper's current
+    // finalized record is the cutoff; any partially played week is excluded.
+    const referenceTeams = currentSeasonTeams ?? teams;
+    if (referenceTeams.length !== teams.length) {
+      throw new Error('Current league data unavailable for shared historical reference');
+    }
+    const referenceThroughWeek = Math.min(14, ...referenceTeams.map((t) =>
+      Math.max(0, t.wins + t.losses + t.ties)));
+
     // Validate that no configured historical season was silently omitted.
-    for (let year = 2023; year <= Number(season); year += 1) {
+    for (let year = 2023; year <= Number(CURRENT_SEASON); year += 1) {
       if (!dataset.seasons.includes(String(year))) {
         throw new Error('Missing historical season: ' + year);
       }
@@ -42,7 +58,13 @@ export async function GET(request: Request) {
         season, throughWeek, baselineCount: 0, teams: [],
       }, { headers: { 'Cache-Control': 'no-store' } });
     }
-    const report = calculateHistoricalLuck(dataset.games, season, throughWeek, teams.length);
+    const report = calculateHistoricalLuck(
+      dataset.games,
+      season,
+      throughWeek,
+      teams.length,
+      { season: CURRENT_SEASON, throughWeek: referenceThroughWeek },
+    );
     const discrepancies = assertHistoricalLuckMatchesOfficial(report, teams);
     if (discrepancies.length) {
       console.warn('[standings/luck] Weekly matchup and official PF disagree:', {
@@ -54,6 +76,8 @@ export async function GET(request: Request) {
     return NextResponse.json({
       season,
       throughWeek,
+      referenceSeason: CURRENT_SEASON,
+      referenceThroughWeek,
       baselineCount: report.baselineCount,
       teams: report.teams.map((t) => ({
         rosterId: t.rosterId,
