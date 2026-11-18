@@ -125,7 +125,17 @@ export default async function SeasonLaunchHome({
     }).catch(() => []);
 
     // Never build expensive league-wide projections during a homepage request.
-    // Scheduled projection snapshots are the source of truth.
+    // The existing protected snapshot job remains the source of fresh forecasts.
+    // Reuse another saved model version for the same week if this model has
+    // incomplete coverage, without inventing projections from another week.
+    if (projectionSnapshots.length < Math.min(12, rosters.length)) {
+      const olderSnapshots = await loadProjectionSnapshotsForWeek({
+        season: Number(seasonYear), week: selectedWeek,
+      }).catch(() => []);
+      const byTeam = new Map(olderSnapshots.map((snap) => [snap.teamName, snap] as const));
+      for (const snap of projectionSnapshots) byTeam.set(snap.teamName, snap);
+      projectionSnapshots = [...byTeam.values()];
+    }
 
     const projectionByTeam = new Map(
       projectionSnapshots.map((snapshot) => [snapshot.teamName, snapshot] as const),
