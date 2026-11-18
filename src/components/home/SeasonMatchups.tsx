@@ -44,6 +44,7 @@ type TeamStatus = {
 
 type ScoreboardPayload = {
   teamStatuses?: Record<string, TeamStatus>;
+  games?: Array<{ state: "pre" | "in" | "post"; startDate: string }>;
 };
 
 type MatchupPointsPayload = {
@@ -176,28 +177,68 @@ export default function SeasonMatchups({
 
   useEffect(() => {
     let cancelled = false;
-    async function refresh() {
-      const [pointsResult, scoreboardResult] = await Promise.allSettled([
-        fetch(`/api/matchup-points?week=${selectedWeek}`, { cache: "no-store" }),
-        fetch(`/api/nfl-scoreboard?week=${selectedWeek}&season=${encodeURIComponent(season)}`, { cache: "no-store" }),
-      ]);
-      if (cancelled) return;
+    let inFlight = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastInterval = 60_000;
 
-      if (pointsResult.status === "fulfilled" && pointsResult.value.ok) {
-        const payload = (await pointsResult.value.json().catch(() => ({}))) as MatchupPointsPayload;
-        if (!cancelled) setRosterPoints(payload.rosterPoints || {});
-      }
-      if (scoreboardResult.status === "fulfilled" && scoreboardResult.value.ok) {
-        const payload = (await scoreboardResult.value.json().catch(() => ({}))) as ScoreboardPayload;
-        if (!cancelled) setStatuses(payload.teamStatuses || {});
+    // Keep 30-second updates during active NFL games. Outside live games,
+    // polling every three minutes is sufficient and avoids needless server CPU.
+    // Stop entirely while the browser tab is hidden; refresh on return.
+    const schedule = (ms: number) => {
+      if (cancelled || document.hidden) return;
+      timer = setTimeout(() => { void refresh(); }, ms);
+    };
+
+    async function refresh() {
+      if (cancelled || document.hidden || inFlight) return;
+      inFlight = true;
+      try {
+        const [pointsResult, scoreboardResult] = await Promise.allSettled([
+          fetch(`/api/matchup-points?week=${selectedWeek}`, { cache: "no-store" }),
+          fetch(`/api/nfl-scoreboard?week=${selectedWeek}&season=${encodeURIComponent(season)}`, { cache: "no-store" }),
+        ]);
+        if (cancelled) return;
+
+        if (pointsResult.status === "fulfilled" && pointsResult.value.ok) {
+          const payload = (await pointsResult.value.json().catch(() => ({}))) as MatchupPointsPayload;
+          if (!cancelled) setRosterPoints(payload.rosterPoints || {});
+        }
+        if (scoreboardResult.status === "fulfilled" && scoreboardResult.value.ok) {
+          const payload = (await scoreboardResult.value.json().catch(() => ({}))) as ScoreboardPayload;
+          if (!cancelled) {
+            const nextStatuses = payload.teamStatuses || {};
+            setStatuses(nextStatuses);
+            const live = Object.values(nextStatuses).some((game) => game.state === "in");
+            const nearKickoff = (payload.games || []).some((game) => {
+              const kickoff = Date.parse(game.startDate);
+              return game.state === "pre" && Number.isFinite(kickoff)
+                && kickoff - Date.now() < 10 * 60_000
+                && kickoff - Date.now() > -5 * 60_000;
+            });
+            lastInterval = live || nearKickoff ? 30_000 : 180_000;
+          }
+        } else {
+          // Keep checking relatively soon if the scoreboard is temporarily unavailable.
+          lastInterval = 60_000;
+        }
+      } finally {
+        inFlight = false;
+        schedule(lastInterval);
       }
     }
 
-    refresh();
-    const timer = window.setInterval(refresh, 30000);
+    const onVisibilityChange = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      if (!document.hidden) void refresh();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void refresh();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer !== null) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [selectedWeek, season]);
 

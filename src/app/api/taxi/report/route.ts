@@ -2,6 +2,7 @@ import { getNFLState, getTeamsData, getAllPlayersCached } from '@/lib/utils/slee
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { writeTaxiSnapshot } from '@/server/db/queries.fixed';
 import { validateTaxiForRoster } from '@/lib/server/taxi-validator';
+import { createTaxiValidationRequestCache } from '@/lib/server/taxi-request-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,14 +27,15 @@ function pickRunType(day: string, hour: number, minute: number): 'wed_warn' | 't
 
 export async function GET() {
   try {
+    const shared = createTaxiValidationRequestCache();
     const { day, hour, minute, now } = nowInET();
     const runType = pickRunType(day, hour, minute);
-    const st = await getNFLState().catch(() => ({ season: new Date().getFullYear(), week: 1 } as { season?: number; week?: number }));
+    const st = await shared.once('nfl-state', () => getNFLState()).catch(() => ({ season: new Date().getFullYear(), week: 1 } as { season?: number; week?: number }));
     const season = Number(st.season || new Date().getFullYear());
     const week = Number(st.week || 1);
 
     const leagueId = LEAGUE_IDS.CURRENT;
-    const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ teamName: string; rosterId: number }>);
+    const teams = await shared.once('teams:' + leagueId, () => getTeamsData(leagueId)).catch(() => [] as Array<{ teamName: string; rosterId: number }>);
 
     type Flag = { team: string; type: 'violation' | 'warning'; message: string };
     const actual: Flag[] = [];
@@ -41,7 +43,7 @@ export async function GET() {
     const isOfficial = runType === 'sun_pm_official';
 
     // Load player meta for ID->name mapping
-    const players = await getAllPlayersCached().catch(() => ({} as Record<string, { first_name?: string; last_name?: string } >));
+    const players = await shared.once('all-players', () => getAllPlayersCached()).catch(() => ({} as Record<string, { first_name?: string; last_name?: string } >));
     const nameOf = (pid: string) => {
       const p = players[pid];
       if (!p) return pid;
@@ -51,7 +53,7 @@ export async function GET() {
 
     for (const t of teams) {
       try {
-        const res = await validateTaxiForRoster(String(season), t.rosterId);
+        const res = await validateTaxiForRoster(String(season), t.rosterId, shared);
         if (!res) continue;
         const msgParts: string[] = [];
         const nonCompliant = !res.compliant;

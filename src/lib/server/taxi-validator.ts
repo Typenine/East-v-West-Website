@@ -1,3 +1,4 @@
+import { type TaxiValidationRequestCache } from '@/lib/server/taxi-request-cache';
 import { LEAGUE_IDS, IMPORTANT_DATES } from '@/lib/constants/league';
 import { getTeamsData, getLeagueRosters, getAllPlayersCached, getLeagueTransactionsAllWeeks, getLeagueMatchups, SleeperTransaction, getNFLState, getLeagueDrafts, getDraftPicks, buildYearToLeagueMapUnique, type SleeperPlayer } from '@/lib/utils/sleeper-api';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
@@ -12,6 +13,7 @@ export type TaxiValidateResult = {
   compliant: boolean;
   violations: Violation[];
 };
+
 
 function getLeagueIdForSeason(season: string): string | null {
   // Use current NFL season logic, not calendar year
@@ -108,25 +110,30 @@ function toVia(tx: SleeperTransaction['type'] | string): 'free_agent' | 'waiver'
   return 'free_agent';
 }
 
-export async function validateTaxiForRoster(selectedSeason: string, selectedRosterId: number): Promise<TaxiValidateResult | null> {
+export async function validateTaxiForRoster(
+  selectedSeason: string,
+  selectedRosterId: number,
+  shared?: TaxiValidationRequestCache,
+): Promise<TaxiValidateResult | null> {
+  const load = <T,>(key: string, fn: () => Promise<T>): Promise<T> => shared ? shared.once(key, fn) : fn();
   const leagueId = getLeagueIdForSeason(String(selectedSeason));
   if (!leagueId) return null;
 
   // Map rosterId -> team name (canonical)
-  const teams = await getTeamsData(leagueId).catch(() => [] as Array<{ rosterId: number; ownerId: string; teamName: string }>
+  const teams = await load('teams:' + leagueId, () => getTeamsData(leagueId)).catch(() => [] as Array<{ rosterId: number; ownerId: string; teamName: string }>
   );
   const thisTeam = teams.find((t) => t.rosterId === selectedRosterId) || null;
   const canonicalName = thisTeam ? resolveCanonicalTeamName({ ownerId: thisTeam.ownerId }) : `Roster ${selectedRosterId}`;
 
   // Current rosters to read taxi/reserve/players (treat missing as [])
-  const rosters = await getLeagueRosters(leagueId).catch(() => [] as Array<{ roster_id: number; players?: string[]; starters?: string[]; reserve?: string[]; taxi?: string[] }>);
+  const rosters = await load('rosters:' + leagueId, () => getLeagueRosters(leagueId)).catch(() => [] as Array<{ roster_id: number; players?: string[]; starters?: string[]; reserve?: string[]; taxi?: string[] }>);
   const r = rosters.find((rr) => rr.roster_id === selectedRosterId) || { players: [], reserve: [], taxi: [] } as { players?: string[]; reserve?: string[]; taxi?: string[] };
   const taxiArr: string[] = Array.isArray(r.taxi) ? (r.taxi as string[]).filter(Boolean) : [];
 
   // Establish current NFL week for transaction fallback
   let currentWeek = 0;
   try {
-    const st = await getNFLState();
+    const st = await load('nfl-state', () => getNFLState());
     const wk = Number((st as { week?: number }).week || 0) || 0;
     currentWeek = wk;
   } catch {}
@@ -134,13 +141,13 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   // starters/reserve used only for same-week inconsistencies which we no longer flag
 
   // Seed txn_cache + tenures from transactions across seasons for this franchise
-  const yearToLeague = await buildYearToLeagueMapUnique();
+  const yearToLeague = await load('year-to-league', () => buildYearToLeagueMapUnique());
   const seasons = Object.keys(yearToLeague).sort();
   const rosterIdBySeason = new Map<string, number>();
   for (const y of seasons) {
     const lid = yearToLeague[y];
     try {
-      const ts = await getTeamsData(lid).catch(() => [] as Array<{ rosterId: number; ownerId: string; teamName: string }>);
+      const ts = await load('teams:' + lid, () => getTeamsData(lid)).catch(() => [] as Array<{ rosterId: number; ownerId: string; teamName: string }>);
       const row = ts.find((t) => t.teamName === canonicalName) || (thisTeam ? ts.find((t) => t.ownerId === thisTeam.ownerId) : undefined);
       if (row) rosterIdBySeason.set(y, row.rosterId);
     } catch {}
@@ -152,7 +159,7 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
     const lid = yearToLeague[y];
     const rid = rosterIdBySeason.get(y);
     if (!lid || !rid) continue;
-    const txnsRaw = await getLeagueTransactionsAllWeeks(lid).catch(() => [] as SleeperTransaction[]);
+    const txnsRaw = await load('transactions:' + lid, () => getLeagueTransactionsAllWeeks(lid)).catch(() => [] as SleeperTransaction[]);
     const txns = [...txnsRaw].sort((a, b) => Number(a?.created || 0) - Number(b?.created || 0));
     for (const tx of txns) {
       if (!tx || tx.status !== 'complete') continue;
@@ -184,9 +191,9 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
     }
     // Also consider draft picks as acquisition events to avoid unknown intake
     try {
-      const drafts = await getLeagueDrafts(lid).catch(() => []);
+      const drafts = await load('drafts:' + lid, () => getLeagueDrafts(lid)).catch(() => []);
       for (const d of drafts) {
-        const picks = await getDraftPicks(d.draft_id).catch(() => []);
+        const picks = await load('draft-picks:' + d.draft_id, () => getDraftPicks(d.draft_id)).catch(() => []);
         for (const p of picks) {
           const pid = p.player_id;
           if (!pid) continue;
@@ -208,13 +215,13 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   // Check boomerang using prior locked weeks (exclude current week)
   if (!currentWeek) {
     try {
-      const st2 = await getNFLState();
+      const st2 = await load('nfl-state', () => getNFLState());
       currentWeek = Number((st2 as { week?: number }).week || 0) || 0;
     } catch {}
   }
   const lastLockedWeek = currentWeek > 1 ? currentWeek - 1 : 0;
   const weeks = lastLockedWeek > 0 ? Array.from({ length: lastLockedWeek }, (_, i) => i + 1) : [];
-  const weekly = await Promise.all(weeks.map((w) => getLeagueMatchups(leagueId, w).catch(() => [] as Array<{ matchup_id?: number; roster_id?: number; starters?: string[]; players?: string[]; points?: number; custom_points?: number }>)));
+  const weekly = await Promise.all(weeks.map((w) => load('matchups:' + leagueId + ':' + w, () => getLeagueMatchups(leagueId, w)).catch(() => [] as Array<{ matchup_id?: number; roster_id?: number; starters?: string[]; players?: string[]; points?: number; custom_points?: number }>)));
   const appearedSinceJoin = new Set<string>();
   for (let wi = 0; wi < weekly.length; wi++) {
     const matches = weekly[wi] || [] as Array<{ matchup_id?: number; roster_id?: number; starters?: string[]; players?: string[]; points?: number; custom_points?: number }>;
@@ -227,9 +234,14 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
     let ids = new Set<string>(Array.from(starters));
     try {
       const key = `logs/lineups/snapshots/${String(selectedSeason)}-W${matchupWeek}.json`;
-      const txt = await getObjectText({ key });
-      if (txt) {
-        const j = JSON.parse(txt) as { meta?: { schemaVersion?: number }; teams?: Array<{ rosterId: number; starters?: string[]; bench?: string[]; reserve?: string[] }> };
+      const j = await load('lineup-snapshot:' + key, async () => {
+        const text = await getObjectText({ key });
+        return text ? JSON.parse(text) as {
+          meta?: { schemaVersion?: number };
+          teams?: Array<{ rosterId: number; starters?: string[]; bench?: string[]; reserve?: string[] }>;
+        } : null;
+      });
+      if (j) {
         const ver = Number(j?.meta?.schemaVersion || 1);
         if (Number.isFinite(ver) && ver >= 2) {
           const row = (j.teams || []).find((t) => t.rosterId === selectedRosterId);
@@ -260,7 +272,7 @@ export async function validateTaxiForRoster(selectedSeason: string, selectedRost
   }
 
   // Players meta for positions and eligibility
-  const playersMeta = await getAllPlayersCached().catch(() => ({} as Record<string, SleeperPlayer>));
+  const playersMeta = await load('all-players', () => getAllPlayersCached()).catch(() => ({} as Record<string, SleeperPlayer>));
   
   // Determine current NFL season for player year calculations
   const now = new Date();
