@@ -131,8 +131,7 @@ type FilterKey''',
 
     # ------------------------------------------------------------------
     # Restyle the homepage taxi tracker with current broadcast components.
-    # Automatic hydration reads the latest stored audit; the explicit button
-    # runs a fresh full audit rather than merely re-fetching stale snapshots.
+    # Homepage only reads the saved audit. Full audits run on schedule or by commissioner.
     # ------------------------------------------------------------------
     write_file(
         'src/components/taxi/TaxiBanner.tsx',
@@ -171,7 +170,7 @@ const RUN_LABELS: Record<string, string> = {
   thu_warn: "Thursday warning audit",
   sun_am_warn: "Sunday morning audit",
   sun_pm_official: "Sunday official audit",
-  admin_rerun: "Current manual audit",
+  admin_rerun: "Latest daily or commissioner audit",
 };
 
 function formatAuditTime(value?: string): string {
@@ -210,8 +209,6 @@ function FlagList({ flags, accent }: { flags: Flag[]; accent: string }) {
 
 export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
   const [flags, setFlags] = useState<TaxiFlags>(initial);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const applyPayload = useCallback((payload: Partial<TaxiFlags>) => {
     setFlags((previous) => ({
@@ -242,20 +239,6 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
   useEffect(() => {
     void loadLatest();
   }, [loadLatest]);
-
-  const runCurrentAudit = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/taxi/report", { cache: "no-store" });
-      if (!response.ok) throw new Error("audit_failed");
-      applyPayload((await response.json()) as Partial<TaxiFlags>);
-    } catch {
-      setError("The current audit could not be completed. The last stored audit is still shown.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const incomplete = flags.degraded === true || flags.complete === false;
   const hasActual = flags.actual.length > 0;
@@ -301,19 +284,6 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
                 {flags.week ? ` · Week ${flags.week}` : ""}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={runCurrentAudit}
-              disabled={loading}
-              className="shrink-0 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
-              style={{
-                color: PANEL.text,
-                background: `${presentation.accent}24`,
-                boxShadow: `inset 0 0 0 1px ${presentation.accent}55`,
-              }}
-            >
-              {loading ? "Running audit…" : "Run current audit"}
-            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -356,11 +326,10 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
 
           {!flags.runType && !incomplete && (
             <div className="text-sm" style={broadcastMutedTextStyle}>
-              No full audit has been recorded yet. Run a current audit to check all teams now.
+              No scheduled audit has been recorded yet. The next daily audit will appear here.
             </div>
           )}
 
-          {error && <div className="text-xs" style={{ color: "#fca5a5" }}>{error}</div>}
           <div className="text-[10px] leading-relaxed" style={broadcastFaintTextStyle}>
             The tracker verifies capacity, quarterback limits, permitted acquisition methods, current-tenure activation restrictions, eligible offseason resets, and Sunday acquisition timing. Managers remain responsible for compliance under Rule 5.5(f).
           </div>
