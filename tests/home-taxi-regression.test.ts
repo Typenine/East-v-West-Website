@@ -40,7 +40,7 @@ describe('homepage taxi tracker update', () => {
   it('records manual audits separately from official enforcement', () => {
     const report = source('src/app/api/taxi/report/route.ts');
     expect(report).toContain("const runType = 'admin_rerun' as const");
-    expect(report).toContain('compliant: result.compliant');
+    expect(report).toContain('compliant: compliantOut');
   });
 
   it('accepts delayed scheduled runs throughout the target hour', () => {
