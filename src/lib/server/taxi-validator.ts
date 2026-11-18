@@ -1,3 +1,4 @@
+import { type TaxiValidationRequestCache } from '@/lib/server/taxi-request-cache';
 import { LEAGUE_IDS, IMPORTANT_DATES } from '@/lib/constants/league';
 import { getTeamsData, getLeagueRosters, getAllPlayersCached, getLeagueTransactionsAllWeeks, getLeagueMatchups, SleeperTransaction, getNFLState, getLeagueDrafts, getDraftPicks, buildYearToLeagueMapUnique, type SleeperPlayer } from '@/lib/utils/sleeper-api';
 import { resolveCanonicalTeamName } from '@/lib/utils/team-utils';
@@ -13,27 +14,6 @@ export type TaxiValidateResult = {
   violations: Violation[];
 };
 
-/**
- * Share immutable upstream data within a single 12-team taxi report.
- * Each roster still performs its own validation and database snapshot writes.
- * The cache is created per request, so a later report always reloads current data.
- */
-export function createTaxiValidationRequestCache() {
-  const pending = new Map<string, Promise<unknown>>();
-  return {
-    once<T>(key: string, loader: () => Promise<T>): Promise<T> {
-      const existing = pending.get(key);
-      if (existing) return existing as Promise<T>;
-      const promise = loader().catch((error) => {
-        pending.delete(key);
-        throw error;
-      });
-      pending.set(key, promise);
-      return promise;
-    },
-  };
-}
-export type TaxiValidationRequestCache = ReturnType<typeof createTaxiValidationRequestCache>;
 
 function getLeagueIdForSeason(season: string): string | null {
   // Use current NFL season logic, not calendar year
