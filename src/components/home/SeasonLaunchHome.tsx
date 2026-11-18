@@ -34,10 +34,7 @@ import AroundTheLeague from "@/components/home/AroundTheLeague";
 import RecentTransactions from "@/components/home/RecentTransactions";
 import HistoricalSpotlight from "@/components/home/HistoricalSpotlight";
 import { loadProjectionSnapshotsForWeek } from "@/lib/fantasy/projection-snapshot-store";
-import {
-  buildLeagueProjectionSnapshotsV3,
-  PROJECTION_MODEL_VERSION,
-} from "@/lib/fantasy/weekly-projections-next";
+import { PROJECTION_MODEL_VERSION } from "@/lib/fantasy/weekly-projections-next";
 
 const MAX_REGULAR_WEEKS = 14;
 const POS_DEFAULT_MEAN: Record<string, number> = { QB: 18, RB: 13, WR: 13, TE: 8, K: 8, DEF: 8 };
@@ -127,24 +124,8 @@ export default async function SeasonLaunchHome({
       modelVersion: PROJECTION_MODEL_VERSION,
     }).catch(() => []);
 
-    const shouldGenerateSelectedWeek = beforeKickoff ? selectedWeek === 1 : selectedWeek === currentWeek;
-    if (shouldGenerateSelectedWeek && projectionSnapshots.length < Math.min(12, rosters.length)) {
-      const generated = await buildLeagueProjectionSnapshotsV3({
-        season: seasonYear,
-        week: selectedWeek,
-        saveSnapshots: true,
-      }).catch(() => []);
-      if (generated.length) {
-        projectionSnapshots = generated.map((snapshot) => {
-          const hasCurrentLineup = (snapshot.currentLineup || []).some((entry) => Boolean(entry.player));
-          return {
-            ...snapshot,
-            currentTotal: snapshot.currentTotal ?? snapshot.optimalTotal,
-            currentLineup: hasCurrentLineup ? snapshot.currentLineup : snapshot.optimalLineup,
-          };
-        });
-      }
-    }
+    // Never build expensive league-wide projections during a homepage request.
+    // Scheduled projection snapshots are the source of truth.
 
     const projectionByTeam = new Map(
       projectionSnapshots.map((snapshot) => [snapshot.teamName, snapshot] as const),
