@@ -309,7 +309,7 @@ export default function StandingsPage() {
               <span className="font-semibold" style={broadcastBodyTextStyle}>All-Play (50%):</span>{' '}
               Each week, how often would the team&apos;s score beat the other 11 teams that same week?
               <span className="ml-2 font-semibold" style={broadcastBodyTextStyle}>Historical (50%):</span>{' '}
-              Each week, how often would its score beat completed East v. West regular-season scores since 2023?
+              Each week, how often would its score beat all completed East v. West regular-season scores since 2023? Every season uses the same growing pool, including scores from later seasons.
             </p>
             <p className="mt-1">
               We add each model&apos;s weekly win probabilities to get two expected-win totals, then average them.
