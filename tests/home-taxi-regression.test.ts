@@ -13,11 +13,11 @@ describe('homepage taxi tracker update', () => {
     expect(around).toContain("document.querySelector<HTMLElement>('.home-page .container')");
   });
 
-  it('uses the current broadcast panel styling and a real manual audit', () => {
+  it('shows saved audit results without running an audit on homepage visits', () => {
     const banner = source('src/components/taxi/TaxiBanner.tsx');
     expect(banner).toContain('BroadcastPanel');
-    expect(banner).toContain('Run current audit');
-    expect(banner).toContain('fetch("/api/taxi/report"');
+    expect(banner).toContain('fetch("/api/taxi/flags"');
+    expect(banner).not.toContain('fetch("/api/taxi/report"');
     expect(banner).toContain('The latest run did not validate every team successfully');
   });
 
