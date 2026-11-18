@@ -18,6 +18,9 @@ import {
   broadcastBodyTextStyle,
 } from '@/components/ui/BroadcastPanel';
 
+// Keep the historical Luck feature available for reinstatement without
+// loading its expensive API data while it is hidden from the standings.
+const SHOW_LUCK = false;
 type SortKey = 'wins' | 'losses' | 'ties' | 'fpts' | 'fptsAgainst' | 'luck';
 type SortDirection = 'asc' | 'desc';
 type LuckData = { luck: number; expectedWins: number; allPlayExpected: number; historicalExpected: number };
@@ -67,6 +70,7 @@ export default function StandingsPage() {
   }, [fetchStandings]);
 
   useEffect(() => {
+    if (!SHOW_LUCK) return;
     const controller = new AbortController();
     setLuckByRoster({});
     setLuckStatus('loading');
@@ -245,7 +249,9 @@ export default function StandingsPage() {
                   <th scope="col" className={thClass} aria-sort={sortAriaSort('fptsAgainst')}>{sortHeader('fptsAgainst', 'PA')}</th>
                   <th scope="col" className={thClass} style={broadcastFaintTextStyle}>PA/G</th>
                   <th scope="col" className={thClass} style={broadcastFaintTextStyle}>Streak</th>
-                  <th scope="col" className={thClass} aria-sort={sortAriaSort('luck')} title="Actual wins minus the average of All-Play and historical expected wins">{sortHeader('luck', 'Luck')}</th>
+                  {SHOW_LUCK && (
+                    <th scope="col" className={thClass} aria-sort={sortAriaSort('luck')} title="Actual wins minus the average of All-Play and historical expected wins">{sortHeader('luck', 'Luck')}</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -298,17 +304,19 @@ export default function StandingsPage() {
                       <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold sm:px-5" style={broadcastMutedTextStyle}>
                         {streak && streak.type && streak.length > 0 ? `${streak.type}${streak.length}` : '—'}
                       </td>
-                      <td
-                        className="whitespace-nowrap px-4 py-3 text-sm font-semibold tabular-nums sm:px-5"
-                        style={broadcastBodyTextStyle}
-                        title={luckEntry
-                          ? `Combined expected wins: ${luckEntry.expectedWins.toFixed(2)} (All-Play: ${luckEntry.allPlayExpected.toFixed(2)}, Historical: ${luckEntry.historicalExpected.toFixed(2)})`
-                          : undefined}
-                      >
-                        {luckStatus === 'loading' ? '…' : luckStatus === 'ready' && luckEntry
-                          ? `${luckEntry.luck > 0 ? '+' : ''}${luckEntry.luck.toFixed(2)}`
-                          : '—'}
-                      </td>
+                      {SHOW_LUCK && (
+                        <td
+                          className="whitespace-nowrap px-4 py-3 text-sm font-semibold tabular-nums sm:px-5"
+                          style={broadcastBodyTextStyle}
+                          title={luckEntry
+                            ? `Combined expected wins: ${luckEntry.expectedWins.toFixed(2)} (All-Play: ${luckEntry.allPlayExpected.toFixed(2)}, Historical: ${luckEntry.historicalExpected.toFixed(2)})`
+                            : undefined}
+                        >
+                          {luckStatus === 'loading' ? '…' : luckStatus === 'ready' && luckEntry
+                            ? `${luckEntry.luck > 0 ? '+' : ''}${luckEntry.luck.toFixed(2)}`
+                            : '—'}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -319,6 +327,7 @@ export default function StandingsPage() {
             <span className="h-0.5 w-8 bg-[#2563eb]" aria-hidden="true" />
             Seeds 1-{playoffTeams} qualify for the playoffs
           </div>
+          {SHOW_LUCK && (
           <div className="border-t border-[var(--panel-hairline)] px-4 py-3 text-xs leading-relaxed sm:px-5" style={broadcastMutedTextStyle}>
             <p>
               <span className="font-bold" style={broadcastBodyTextStyle}>How Luck is calculated:</span>{' '}
@@ -341,6 +350,7 @@ export default function StandingsPage() {
               <p className="mt-1 font-semibold">Luck numbers are temporarily unavailable.</p>
             )}
           </div>
+          )}
         </BroadcastPanel>
       </div>
     </div>
