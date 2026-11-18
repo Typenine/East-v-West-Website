@@ -86,7 +86,12 @@ export async function GET(request: Request) {
         allPlayExpected: t.allPlayExpected,
         historicalExpected: t.historicalExpected,
       })),
-    }, { headers: { 'Cache-Control': 'no-store' } });
+    }, { headers: {
+      // The scoreboard is finalized weekly, not on every request. A short
+      // shared cache avoids reloading multi-season data for each visitor.
+      // Recompute within five minutes of any newly completed week.
+      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=300',
+    } });
   } catch (error) {
     console.error('[standings/luck] Historical luck is unavailable:', error);
     return NextResponse.json({ error: 'luck_unavailable' }, { status: 503 });
