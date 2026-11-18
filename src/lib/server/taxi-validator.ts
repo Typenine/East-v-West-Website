@@ -133,7 +133,7 @@ export async function validateTaxiForRoster(
   // Establish current NFL week for transaction fallback
   let currentWeek = 0;
   try {
-    const st = await load('nfl-state', () => getNFLState());
+    const st = await getNFLState();
     const wk = Number((st as { week?: number }).week || 0) || 0;
     currentWeek = wk;
   } catch {}
@@ -215,7 +215,7 @@ export async function validateTaxiForRoster(
   // Check boomerang using prior locked weeks (exclude current week)
   if (!currentWeek) {
     try {
-      const st2 = await load('nfl-state', () => getNFLState());
+      const st2 = await getNFLState();
       currentWeek = Number((st2 as { week?: number }).week || 0) || 0;
     } catch {}
   }
