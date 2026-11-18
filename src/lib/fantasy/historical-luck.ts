@@ -35,25 +35,40 @@ export interface HistoricalLuckReport {
 
 const round2 = (number: number) => Number(number.toFixed(2));
 
-/** A schedule-neutral historical baseline, updated whenever another week is finalized.
- * Every regular-season score since 2023 is included, and ties count as half a win.
- * The result is distinct from Bill James' Pythagorean expected wins.
+export interface HistoricalReferenceWindow {
+  season: string;
+  throughWeek: number;
+}
+
+/** Schedule-neutral expected wins using an explicit league-wide reference window.
+ * All seasons are evaluated against the same completed-score pool, starting in 2023.
+ * The target team's season remains fixed; only the historical benchmark grows.
+ * Ties count as half a win. All-Play still uses only the target week's scores.
  */
 export function calculateHistoricalLuck(
   games: StatsGameRow[],
   season: string,
   throughWeek: number,
   teamCount: number,
+  referenceWindow?: HistoricalReferenceWindow,
 ): HistoricalLuckReport {
+  const { season: referenceSeason, throughWeek: referenceThroughWeek } = referenceWindow ?? { season, throughWeek };
   if (!/^\d{4}$/.test(season) || season < '2023' || !Number.isInteger(throughWeek) ||
     throughWeek < 0 || throughWeek > 14 || !Number.isInteger(teamCount) ||
-    teamCount < 2 || teamCount % 2 !== 0) {
+    teamCount < 2 || teamCount % 2 !== 0 ||
+    !/^\d{4}$/.test(referenceSeason) || referenceSeason < season ||
+    !Number.isInteger(referenceThroughWeek) || referenceThroughWeek < 0 ||
+    referenceThroughWeek > 14 ||
+    (referenceSeason === season && referenceThroughWeek < throughWeek)) {
     throw new Error('Invalid historical luck analysis parameters.');
   }
 
+  // The reference pool must never contain partially completed weeks.
+  // All seasons (including 2023) use the same global pool, supplied by the
+  // API using the CURRENT season's finalized W/L/T as its cutoff.
   const selected = games.filter((g) =>
-    g.gameType === 'regular' && g.season >= '2023' && g.season <= season &&
-    (g.season !== season || g.week <= throughWeek)
+    g.gameType === 'regular' && g.season >= '2023' && g.season <= referenceSeason &&
+    (g.season !== referenceSeason || g.week <= referenceThroughWeek)
   );
   const byWeek = new Map<string, StatsGameRow[]>();
   const seasonCounts = new Map<string, number>();
@@ -80,8 +95,20 @@ export function calculateHistoricalLuck(
     }
     if (ids.size !== teamCount) throw new Error('Missing teams in ' + key);
   }
+  // The API supplies an explicit reference window. With one, require all
+  // completed prior seasons to be present, not just the target season.
+  if (referenceWindow) {
+    for (let y = 2023; y <= Number(referenceSeason); y++) {
+      const completeWeeks = String(y) === referenceSeason ? referenceThroughWeek : 14;
+      for (let w = 1; w <= completeWeeks; w++) {
+        if (!byWeek.has(y + '-' + w)) {
+          throw new Error('Finalized Week ' + w + ' of ' + y + ' has no complete data.');
+        }
+      }
+    }
+  }
   for (let w = 1; w <= throughWeek; w++) {
-    if (!byWeek.has(season + '-' + w)) throw new Error('Finalized Week ' + w + ' has no complete data.');
+    if (!byWeek.has(season + '-' + w)) throw new Error('Target Week ' + w + ' has no complete data.');
   }
 
   const probability = (score: number) => {
