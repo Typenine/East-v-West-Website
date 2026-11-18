@@ -3,33 +3,21 @@ import { LEAGUE_IDS } from '@/lib/constants/league';
 import { writeTaxiSnapshot } from '@/server/db/queries.fixed';
 import { validateTaxiForRoster } from '@/lib/server/taxi-validator';
 import { createTaxiValidationRequestCache } from '@/lib/server/taxi-request-cache';
+import { isAdminCookieValue } from '@/lib/auth/admin';
+import { isCronAuthorized } from '@/lib/server/cron-auth';
+import { NextRequest } from 'next/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function nowInET() {
-  const now = new Date();
-  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit' });
-  const parts = fmt.formatToParts(now);
-  const day = parts.find(p => p.type === 'weekday')?.value || '';
-  const hour = Number(parts.find(p => p.type === 'hour')?.value || '0');
-  const minute = Number(parts.find(p => p.type === 'minute')?.value || '0');
-  return { day, hour, minute, now };
-}
-
-function pickRunType(day: string, hour: number, minute: number): 'wed_warn' | 'thu_warn' | 'sun_am_warn' | 'sun_pm_official' | 'admin_rerun' {
-  if (day === 'Wed' && hour === 17 && minute === 0) return 'wed_warn';
-  if (day === 'Thu' && hour === 15 && minute === 0) return 'thu_warn';
-  if (day === 'Sun' && hour === 11 && minute === 0) return 'sun_am_warn';
-  if (day === 'Sun' && hour === 20 && minute === 0) return 'sun_pm_official';
-  return 'admin_rerun';
-}
-
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!isCronAuthorized(req) && !isAdminCookieValue(req.cookies.get('evw_admin')?.value)) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
     const shared = createTaxiValidationRequestCache();
-    const { day, hour, minute, now } = nowInET();
-    const runType = pickRunType(day, hour, minute);
+    const now = new Date();
+    const runType = 'admin_rerun' as const;
     const st = await shared.once('nfl-state', () => getNFLState()).catch(() => ({ season: new Date().getFullYear(), week: 1 } as { season?: number; week?: number }));
     const season = Number(st.season || new Date().getFullYear());
     const week = Number(st.week || 1);
@@ -40,7 +28,7 @@ export async function GET() {
     type Flag = { team: string; type: 'violation' | 'warning'; message: string };
     const actual: Flag[] = [];
     const potential: Flag[] = [];
-    const isOfficial = runType === 'sun_pm_official';
+    const isOfficial = false;
 
     // Load player meta for ID->name mapping
     const players = await shared.once('all-players', () => getAllPlayersCached()).catch(() => ({} as Record<string, { first_name?: string; last_name?: string } >));
@@ -51,10 +39,13 @@ export async function GET() {
       return name || pid;
     };
 
+    if (teams.length !== 12) return Response.json({ error: 'Incomplete team roster' }, { status: 503 });
+    let checkedTeams = 0;
     for (const t of teams) {
       try {
         const res = await validateTaxiForRoster(String(season), t.rosterId, shared);
-        if (!res) continue;
+        if (!res) throw new Error('Missing taxi validation result');
+        checkedTeams++;
         const msgParts: string[] = [];
         const nonCompliant = !res.compliant;
         for (const v of res.violations) {
@@ -62,7 +53,7 @@ export async function GET() {
           else if (v.code === 'too_many_qbs') msgParts.push('2+ QBs on taxi (limit 1)');
           else if (v.code === 'invalid_intake') msgParts.push('Taxi intake must be FA/Trade/Draft');
           else if (v.code === 'roster_inconsistent') msgParts.push('Taxi conflicts with starters/IR');
-          else if (v.code === 'boomerang_active_player') {
+          else if (v.code === 'boomerang_active_player' || v.code === 'boomerang_reset_ineligible') {
             const names = (v.players || []).map(nameOf).slice(0, 3).join(', ');
             msgParts.push(`Previously active this tenure on taxi${names ? `: ${names}` : ''}`);
           }
@@ -92,12 +83,15 @@ export async function GET() {
             degraded: false,
           });
         } catch {}
-      } catch {}
+      } catch (error) {
+        console.error('[taxi-report] Team audit failed', t.teamName, error);
+        return Response.json({ error: 'Incomplete taxi audit', checkedTeams, expectedTeams: teams.length }, { status: 503 });
+      }
     }
 
-    return Response.json({ generatedAt: now.toISOString(), lastRunAt: now.toISOString(), runType, season, week, actual, potential });
-  } catch {
-    const ts = new Date().toISOString();
-    return Response.json({ generatedAt: ts, lastRunAt: ts, actual: [], potential: [] });
+    return Response.json({ generatedAt: now.toISOString(), lastRunAt: now.toISOString(), runType, season, week, actual, potential, complete: checkedTeams === teams.length, checkedTeams, expectedTeams: teams.length });
+  } catch (error) {
+    console.error('[taxi-report] Audit failed', error);
+    return Response.json({ error: 'Taxi audit failed' }, { status: 500 });
   }
 }
