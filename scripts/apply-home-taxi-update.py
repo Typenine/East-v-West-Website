@@ -259,7 +259,6 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
 
       // This is NOT a scheduled job. The first homepage view on a day can
       // claim one audit through a database gate. Other views reuse the saved data.
-      setLoading(true);
       try {
         const response = await fetch("/api/taxi/daily", { method: "POST", cache: "no-store" });
         if (response.ok) {
@@ -268,8 +267,6 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
         }
       } catch {
         // Preserve yesterday's report when the on-demand refresh is unavailable.
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
