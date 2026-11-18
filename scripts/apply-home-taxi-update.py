@@ -226,18 +226,53 @@ export default function TaxiBanner({ initial }: { initial: TaxiFlags }) {
     }));
   }, []);
 
-  const loadLatest = useCallback(async () => {
+  // Eastern calendar day matches the league's enforcement time zone.
+  const dayET = (date: Date) => {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+    });
+    const parts = fmt.formatToParts(date);
+    const part = (type: string) => parts.find((value) => value.type === type)?.value || "";
+    return [part("year"), part("month"), part("day")].join("-");
+  };
+
+  const loadLatest = useCallback(async (): Promise<Partial<TaxiFlags> | null> => {
     try {
       const response = await fetch("/api/taxi/flags", { cache: "no-store" });
-      if (!response.ok) return;
-      applyPayload((await response.json()) as Partial<TaxiFlags>);
+      if (!response.ok) return null;
+      const payload = (await response.json()) as Partial<TaxiFlags>;
+      applyPayload(payload);
+      return payload;
     } catch {
-      // The server-rendered snapshot remains available when a background refresh fails.
+      // Never clear an existing report if refreshing the saved snapshot fails.
+      return null;
     }
   }, [applyPayload]);
 
   useEffect(() => {
-    void loadLatest();
+    let cancelled = false;
+    void (async () => {
+      const saved = await loadLatest();
+      if (cancelled || !saved) return;
+      const mostRecent = saved.runType ? saved.lastRunAt || saved.generatedAt : undefined;
+      if (mostRecent && dayET(new Date(mostRecent)) === dayET(new Date())) return;
+
+      // This is NOT a scheduled job. The first homepage view on a day can
+      // claim one audit through a database gate. Other views reuse the saved data.
+      setLoading(true);
+      try {
+        const response = await fetch("/api/taxi/daily", { method: "POST", cache: "no-store" });
+        if (response.ok) {
+          const result = (await response.json()) as { refreshed?: boolean };
+          if (!cancelled && result.refreshed) await loadLatest();
+        }
+      } catch {
+        // Preserve yesterday's report when the on-demand refresh is unavailable.
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [loadLatest]);
 
   const incomplete = flags.degraded === true || flags.complete === false;
