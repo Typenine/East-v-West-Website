@@ -50,9 +50,9 @@ export function calculateHistoricalLuck(
   season: string,
   throughWeek: number,
   teamCount: number,
-  referenceWindow: HistoricalReferenceWindow = { season, throughWeek },
+  referenceWindow?: HistoricalReferenceWindow,
 ): HistoricalLuckReport {
-  const { season: referenceSeason, throughWeek: referenceThroughWeek } = referenceWindow;
+  const { season: referenceSeason, throughWeek: referenceThroughWeek } = referenceWindow ?? { season, throughWeek };
   if (!/^\d{4}$/.test(season) || season < '2023' || !Number.isInteger(throughWeek) ||
     throughWeek < 0 || throughWeek > 14 || !Number.isInteger(teamCount) ||
     teamCount < 2 || teamCount % 2 !== 0 ||
@@ -95,13 +95,15 @@ export function calculateHistoricalLuck(
     }
     if (ids.size !== teamCount) throw new Error('Missing teams in ' + key);
   }
-  // Require every expected historical week so missing scores cannot skew the
-  // shared reference pool (including for seasons earlier than the target).
-  for (let y = 2023; y <= Number(referenceSeason); y++) {
-    const completeWeeks = String(y) === referenceSeason ? referenceThroughWeek : 14;
-    for (let w = 1; w <= completeWeeks; w++) {
-      if (!byWeek.has(y + '-' + w)) {
-        throw new Error('Finalized Week ' + w + ' of ' + y + ' has no complete data.');
+  // The API supplies an explicit reference window. With one, require all
+  // completed prior seasons to be present, not just the target season.
+  if (referenceWindow) {
+    for (let y = 2023; y <= Number(referenceSeason); y++) {
+      const completeWeeks = String(y) === referenceSeason ? referenceThroughWeek : 14;
+      for (let w = 1; w <= completeWeeks; w++) {
+        if (!byWeek.has(y + '-' + w)) {
+          throw new Error('Finalized Week ' + w + ' of ' + y + ' has no complete data.');
+        }
       }
     }
   }
