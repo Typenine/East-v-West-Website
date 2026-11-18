@@ -172,6 +172,12 @@ async function fetchKTC(): Promise<KTCPlayer[]> {
   }
 
   const live = await scrapeKTCLive();
+  // A blocked/partial page load must never overwrite a previously complete
+  // KTC dataset. The user's trade values stay available and accurate.
+  if (lastStored.length && live.length < lastStored.length * 0.75) {
+    console.warn('[trade-analyzer] KTC refresh incomplete, preserving saved data');
+    return lastStored;
+  }
   if (live.length > 0) {
     // Keep the data reusable by all regions and all subsequent deployments.
     // Refreshing the existing R2 object preserves the same format and callers.
