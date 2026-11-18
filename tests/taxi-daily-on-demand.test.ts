@@ -18,7 +18,7 @@ describe('taxi on-demand daily report', () => {
     expect(gate).toContain("WHERE taxi_daily_audit_claims.status = 'running'");
     expect(api).toContain('claimTaxiAuditDay(day)');
     expect(api).toContain('finishTaxiAuditDay(day, claimId, success)');
-    expect(api).toContain("same-origin");
+    expect(api).toContain("Same-origin request required");
     expect(api).toContain('runTaxiReport()');
     expect(workflow).toContain('workflow_dispatch:');
     expect(workflow).not.toMatch(/^\s+schedule:/m);
