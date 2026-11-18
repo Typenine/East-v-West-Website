@@ -44,6 +44,7 @@ type TeamStatus = {
 
 type ScoreboardPayload = {
   teamStatuses?: Record<string, TeamStatus>;
+  games?: Array<{ state: "pre" | "in" | "post"; startDate: string }>;
 };
 
 type MatchupPointsPayload = {
@@ -207,8 +208,14 @@ export default function SeasonMatchups({
           if (!cancelled) {
             const nextStatuses = payload.teamStatuses || {};
             setStatuses(nextStatuses);
-            lastInterval = Object.values(nextStatuses).some((game) => game.state === "in")
-              ? 30_000 : 180_000;
+            const live = Object.values(nextStatuses).some((game) => game.state === "in");
+            const nearKickoff = (payload.games || []).some((game) => {
+              const kickoff = Date.parse(game.startDate);
+              return game.state === "pre" && Number.isFinite(kickoff)
+                && kickoff - Date.now() < 10 * 60_000
+                && kickoff - Date.now() > -5 * 60_000;
+            });
+            lastInterval = live || nearKickoff ? 30_000 : 180_000;
           }
         } else {
           // Keep checking relatively soon if the scoreboard is temporarily unavailable.
