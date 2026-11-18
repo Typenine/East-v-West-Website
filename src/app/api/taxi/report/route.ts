@@ -1,7 +1,8 @@
 import { getNFLState, getTeamsData, getAllPlayersCached } from '@/lib/utils/sleeper-api';
 import { LEAGUE_IDS } from '@/lib/constants/league';
 import { writeTaxiSnapshot } from '@/server/db/queries.fixed';
-import { createTaxiValidationRequestCache, validateTaxiForRoster } from '@/lib/server/taxi-validator';
+import { validateTaxiForRoster } from '@/lib/server/taxi-validator';
+import { createTaxiValidationRequestCache } from '@/lib/server/taxi-request-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
