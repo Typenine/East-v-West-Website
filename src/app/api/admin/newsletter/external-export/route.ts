@@ -4,6 +4,8 @@ import { listNewslettersMeta } from '@/server/db/newsletter-queries';
 import { isAdminCookieValue } from '@/lib/auth/admin';
 import { LEAGUE_CALENDARS } from '@/lib/constants/league-calendar';
 import { buildTradeDeadlineAudit } from '@/lib/newsletter/trade-deadline-export';
+import { buildWeeklyRecapManifest } from '@/lib/newsletter/weekly-recap-export';
+import { getLeagueMatchups, type SleeperMatchup } from '@/lib/utils/sleeper-api';
 import type { Trade } from '@/lib/utils/trades';
 
 export const runtime = 'nodejs';
@@ -84,15 +86,34 @@ export async function GET(req: NextRequest): Promise<Response> {
       if (calendar.estimatedFields?.includes('tradeDeadline')) {
         audit.warnings.push('This season\'s deadline date is estimated in the league calendar; confirm it against the rulebook and Sleeper before publishing.');
       }
+      const league = (payload.league ?? {}) as { leagueId?: string };
+      const rosters = (payload.rosters ?? []) as Array<{ rosterId: number; team: string }>;
+      const lineups = (payload.lineupReview ?? {}) as {
+        teams?: Array<{ rosterId: number; team: string; matchupId: number | null; teamPoints: number | null }>;
+      };
+      const upcoming = league.leagueId
+        ? await getLeagueMatchups(league.leagueId, 13, { forceFresh: true, timeoutMs: 20000 })
+          .catch(() => [] as SleeperMatchup[])
+        : [];
+      const weeklyManifest = buildWeeklyRecapManifest({
+        completedWeek: 12,
+        upcomingWeek: 13,
+        rosters,
+        completedLineups: lineups.teams ?? [],
+        upcomingSleeperMatchups: upcoming,
+      });
       payload.tradeDeadlineAudit = audit;
+      payload.weeklyRecapManifest = weeklyManifest;
       payload.generationDirective = {
         ...directive,
-        episodeTiming: 'Post-deadline retrospective only; freeze league analysis at the exported source-pack snapshot after Week 12 completes.',
-        transactionCutoff: 'For this special, use the complete, chronological tradeDeadlineAudit for ALL completed regular-season trades through the end-of-Week-12 deadline. The previous published issue cutoff (' +
-          (cutoff?.publishedAt ?? 'not available') +
-          ') is a prior-coverage reference, NOT a filter excluding earlier transactions. Verify prior published coverage; do not assume any older deal was already discussed.',
-        length: 'Aim for a substantial 45-55-page, approximately 50-page magazine issue. Every trade and all 12 franchise strategies deserve real analysis; no filler or artificial page inflation.',
-        completeness: 'Reconcile every completed trade ID in the ledger against the finished issue. Evaluate pending trades only as unresolved. Flag data-quality failures and date-only ambiguities rather than guessing.',
+        editionType: 'ONE complete Week 12 Weekly Recap plus additional Trade Deadline Dossier in the SAME issue.',
+        episodeTiming: 'Post-deadline combined Week 12 recap and trade retrospective. Freeze factual conclusions to the exported snapshot and verify final Week 12 scores.',
+        requiredWeeklyRecap: 'Keep ALL nine usual weekly sections in order: Opening Exchange; Transactions Since the Last Issue; all six completed Week 12 matchup reviews; both complete, independently formed 1-12 power rankings interleaved by rank; League Pulse; Stock Watch; Clancy\'s Receipt Desk with verified scoreboard/receipts; all six Week 13 previews with each writer\'s pick; one Final Word. Insert the supplemental Trade Deadline Dossier after the six previews and before Final Word. Never shorten or omit weekly coverage in favor of deadline coverage.',
+        transactionCutoff: 'The ordinary weekly Transactions Since the Last Issue section covers moves strictly after ' +
+          (cutoff?.publishedAt ?? 'the latest available verified prior issue cutoff') +
+          '. Separately, the ADDITIONAL Trade Deadline Dossier reviews the full chronological tradeDeadlineAudit of all completed 2026 in-season trades through Week 12, including older deals as strategic history. Do not duplicate detailed analysis or treat older deals as new.',
+        length: 'ONE approximately 50-page combined publication: preserve the full roughly 30-page Week 12 recap and ADD approximately 15-20 pages of substantial trade-deadline analysis. Ideal total 45-55 pages without filler or shrinking weekly sections.',
+        completeness: 'Before publication verify six finished Week 12 matchups, both full 1-12 rankings, all normal weekly recurring sections, six Week 13 previews and independently reasoned picks, and every completed trade ID in the deadline ledger. If weeklyRecapManifest validation is incomplete, obtain a verified league schedule before writing; never invent or silently skip matchups. Separate pending trade claims and flag uncertain transaction timings.',
       };
     } else {
       payload.generationDirective = {

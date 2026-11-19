@@ -207,9 +207,10 @@ export default function ExternalNewsletterWritingRoomPage() {
           </div>
           {episodeType === 'trade_deadline' && (
             <p className="text-xs leading-5 text-[var(--muted)]">
-              Post-deadline special, Week 12. The Source Pack download opens after the season&apos;s Week 12 trade deadline closes.
-              It includes a chronological completed-trade audit and instructions for an approximately 50-page ChatGPT-written issue.
-              Download both Active Brains alongside the Compact Episode Pack. This does not replace the normal Weekly Recap.
+              Week 12 Recap + Trade Deadline Special, ONE combined issue. Download after the Week 12 deadline closes.
+              The pack includes all six Week 12 result pairings, all six Week 13 preview pairings, and the chronological trade audit.
+              Keep the complete usual weekly recap (around 30 pages), then add the expanded deadline dossier for an approximately 50-page PDF.
+              Download both Active Brains with the Compact Episode Pack. No separate Week 12 recap is needed.
             </p>
           )}
 

@@ -176,6 +176,7 @@ export function buildTradeDeadlineAudit(input: {
     },
     warnings,
     instructions: [
+      'This deadline ledger is an ADDITIONAL feature inside the full Week 12 Weekly Recap, not a substitute issue. Every recurring weekly section still must appear in full.',
       'This ledger covers every recovered completed trade from regular-season kickoff through the end-of-Week-12 deadline. Earlier offseason trades remain in historyAndTransactions as background.',
       'Audit every completed trade by ID in chronological order, including deals already discussed in prior issues. Expand important transactions; give smaller but still substantive deals concise judgment.',
       'Previous publication before a trade does not prove the trade was covered. Claim earlier coverage only when supported by published sections or a verified receipt. No exact-ID match means unverified, not never covered.',
