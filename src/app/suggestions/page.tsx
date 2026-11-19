@@ -46,6 +46,18 @@ type Tallies = Record<string, { up: number; down: number }>;
 const CATEGORIES = ['Rules', 'Website', 'Discord', 'Location', 'Other'];
 
 type SortOption = 'newest' | 'oldest' | 'closest_to_ballot';
+type StatusOption = 'all' | 'active' | 'vote_passed' | 'vote_failed' | 'needs_clarification' | 'voted_on' | 'other';
+
+// Match the admin categories. An "Added" suggestion is considered passed.
+// Archived suggestions are already excluded from the public suggestions API.
+function suggestionStatus(s: Suggestion): Exclude<StatusOption, 'all'> {
+  if (s.status === 'accepted' || s.voteTag === 'vote_passed') return 'vote_passed';
+  if (s.voteTag === 'vote_failed') return 'vote_failed';
+  if (s.voteTag === 'voted_on') return 'voted_on';
+  if (s.vague) return 'needs_clarification';
+  if (!s.status || s.status === 'open') return 'active';
+  return 'other';
+}
 
 export default function SuggestionsPage() {
   type Draft = {
@@ -59,6 +71,7 @@ export default function SuggestionsPage() {
     { category: '', content: '', title: '', rules: null },
   ]);
   const [sortBy, setSortBy] = useState<SortOption>('newest');
+  const [statusFilter, setStatusFilter] = useState<StatusOption>('all');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<Suggestion[]>([]);
@@ -315,6 +328,19 @@ export default function SuggestionsPage() {
   const darkSelectClass = `${darkFieldClass} !bg-[var(--panel-tint-medium)] !border-[var(--panel-hairline)] !text-[var(--panel-text)]`;
   const darkTextareaClass = `${darkFieldClass} !bg-[var(--panel-tint-medium)] !border-[var(--panel-hairline)] !text-[var(--panel-text)] placeholder:!text-[var(--panel-faint)]`;
 
+  const statusCounts: Record<Exclude<StatusOption, 'all'>, number> = {
+    active: 0,
+    vote_passed: 0,
+    vote_failed: 0,
+    needs_clarification: 0,
+    voted_on: 0,
+    other: 0,
+  };
+  for (const item of items) statusCounts[suggestionStatus(item)]++;
+  const filteredItems = statusFilter === 'all'
+    ? items
+    : items.filter((item) => suggestionStatus(item) === statusFilter);
+
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="League Suggestions" />
@@ -499,8 +525,8 @@ export default function SuggestionsPage() {
         </div>
 
         <div className="lg:col-span-2 space-y-6">
-          {/* Ballot Queue Section */}
-          {(() => {
+          {/* The ballot queue is relevant only for the All and Active views. */}
+          {(statusFilter === 'all' || statusFilter === 'active') && (() => {
             // Helper to compute eligible endorsement count (excludes proposer)
             const getEligibleCount = (s: Suggestion) => {
               const endorsers = s.endorsers || [];
@@ -510,7 +536,7 @@ export default function SuggestionsPage() {
             // Ballot-eligible items: >= 3 eligible endorsements, not finalized (no voteTag or voteTag === 'voted_on')
             const ballotQueue = items.filter((s) => {
               const eligibleCount = getEligibleCount(s);
-              const isFinalized = s.voteTag === 'vote_passed' || s.voteTag === 'vote_failed';
+              const isFinalized = s.status === 'accepted' || s.voteTag === 'vote_passed' || s.voteTag === 'vote_failed';
               return eligibleCount >= ENDORSEMENT_THRESHOLD && !isFinalized && !s.vague;
             }).sort((a, b) => {
               // Sort by ballotAddedAt (oldest first in queue)
@@ -567,27 +593,54 @@ export default function SuggestionsPage() {
           })()}
 
           <div className="space-y-4">
-              <div className="flex items-center justify-end gap-2 flex-wrap">
-                <span className={broadcastLabelClass} style={broadcastFaintTextStyle}>Sort</span>
-                <Select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as SortOption)}
-                  className={`${darkSelectClass} !w-auto text-sm py-1`}
-                  fullWidth={false}
-                >
-                  <option value="newest">Newest first</option>
-                  <option value="oldest">Oldest first</option>
-                  <option value="closest_to_ballot">Closest to ballot</option>
-                </Select>
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                <label className="flex min-w-0 items-center gap-2">
+                  <span className={broadcastLabelClass} style={broadcastFaintTextStyle}>Status</span>
+                  <Select
+                    aria-label="Filter suggestions by status"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as StatusOption)}
+                    className={`${darkSelectClass} !w-auto max-w-[min(70vw,19rem)] text-sm py-1`}
+                    fullWidth={false}
+                  >
+                    <option value="all">All ({items.length})</option>
+                    <option value="active">Active ({statusCounts.active})</option>
+                    <option value="vote_passed">Vote Passed ({statusCounts.vote_passed})</option>
+                    <option value="vote_failed">Vote Failed ({statusCounts.vote_failed})</option>
+                    <option value="needs_clarification">Needs Clarification ({statusCounts.needs_clarification})</option>
+                    <option value="voted_on">Voted On, Result Pending ({statusCounts.voted_on})</option>
+                    {statusCounts.other > 0 && <option value="other">Other ({statusCounts.other})</option>}
+                  </Select>
+                </label>
+                <label className="flex min-w-0 items-center gap-2">
+                  <span className={broadcastLabelClass} style={broadcastFaintTextStyle}>Sort</span>
+                  <Select
+                    aria-label="Sort suggestions"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortOption)}
+                    className={`${darkSelectClass} !w-auto max-w-full text-sm py-1`}
+                    fullWidth={false}
+                  >
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="closest_to_ballot">Closest to ballot</option>
+                  </Select>
+                </label>
               </div>
               {loading ? (
                 <p style={broadcastMutedTextStyle}>Loading…</p>
               ) : (() => {
-                const activeItems = items.filter((s) => !s.voteTag || s.voteTag === 'voted_on');
-                const closedItems = items.filter((s) => s.voteTag === 'vote_passed' || s.voteTag === 'vote_failed');
+                // Keep the existing All view with a collapsed closed section.
+                // When a status is selected, show its matches directly, even if closed.
+                const activeItems = statusFilter === 'all'
+                  ? filteredItems.filter((s) => !['vote_passed', 'vote_failed'].includes(suggestionStatus(s)))
+                  : filteredItems;
+                const closedItems = statusFilter === 'all'
+                  ? filteredItems.filter((s) => ['vote_passed', 'vote_failed'].includes(suggestionStatus(s)))
+                  : [];
 
                 if (activeItems.length === 0 && closedItems.length === 0) {
-                  return <p style={broadcastMutedTextStyle}>No suggestions yet. Be the first to submit one!</p>;
+                  return <p style={broadcastMutedTextStyle}>{statusFilter === 'all' ? 'No suggestions yet. Be the first to submit one!' : 'No suggestions match this status.'}</p>;
                 }
 
                 const getEligibleCount = (s: Suggestion) =>
@@ -629,6 +682,7 @@ export default function SuggestionsPage() {
                                       key={s.id}
                                       suggestion={s}
                                       index={idx}
+                                      dimmed={suggestionStatus(s) === 'vote_passed' || suggestionStatus(s) === 'vote_failed'}
                                       auth={auth}
                                       myTeam={myTeam}
                                       isAdmin={isAdmin}
@@ -665,7 +719,13 @@ export default function SuggestionsPage() {
                             const closedOrdered = Array.from(closedGroups.values()).map((arr) =>
                               arr.sort((a, b) => (a.groupPos || 0) - (b.groupPos || 0))
                             );
-                            closedOrdered.sort((a, b) => Date.parse(b[0].createdAt) - Date.parse(a[0].createdAt));
+                            if (sortBy === 'newest') {
+                              closedOrdered.sort((a, b) => Date.parse(b[0].createdAt) - Date.parse(a[0].createdAt));
+                            } else if (sortBy === 'oldest') {
+                              closedOrdered.sort((a, b) => Date.parse(a[0].createdAt) - Date.parse(b[0].createdAt));
+                            } else {
+                              closedOrdered.sort((a, b) => getEligibleCount(b[0]) - getEligibleCount(a[0]));
+                            }
                             return closedOrdered.map((arr, gi) => {
                               const first = arr[0];
                               return (
