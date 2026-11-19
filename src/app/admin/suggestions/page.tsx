@@ -24,6 +24,21 @@ type Suggestion = {
   archivedAt?: string | null;
 };
 
+type SuggestionBucket = 'active' | 'archived' | 'vote_passed' | 'vote_failed' | 'needs_clarification' | 'voted_on' | 'other';
+type SuggestionFilter = SuggestionBucket | 'all';
+
+// A suggestion belongs to one category so the counts add up to All.
+// "Added" (accepted) is a successful proposal and counts as Vote Passed.
+function suggestionBucket(item: Suggestion): SuggestionBucket {
+  if (item.archivedAt) return 'archived';
+  if (item.status === 'accepted' || item.voteTag === 'vote_passed') return 'vote_passed';
+  if (item.voteTag === 'vote_failed') return 'vote_failed';
+  if (item.voteTag === 'voted_on') return 'voted_on';
+  if (item.vague) return 'needs_clarification';
+  if (!item.status || item.status === 'open') return 'active';
+  return 'other'; // Draft/rejected or future statuses that need review.
+}
+
 type VotesMap = Record<string, { up: string[]; down: string[] }>; // suggestionId -> { up, down }
 
 export default function AdminSuggestionsPage() {
@@ -32,7 +47,7 @@ export default function AdminSuggestionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [visibilityFilter, setVisibilityFilter] = useState<'active' | 'archived' | 'all' | 'vote_passed' | 'vote_failed' | 'needs_clarification'>('active');
+  const [visibilityFilter, setVisibilityFilter] = useState<SuggestionFilter>('active');
   const [actionError, setActionError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<Record<string, 'saving' | 'saved' | 'error' | null>>({});
 
@@ -66,29 +81,19 @@ export default function AdminSuggestionsPage() {
     return () => { mounted = false; };
   }, []);
 
-  // Active means an open suggestion that still needs consideration, not
-  // merely a suggestion that hasn't been archived.
-  const isActiveSuggestion = (item: Suggestion): boolean =>
-    !item.archivedAt &&
-    !item.vague &&
-    !item.voteTag &&
-    (!item.status || item.status === 'open');
-
-  const activeCount = items.filter(isActiveSuggestion).length;
-  const archivedCount = items.filter((item) => Boolean(item.archivedAt)).length;
-  const passedCount = items.filter((item) => item.voteTag === 'vote_passed').length;
-  const failedCount = items.filter((item) => item.voteTag === 'vote_failed').length;
-  const clarificationCount = items.filter((item) => Boolean(item.vague)).length;
-  const visibleItems = items.filter((item) => {
-    switch (visibilityFilter) {
-      case 'active': return isActiveSuggestion(item);
-      case 'archived': return Boolean(item.archivedAt);
-      case 'vote_passed': return item.voteTag === 'vote_passed';
-      case 'vote_failed': return item.voteTag === 'vote_failed';
-      case 'needs_clarification': return Boolean(item.vague);
-      default: return true;
-    }
-  });
+  const counts: Record<SuggestionBucket, number> = {
+    active: 0,
+    archived: 0,
+    vote_passed: 0,
+    vote_failed: 0,
+    needs_clarification: 0,
+    voted_on: 0,
+    other: 0,
+  };
+  for (const item of items) counts[suggestionBucket(item)]++;
+  const visibleItems = visibilityFilter === 'all'
+    ? items
+    : items.filter((item) => suggestionBucket(item) === visibilityFilter);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -105,12 +110,14 @@ export default function AdminSuggestionsPage() {
                 value={visibilityFilter}
                 onChange={(event) => setVisibilityFilter(event.target.value as typeof visibilityFilter)}
               >
-                <option value="active">Active ({activeCount})</option>
-                <option value="archived">Archived ({archivedCount})</option>
+                <option value="active">Active ({counts.active})</option>
+                <option value="archived">Archived ({counts.archived})</option>
                 <option value="all">All ({items.length})</option>
-                <option value="vote_passed">Vote Passed ({passedCount})</option>
-                <option value="vote_failed">Vote Failed ({failedCount})</option>
-                <option value="needs_clarification">Needs Clarification ({clarificationCount})</option>
+                <option value="vote_passed">Vote Passed ({counts.vote_passed})</option>
+                <option value="vote_failed">Vote Failed ({counts.vote_failed})</option>
+                <option value="needs_clarification">Needs Clarification ({counts.needs_clarification})</option>
+                <option value="voted_on">Voted On, Result Pending ({counts.voted_on})</option>
+                {counts.other > 0 && <option value="other">Other ({counts.other})</option>
               </select>
             </label>
           </div>
