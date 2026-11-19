@@ -4,6 +4,7 @@ export interface ExternalEpisodeFormat {
   purpose: string;
   sections: string[];
   emphasis: string[];
+  publicationTarget?: { targetPages: number; acceptablePages: [number, number]; instruction: string };
 }
 
 export const EXTERNAL_NEWSLETTER_EDITORIAL_BIBLE = `# East v. West Newsletter Editorial Bible
@@ -194,17 +195,35 @@ export const EXTERNAL_EPISODE_FORMATS: Record<string, ExternalEpisodeFormat> = {
   },
   trade_deadline: {
     key: 'trade_deadline',
-    title: 'Trade Deadline',
-    purpose: 'Judge which teams correctly understood their competitive window and what the deadline changed.',
+    title: 'Trade Deadline: After the Dust Settles',
+    purpose: 'A post-Week-12 retrospective: explain every completed in-season trade, independently judge all 12 franchises\' deadline strategies, and reassess the championship race and future franchise value.',
     sections: [
-      'Opening exchange on buyers, sellers, and teams caught between',
-      'Deal-by-deal analysis where the deal materially matters',
-      'Team strategy analysis beyond individual trade grades',
-      'Updated title paths and future asset positions',
-      'Biggest deadline winners, losers, and missed opportunities',
-      'Rest-of-season predictions',
+      'Opening exchange: the 4-7 stories defining the deadline, who bought, who sold, and who stood still',
+      'Chronological transaction ledger: every completed in-season trade in tradeDeadlineAudit, one clear mini-header per trade, assets accurately routed to each participating franchise',
+      'Deal-by-deal review: Mason and Westy independently grade each team\'s side, explain lineup impact, 17-player roster-slot cost, price, alternatives, future picks, and strategic fit',
+      'All 12 franchise deadline chapters: substantive team-specific analysis of each club\'s full sequence of moves or inaction, current window, missed opportunities, and what changes next',
+      'The championship and playoff race after the deadline: seven-team field, #1 bye, remaining schedule, title paths, roster strengths, and fragility',
+      'Dynasty balance sheet: updated future pick control and long-term portfolio positions, distinguishing market value from actual weekly starts',
+      'Winners, losers, and opportunities left on the table: explicit independently reasoned Mason and Westy verdicts',
+      'Rest-of-season calls: distinct, concrete, attributable predictions to revisit in later issues',
+      'Final exchange: what the deadline actually settled and what remains unresolved',
     ],
-    emphasis: ['Analyze sequences of moves as a strategy when the transaction history supports the connection.'],
+    emphasis: [
+      'This special is a separate issue, not a replacement for the normal Week 12 Weekly Recap; do not silently omit the recurring weekly recap in its own publication.',
+      'Use tradeDeadlineAudit.completedTrades as the auditable primary list, not only Week 12 or the transactions since the previous issue. Include every listed trade exactly once in chronological deal coverage, even if previously discussed, and assess connected deals as a sequence where supported.',
+      'Mark a deal as already covered only on verifiable prior-publication evidence. Earlier dates alone do not prove coverage. Make the new discussion additive rather than recycling earlier paragraphs or grading with hindsight.',
+      'Do not grade pending trades as completed. Discuss unresolved or boundary-timing trades separately, with the accepted-before-deadline rule and the uncertainty clearly explained.',
+      'Give every completed deal at least a concise substantive verdict from each writer, with independent per-franchise-side grades. Spend considerably more time on consequential moves; do not pad unimportant deals for symmetry.',
+      'Independently form both hosts\' conclusions first. Allow sharp differences, genuine agreement, and ordinary C grades. Explain costs and displaced starters, not abstract trade-calculator numbers.',
+      'Every one of the 12 franchise chapters must have real depth, including teams that did not trade. Investigate reasons for restraint, missed targets when documented, and contender/rebuild/tanking strategy only when observable evidence supports it.',
+      'Distinguish post-deadline roster outcomes from how a trade was judged when executed; use verified receipts for reversals, and enforce the exported deadline and issue cutoffs.',
+      'The issue should read as one integrated long-form magazine publication with vertical Mason/Westy dialogue and natural prose, not a stitched list of isolated grades.',
+    ],
+    publicationTarget: {
+      targetPages: 50,
+      acceptablePages: [45, 55],
+      instruction: 'Target approximately 50 dense, readable magazine pages, versus the roughly 30-page ordinary recap. This is a depth and coverage target, never permission to add filler, oversized boxes, recycled claims, or artificial page breaks. Let verified substance determine the actual length and never cut required analysis merely to fit the range.',
+    },
   },
   playoffs_preview: {
     key: 'playoffs_preview',
@@ -266,5 +285,5 @@ export function buildWritingRoomMarkdown(input: {
   teamNarrativeCards: unknown[];
   phrasePools: Record<string, string[]>;
 }): string {
-  return `# East v. West Newsletter Writing Room\n\nPermanent generation instructions for externally produced East v. West newsletters. Generated ${input.exportedAt} for the ${input.season} season.\n\n## How to use this file\n\nKeep this file in the ChatGPT project/workspace used to create finished East v. West issues. For each episode, download the separate episode Source Pack from the website and upload it with the request to generate that issue. The episode Source Pack is newer and wins on changing facts such as rosters, values, transactions, bot memory, standings, and draft ownership.\n\n${EXTERNAL_NEWSLETTER_EDITORIAL_BIBLE}\n\n## Episode format library\n\n${Object.values(EXTERNAL_EPISODE_FORMATS).map(format => `### ${format.title}\n\nPurpose: ${format.purpose}\n\nSuggested sections:\n${format.sections.map(section => `- ${section}`).join('\n')}\n\nEmphasis:\n${format.emphasis.map(note => `- ${note}`).join('\n')}`).join('\n\n')}\n\n## Mason Reed permanent personality\n\n\`\`\`json\n${JSON.stringify(input.mason, null, 2)}\n\`\`\`\n\n## Trent Weston / Westy permanent personality\n\n\`\`\`json\n${JSON.stringify(input.westy, null, 2)}\n\`\`\`\n\n## Effective admin personality settings\n\n### Mason\n\n\`\`\`json\n${JSON.stringify(input.masonSettings, null, 2)}\n\`\`\`\n\n### Westy\n\n\`\`\`json\n${JSON.stringify(input.westySettings, null, 2)}\n\`\`\`\n\n## Shared league context\n\n${input.staticLeagueContext}\n\n## League rules\n\n${input.leagueRules}\n\n## Team narrative cards\n\n\`\`\`json\n${JSON.stringify(input.teamNarrativeCards, null, 2)}\n\`\`\`\n\n## Phrase pools and banned language\n\n\`\`\`json\n${JSON.stringify(input.phrasePools, null, 2)}\n\`\`\`\n\n## Final generation directive\n\nWhen an episode Source Pack is supplied, first determine the issue's central stories and each host's position on them. Then write the issue as Mason and Westy, not as an assistant summarizing Mason and Westy. Use neutral prose only for compact factual presentation. Research current NFL information when it materially changes an East v. West conclusion. Run a final fact, continuity, voice, repetition, and analytical-depth review before creating the PDF.\n`;
+  return `# East v. West Newsletter Writing Room\n\nPermanent generation instructions for externally produced East v. West newsletters. Generated ${input.exportedAt} for the ${input.season} season.\n\n## How to use this file\n\nKeep this file in the ChatGPT project/workspace used to create finished East v. West issues. For each episode, download the separate episode Source Pack from the website and upload it with the request to generate that issue. The episode Source Pack is newer and wins on changing facts such as rosters, values, transactions, bot memory, standings, and draft ownership.\n\n${EXTERNAL_NEWSLETTER_EDITORIAL_BIBLE}\n\n## Episode format library\n\n${Object.values(EXTERNAL_EPISODE_FORMATS).map(format => `### ${format.title}\n\nPurpose: ${format.purpose}\n\nSuggested sections:\n${format.sections.map(section => `- ${section}`).join('\n')}\n\nEmphasis:\n${format.emphasis.map(note => `- ${note}`).join('\n')}${format.publicationTarget ? `\n\nPublication length: target ${format.publicationTarget.targetPages} pages (approximately ${format.publicationTarget.acceptablePages[0]}-${format.publicationTarget.acceptablePages[1]}). ${format.publicationTarget.instruction}` : ''}`).join('\n\n')}\n\n## Mason Reed permanent personality\n\n\`\`\`json\n${JSON.stringify(input.mason, null, 2)}\n\`\`\`\n\n## Trent Weston / Westy permanent personality\n\n\`\`\`json\n${JSON.stringify(input.westy, null, 2)}\n\`\`\`\n\n## Effective admin personality settings\n\n### Mason\n\n\`\`\`json\n${JSON.stringify(input.masonSettings, null, 2)}\n\`\`\`\n\n### Westy\n\n\`\`\`json\n${JSON.stringify(input.westySettings, null, 2)}\n\`\`\`\n\n## Shared league context\n\n${input.staticLeagueContext}\n\n## League rules\n\n${input.leagueRules}\n\n## Team narrative cards\n\n\`\`\`json\n${JSON.stringify(input.teamNarrativeCards, null, 2)}\n\`\`\`\n\n## Phrase pools and banned language\n\n\`\`\`json\n${JSON.stringify(input.phrasePools, null, 2)}\n\`\`\`\n\n## Final generation directive\n\nWhen an episode Source Pack is supplied, first determine the issue's central stories and each host's position on them. Then write the issue as Mason and Westy, not as an assistant summarizing Mason and Westy. Use neutral prose only for compact factual presentation. Research current NFL information when it materially changes an East v. West conclusion. Run a final fact, continuity, voice, repetition, and analytical-depth review before creating the PDF.\n`;
 }

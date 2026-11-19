@@ -30,7 +30,7 @@ export default function ExternalNewsletterWritingRoomPage() {
 
   const needsWeek = useMemo(() => !WEEKLESS.has(episodeType), [episodeType]);
   const safeSeason = Number.isFinite(Number(season)) ? Math.trunc(Number(season)) : 2026;
-  const safeWeek = needsWeek && Number.isFinite(Number(week)) ? Math.max(1, Math.trunc(Number(week))) : 0;
+  const safeWeek = episodeType === 'trade_deadline' ? 12 : needsWeek && Number.isFinite(Number(week)) ? Math.max(1, Math.trunc(Number(week))) : 0;
 
   useEffect(() => {
     fetch('/api/admin-login', { credentials: 'include' })
@@ -181,14 +181,14 @@ export default function ExternalNewsletterWritingRoomPage() {
             {needsWeek && (
               <div>
                 <Label className="mb-1 block text-xs">Week</Label>
-                <Input type="number" min={1} max={18} value={week} onChange={event => setWeek(event.target.value)} />
+                <Input type="number" min={1} max={18} value={episodeType === 'trade_deadline' ? '12' : week} disabled={episodeType === 'trade_deadline'} onChange={event => setWeek(event.target.value)} />
               </div>
             )}
             <div className={needsWeek ? 'sm:col-span-2' : 'sm:col-span-3'}>
               <Label className="mb-1 block text-xs">Episode type</Label>
               <select
                 value={episodeType}
-                onChange={event => setEpisodeType(event.target.value)}
+                onChange={event => { setEpisodeType(event.target.value); if (event.target.value === 'trade_deadline') setWeek('12'); }}
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)]"
               >
                 <option value="preseason">Preseason Preview</option>
@@ -205,6 +205,13 @@ export default function ExternalNewsletterWritingRoomPage() {
               </select>
             </div>
           </div>
+          {episodeType === 'trade_deadline' && (
+            <p className="text-xs leading-5 text-[var(--muted)]">
+              Post-deadline special, Week 12. The Source Pack download opens after the season's Week 12 trade deadline closes.
+              It includes a chronological completed-trade audit and instructions for an approximately 50-page ChatGPT-written issue.
+              Download both Active Brains alongside the Compact Episode Pack. This does not replace the normal Weekly Recap.
+            </p>
+          )}
 
           <div className="flex flex-wrap gap-3">
             <Button variant="secondary" onClick={() => void download('writing-room')} disabled={downloading !== null || brainDownloading !== null}>
