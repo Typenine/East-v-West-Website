@@ -66,14 +66,22 @@ export default function AdminSuggestionsPage() {
     return () => { mounted = false; };
   }, []);
 
-  const activeCount = items.filter((item) => !item.archivedAt).length;
-  const archivedCount = items.length - activeCount;
+  // Active means an open suggestion that still needs consideration, not
+  // merely a suggestion that hasn't been archived.
+  const isActiveSuggestion = (item: Suggestion): boolean =>
+    !item.archivedAt &&
+    !item.vague &&
+    !item.voteTag &&
+    (!item.status || item.status === 'open');
+
+  const activeCount = items.filter(isActiveSuggestion).length;
+  const archivedCount = items.filter((item) => Boolean(item.archivedAt)).length;
   const passedCount = items.filter((item) => item.voteTag === 'vote_passed').length;
   const failedCount = items.filter((item) => item.voteTag === 'vote_failed').length;
   const clarificationCount = items.filter((item) => Boolean(item.vague)).length;
   const visibleItems = items.filter((item) => {
     switch (visibilityFilter) {
-      case 'active': return !item.archivedAt;
+      case 'active': return isActiveSuggestion(item);
       case 'archived': return Boolean(item.archivedAt);
       case 'vote_passed': return item.voteTag === 'vote_passed';
       case 'vote_failed': return item.voteTag === 'vote_failed';
