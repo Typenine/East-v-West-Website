@@ -117,7 +117,7 @@ export default function AdminSuggestionsPage() {
                 <option value="vote_failed">Vote Failed ({counts.vote_failed})</option>
                 <option value="needs_clarification">Needs Clarification ({counts.needs_clarification})</option>
                 <option value="voted_on">Voted On, Result Pending ({counts.voted_on})</option>
-                {counts.other > 0 && <option value="other">Other ({counts.other})</option>
+                {counts.other > 0 && <option value="other">Other ({counts.other})</option>}
               </select>
             </label>
           </div>
