@@ -207,7 +207,7 @@ export default function ExternalNewsletterWritingRoomPage() {
           </div>
           {episodeType === 'trade_deadline' && (
             <p className="text-xs leading-5 text-[var(--muted)]">
-              Post-deadline special, Week 12. The Source Pack download opens after the season's Week 12 trade deadline closes.
+              Post-deadline special, Week 12. The Source Pack download opens after the season&apos;s Week 12 trade deadline closes.
               It includes a chronological completed-trade audit and instructions for an approximately 50-page ChatGPT-written issue.
               Download both Active Brains alongside the Compact Episode Pack. This does not replace the normal Weekly Recap.
             </p>
