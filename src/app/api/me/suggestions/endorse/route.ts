@@ -1,5 +1,8 @@
 import { NextRequest } from 'next/server';
 import { requireTeamUser } from '@/lib/server/session';
+import { getDb } from '@/server/db/client';
+import { suggestions } from '@/server/db/schema';
+import { eq } from 'drizzle-orm';
 import {
   addSuggestionEndorsement,
   removeSuggestionEndorsement,
@@ -7,7 +10,6 @@ import {
   getSuggestionVoteTagsMap,
   getSuggestionProposersMap,
   getSuggestionTitlesMap,
-  getSuggestionGroupsMap,
   markBallotEligibleIfThreshold,
 } from '@/server/db/queries';
 
@@ -119,14 +121,27 @@ export async function PUT(req: NextRequest) {
           let category: string | undefined;
           let proposerTeam: string | undefined;
           try {
-            const [titlesMap, groupsMap, proposersMap] = await Promise.all([
+            // The suggestion group ID is a grouping key, not a category.
+            // Fetch the actual category and text for this suggestion only.
+            const [titlesMap, proposersMap, suggestionRows] = await Promise.all([
               getSuggestionTitlesMap(),
-              getSuggestionGroupsMap(),
               getSuggestionProposersMap(),
+              getDb()
+                .select({ category: suggestions.category, text: suggestions.text })
+                .from(suggestions)
+                .where(eq(suggestions.id, suggestionId))
+                .limit(1),
             ]);
-            title = titlesMap[suggestionId];
-            category = groupsMap[suggestionId]?.groupId;
+            const suggestion = suggestionRows[0];
+            category = suggestion?.category?.trim() || undefined;
             proposerTeam = proposersMap[suggestionId];
+
+            // Older suggestions might have no saved title. Use their proposal
+            // text instead of sending a generic "Ballot Eligible" notification.
+            const proposalLine = suggestion?.text.match(/(?:^|\n)Proposal:\s*([^\n]+)/i)?.[1]?.trim();
+            const firstLine = suggestion?.text.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+            const fallbackTitle = (proposalLine || firstLine)?.replace(/^[^:]+:\s*/, '').trim();
+            title = (titlesMap[suggestionId]?.trim() || fallbackTitle || `Suggestion ${suggestionId.slice(0, 8)}`).slice(0, 180);
           } catch {}
           postBallotEligibleDiscord(suggestionId, eligibleCount, title, category, proposerTeam).catch(() => {});
         }
