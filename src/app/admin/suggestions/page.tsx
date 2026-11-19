@@ -32,7 +32,7 @@ export default function AdminSuggestionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [visibilityFilter, setVisibilityFilter] = useState<'active' | 'archived' | 'all'>('active');
+  const [visibilityFilter, setVisibilityFilter] = useState<'active' | 'archived' | 'all' | 'vote_passed' | 'vote_failed' | 'needs_clarification'>('active');
   const [actionError, setActionError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<Record<string, 'saving' | 'saved' | 'error' | null>>({});
 
@@ -68,9 +68,19 @@ export default function AdminSuggestionsPage() {
 
   const activeCount = items.filter((item) => !item.archivedAt).length;
   const archivedCount = items.length - activeCount;
-  const visibleItems = items.filter((item) =>
-    visibilityFilter === 'all' || (visibilityFilter === 'archived' ? Boolean(item.archivedAt) : !item.archivedAt)
-  );
+  const passedCount = items.filter((item) => item.voteTag === 'vote_passed').length;
+  const failedCount = items.filter((item) => item.voteTag === 'vote_failed').length;
+  const clarificationCount = items.filter((item) => Boolean(item.vague)).length;
+  const visibleItems = items.filter((item) => {
+    switch (visibilityFilter) {
+      case 'active': return !item.archivedAt;
+      case 'archived': return Boolean(item.archivedAt);
+      case 'vote_passed': return item.voteTag === 'vote_passed';
+      case 'vote_failed': return item.voteTag === 'vote_failed';
+      case 'needs_clarification': return Boolean(item.vague);
+      default: return true;
+    }
+  });
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -85,11 +95,14 @@ export default function AdminSuggestionsPage() {
               <select
                 className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]"
                 value={visibilityFilter}
-                onChange={(event) => setVisibilityFilter(event.target.value as 'active' | 'archived' | 'all')}
+                onChange={(event) => setVisibilityFilter(event.target.value as typeof visibilityFilter)}
               >
                 <option value="active">Active ({activeCount})</option>
                 <option value="archived">Archived ({archivedCount})</option>
                 <option value="all">All ({items.length})</option>
+                <option value="vote_passed">Vote Passed ({passedCount})</option>
+                <option value="vote_failed">Vote Failed ({failedCount})</option>
+                <option value="needs_clarification">Needs Clarification ({clarificationCount})</option>
               </select>
             </label>
           </div>
@@ -101,7 +114,7 @@ export default function AdminSuggestionsPage() {
           ) : error ? (
             <p className="text-[var(--danger)]">{error}</p>
           ) : visibleItems.length === 0 ? (
-            <p className="text-[var(--muted)]">No {visibilityFilter === 'all' ? '' : visibilityFilter + ' '}suggestions.</p>
+            <p className="text-[var(--muted)]">No suggestions match this filter.</p>
           ) : (
             <ul className="space-y-4">
               {visibleItems.map((s) => {
