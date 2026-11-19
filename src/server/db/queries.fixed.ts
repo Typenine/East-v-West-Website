@@ -2697,6 +2697,57 @@ export async function getSuggestionEndorsementsMap(): Promise<Record<string, str
   return out;
 }
 
+// --- Suggestion archive (admin-only visibility, preserves votes and endorsements) ---
+let archiveColumnReady: Promise<void> | null = null;
+
+export async function ensureSuggestionArchiveColumn(): Promise<void> {
+  if (!archiveColumnReady) {
+    archiveColumnReady = (async () => {
+      const db = getDb();
+      await db.execute(sql`ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS archived_at timestamptz`);
+    })().catch((error) => {
+      archiveColumnReady = null;
+      throw error;
+    });
+  }
+  await archiveColumnReady;
+}
+
+export async function getSuggestionArchiveMap(): Promise<Record<string, string>> {
+  await ensureSuggestionArchiveColumn();
+  const db = getDb();
+  const result = await db.execute(sql`SELECT id::text AS id, archived_at FROM suggestions WHERE archived_at IS NOT NULL`);
+  const rows = (result as unknown as { rows?: Array<{ id: string; archived_at: Date | string }> }).rows || [];
+  const archived: Record<string, string> = {};
+  for (const row of rows) {
+    if (row.id && row.archived_at) archived[row.id] = new Date(row.archived_at).toISOString();
+  }
+  return archived;
+}
+
+export async function isSuggestionArchived(id: string): Promise<boolean> {
+  await ensureSuggestionArchiveColumn();
+  const db = getDb();
+  const result = await db.execute(sql`SELECT archived_at FROM suggestions WHERE id = ${id}::uuid`);
+  const row = (result as unknown as { rows?: Array<{ archived_at: Date | string | null }> }).rows?.[0];
+  return Boolean(row?.archived_at);
+}
+
+export async function setSuggestionArchived(id: string, archived: boolean): Promise<{ archivedAt: string | null } | null> {
+  await ensureSuggestionArchiveColumn();
+  const db = getDb();
+  const timestamp = archived ? new Date().toISOString() : null;
+  const result = await db.execute(sql`
+    UPDATE suggestions
+    SET archived_at = ${timestamp}::timestamptz
+    WHERE id = ${id}::uuid
+    RETURNING archived_at
+  `);
+  const row = (result as unknown as { rows?: Array<{ archived_at: Date | string | null }> }).rows?.[0];
+  if (!row) return null;
+  return { archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null };
+}
+
 // --- Suggestion vote tags (Voted On / Vote Passed / Vote Failed) ---
 export async function ensureSuggestionVoteTagColumn() {
   try {

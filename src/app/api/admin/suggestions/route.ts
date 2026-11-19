@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { updateSuggestionStatus, deleteSuggestion, setSuggestionSponsor, setSuggestionVague, setSuggestionVoteTag, setSuggestionProposer, setSuggestionTitle } from '@/server/db/queries';
+import { updateSuggestionStatus, deleteSuggestion, setSuggestionSponsor, setSuggestionVague, setSuggestionVoteTag, setSuggestionProposer, setSuggestionTitle, setSuggestionArchived } from '@/server/db/queries';
 import { canonicalizeTeamName } from '@/lib/server/user-identity';
 import { isAdminCookieValue } from '@/lib/auth/admin';
 
@@ -20,6 +20,9 @@ export async function PUT(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const id = typeof body?.id === 'string' ? body.id : '';
   const status = body?.status as 'draft' | 'open' | 'accepted' | 'rejected' | undefined;
+  const archivedRaw = body?.archived;
+  if (archivedRaw !== undefined && typeof archivedRaw !== 'boolean') return Response.json({ error: 'invalid archived value' }, { status: 400 });
+  const archived: boolean | undefined = archivedRaw;
   const sponsorRaw = body?.sponsorTeam;
   let sponsorTeam: string | null | undefined = undefined;
   const proposerRaw = body?.proposerTeam;
@@ -59,11 +62,17 @@ export async function PUT(req: NextRequest) {
     title = null;
   }
   if (!id) return Response.json({ error: 'id required' }, { status: 400 });
-  if (!status && sponsorTeam === undefined && proposerTeam === undefined && vague === undefined && voteTag === undefined && title === undefined) {
+  if (!status && sponsorTeam === undefined && proposerTeam === undefined && vague === undefined && voteTag === undefined && title === undefined && archived === undefined) {
     return Response.json({ error: 'nothing to update' }, { status: 400 });
   }
   try {
     let resolvedAt: string | null | undefined;
+    let archivedAt: string | null | undefined;
+    if (archived !== undefined) {
+      const row = await setSuggestionArchived(id, archived);
+      if (!row) return Response.json({ error: 'not found' }, { status: 404 });
+      archivedAt = row.archivedAt;
+    }
     if (status) {
       if (!['draft', 'open', 'accepted', 'rejected'].includes(status)) {
         return Response.json({ error: 'invalid status' }, { status: 400 });
@@ -86,7 +95,7 @@ export async function PUT(req: NextRequest) {
     if (title !== undefined) {
       await setSuggestionTitle(id, title);
     }
-    return Response.json({ ok: true, id, status, resolvedAt: resolvedAt ?? null, sponsorTeam: sponsorTeam ?? undefined, proposerTeam: proposerTeam ?? undefined, vague, voteTag, title: title ?? undefined });
+    return Response.json({ ok: true, id, status, resolvedAt: resolvedAt ?? null, sponsorTeam: sponsorTeam ?? undefined, proposerTeam: proposerTeam ?? undefined, vague, voteTag, title: title ?? undefined, archivedAt });
   } catch {
     return Response.json({ error: 'update failed' }, { status: 500 });
   }

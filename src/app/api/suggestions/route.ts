@@ -1,4 +1,6 @@
 import { promises as fs } from 'fs';
+import { NextRequest } from 'next/server';
+import { isAdminCookieValue } from '@/lib/auth/admin';
 import path from 'path';
 import { sendEmail } from '@/lib/utils/email';
 import { getKV } from '@/lib/server/kv';
@@ -19,6 +21,7 @@ import {
   getSuggestionTitlesMap,
   setSuggestionTitle,
   getSuggestionBallotAddedAtMap,
+  getSuggestionArchiveMap,
 } from '@/server/db/queries';
 import { requireTeamUser } from '@/lib/server/session';
 
@@ -41,6 +44,7 @@ export type Suggestion = {
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
   groupId?: string;
   groupPos?: number;
+  archivedAt?: string | null;
 };
 
 const DATA_PATH = path.join(process.cwd(), 'data', 'suggestions.json');
@@ -154,7 +158,25 @@ async function readSuggestionsLocalAll(): Promise<Suggestion[]> {
   return Object.values(out);
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const includeArchived = request.nextUrl.searchParams.get('includeArchived') === '1';
+  if (includeArchived && !isAdminCookieValue(request.cookies.get('evw_admin')?.value)) {
+    return Response.json({ error: 'Admin access required' }, { status: 403 });
+  }
+
+  // Fail closed when archive state cannot be read. Falling back to a legacy
+  // cache without the archive filter could expose private archived suggestions.
+  let archivedById: Record<string, string>;
+  try {
+    archivedById = await getSuggestionArchiveMap();
+  } catch (error) {
+    console.error('[suggestions] Failed to load archive visibility', error);
+    return Response.json({ error: 'Suggestions temporarily unavailable' }, { status: 503 });
+  }
+  const forViewer = (items: Suggestion[]): Suggestion[] => includeArchived
+    ? items.map((item) => ({ ...item, archivedAt: archivedById[item.id] || null }))
+    : items.filter((item) => !archivedById[item.id]);
+
   try {
     const rows = await dbListSuggestions();
     if (Array.isArray(rows) && rows.length > 0) {
@@ -240,7 +262,7 @@ export async function GET() {
         if (Object.keys(pmap).length > 0) items = items.map((it) => ({ ...it, proposerTeam: it.proposerTeam || pmap[it.id] }));
         if (Object.keys(vmap).length > 0) items = items.map((it) => ({ ...it, vague: it.vague ?? vmap[it.id] }));
       } catch {}
-      return Response.json(items);
+      return Response.json(forViewer(items));
     }
   } catch {}
   try {
@@ -251,7 +273,7 @@ export async function GET() {
         const arr = JSON.parse(raw) as unknown;
         if (Array.isArray(arr)) {
           const items = (arr as Suggestion[]).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-          return Response.json(items);
+          return Response.json(forViewer(items));
         }
       }
     }
@@ -259,7 +281,7 @@ export async function GET() {
 
   try {
     const local = await readSuggestionsLocalAll();
-    if (local.length > 0) return Response.json(local.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)));
+    if (local.length > 0) return Response.json(forViewer(local.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))));
   } catch {}
   return Response.json([]);
 }

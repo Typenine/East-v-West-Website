@@ -21,6 +21,7 @@ type Suggestion = {
   voteTag?: 'voted_on' | 'vote_passed' | 'vote_failed';
   displayNumber?: number;
   ballotForced?: boolean;
+  archivedAt?: string | null;
 };
 
 type VotesMap = Record<string, { up: string[]; down: string[] }>; // suggestionId -> { up, down }
@@ -31,6 +32,8 @@ export default function AdminSuggestionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [visibilityFilter, setVisibilityFilter] = useState<'active' | 'archived' | 'all'>('active');
+  const [actionError, setActionError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<Record<string, 'saving' | 'saved' | 'error' | null>>({});
 
   useEffect(() => {
@@ -40,7 +43,7 @@ export default function AdminSuggestionsPage() {
         setLoading(true);
         setError(null);
         const [sugRes, votesRes] = await Promise.all([
-          fetch('/api/suggestions', { cache: 'no-store' }),
+          fetch('/api/suggestions?includeArchived=1', { cache: 'no-store', credentials: 'include' }),
           fetch('/api/admin/suggestions/votes', { cache: 'no-store' }),
         ]);
         if (!sugRes.ok) throw new Error('Failed to load suggestions');
@@ -63,24 +66,45 @@ export default function AdminSuggestionsPage() {
     return () => { mounted = false; };
   }, []);
 
+  const activeCount = items.filter((item) => !item.archivedAt).length;
+  const archivedCount = items.length - activeCount;
+  const visibleItems = items.filter((item) =>
+    visibilityFilter === 'all' || (visibilityFilter === 'archived' ? Boolean(item.archivedAt) : !item.archivedAt)
+  );
+
   return (
     <div className="container mx-auto px-4 py-8">
       <SectionHeader title="Admin • Suggestions Votes" />
 
       <Card>
         <CardHeader>
-          <CardTitle>Suggestion Votes</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle>Suggestion Votes</CardTitle>
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-[var(--muted)]">Show</span>
+              <select
+                className="rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]"
+                value={visibilityFilter}
+                onChange={(event) => setVisibilityFilter(event.target.value as 'active' | 'archived' | 'all')}
+              >
+                <option value="active">Active ({activeCount})</option>
+                <option value="archived">Archived ({archivedCount})</option>
+                <option value="all">All ({items.length})</option>
+              </select>
+            </label>
+          </div>
         </CardHeader>
         <CardContent>
+          {actionError && <p role="alert" className="mb-3 text-sm text-[var(--danger)]">{actionError}</p>}
           {loading ? (
             <p className="text-[var(--muted)]">Loading…</p>
           ) : error ? (
             <p className="text-[var(--danger)]">{error}</p>
-          ) : items.length === 0 ? (
-            <p className="text-[var(--muted)]">No suggestions.</p>
+          ) : visibleItems.length === 0 ? (
+            <p className="text-[var(--muted)]">No {visibilityFilter === 'all' ? '' : visibilityFilter + ' '}suggestions.</p>
           ) : (
             <ul className="space-y-4">
-              {items.map((s) => {
+              {visibleItems.map((s) => {
                 const v = votes[s.id] || { up: [], down: [] };
                 const isAccepted = s.status === 'accepted';
                 const sponsorStyle = s.sponsorTeam ? getTeamColorStyle(s.sponsorTeam) : null;
@@ -99,6 +123,9 @@ export default function AdminSuggestionsPage() {
                         })}
                       </div>
                       <div className="flex items-center gap-2">
+                        {s.archivedAt && (
+                          <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] text-[var(--muted)]">Archived</span>
+                        )}
                         {s.category && (
                           <span className="text-xs px-2 py-0.5 rounded-full border border-[var(--border)] evw-surface text-[var(--text)]">{s.category}</span>
                         )}
@@ -422,6 +449,35 @@ export default function AdminSuggestionsPage() {
                           title="Mark as added"
                         >✔ Added</button>
                       )}
+                      <button
+                        className="text-sm px-3 py-1 rounded border border-[var(--border)]"
+                        disabled={busy === s.id}
+                        onClick={async () => {
+                          setBusy(s.id);
+                          setActionError(null);
+                          try {
+                            const response = await fetch('/api/admin/suggestions', {
+                              method: 'PUT',
+                              credentials: 'include',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ id: s.id, archived: !s.archivedAt }),
+                            });
+                            if (!response.ok) {
+                              const body = await response.json().catch(() => ({}));
+                              throw new Error(body?.error || 'Failed to update archive');
+                            }
+                            const result = await response.json();
+                            setItems((previous) => previous.map((item) =>
+                              item.id === s.id ? { ...item, archivedAt: result.archivedAt ?? null } : item
+                            ));
+                          } catch (error) {
+                            setActionError(error instanceof Error ? error.message : 'Failed to update archive');
+                          } finally {
+                            setBusy(null);
+                          }
+                        }}
+                        title={s.archivedAt ? 'Restore suggestion to public view' : 'Hide suggestion from members while preserving its history'}
+                      >{s.archivedAt ? 'Restore' : 'Archive'}</button>
                       <button
                         className="text-sm px-3 py-1 rounded border border-[var(--border)] text-[var(--danger)]"
                         disabled={busy === s.id}

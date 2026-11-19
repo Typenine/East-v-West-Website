@@ -11,6 +11,7 @@ import {
   getSuggestionProposersMap,
   getSuggestionTitlesMap,
   markBallotEligibleIfThreshold,
+  isSuggestionArchived,
 } from '@/server/db/queries';
 
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_SUGGESTIONS_WEBHOOK_URL;
@@ -78,6 +79,16 @@ export async function PUT(req: NextRequest) {
   const endorse = typeof endorseRaw === 'boolean' ? endorseRaw : null;
   if (!suggestionId) return Response.json({ error: 'suggestionId required' }, { status: 400 });
   if (endorse === null) return Response.json({ error: 'endorse boolean required' }, { status: 400 });
+
+  // Archived suggestions are private and cannot receive or lose endorsements.
+  try {
+    if (await isSuggestionArchived(suggestionId)) {
+      return Response.json({ error: 'This suggestion is archived.' }, { status: 403 });
+    }
+  } catch (error) {
+    console.error('[endorse] Failed to check archive status', error);
+    return Response.json({ error: 'Suggestion temporarily unavailable' }, { status: 503 });
+  }
 
   // Block endorsement if suggestion has voteTag or vague flag set
   try {
