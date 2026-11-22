@@ -406,21 +406,6 @@ function TeamPickerInline({ selected, onSelect }: { selected: string; onSelect: 
   );
 }
 
-function TeamPickerList({ selected, onSelect }: { selected: string; onSelect: (team: string) => void }) {
-  return (
-    <div className="max-h-44 overflow-y-auto border-b" style={{ borderColor: PANEL.hairline }}>
-      <AnalyzerDropdownSection>Choose team</AnalyzerDropdownSection>
-      {TEAM_NAMES.map((t) => (
-        <AnalyzerDropdownItem key={t} onClick={() => onSelect(t)}>
-          <span className={`text-sm ${selected === t ? 'font-bold text-[var(--panel-text)]' : 'font-medium'}`} style={selected === t ? undefined : broadcastBodyTextStyle}>
-            {t}
-          </span>
-        </AnalyzerDropdownItem>
-      ))}
-    </div>
-  );
-}
-
 function AnalyzerMainPanel({ title, meta, children }: { title: string; meta?: ReactNode; children: ReactNode }) {
   return (
     <article
@@ -694,56 +679,252 @@ function PickSelector({ values, excluded, onSelect }: { values: TradeValue[]; ex
 function RosterPicker({ values, excluded, onAdd }: { values: TradeValue[]; excluded: Set<string>; onAdd: (a: SelectedAsset) => void; }) {
   const [open, setOpen] = useState(false);
   const [team, setTeam] = useState('');
-  const [roster, setRoster] = useState<{ id: string; name: string; pos: string }[]>([]);
+  const [roster, setRoster] = useState<{ id: string; name: string; pos: string; nfl?: string }[]>([]);
   const [busy, setBusy] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const isMobile = useIsMobile();
-  const close = useCallback(() => setOpen(false), []);
-  useClickOutside(ref, close, open && !isMobile);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [position, setPosition] = useState('ALL');
+  const [lastAdded, setLastAdded] = useState('');
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const teamSelectRef = useRef<HTMLSelectElement>(null);
+  const requestRef = useRef<AbortController | null>(null);
 
-  const valMap = useMemo(() => { const m = new Map<string, TradeValue>(); for (const v of values) m.set(v.sleeperId, v); return m; }, [values]);
+  const close = useCallback(() => {
+    requestRef.current?.abort();
+    setOpen(false);
+    triggerRef.current?.querySelector('button')?.focus();
+  }, []);
 
-  async function loadTeam(t: string) {
-    setTeam(t); setBusy(true);
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusTimer = window.setTimeout(() => teamSelectRef.current?.focus(), 0);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => () => requestRef.current?.abort(), []);
+
+  const valMap = useMemo(() => {
+    const map = new Map<string, TradeValue>();
+    for (const value of values) map.set(value.sleeperId, value);
+    return map;
+  }, [values]);
+
+  async function loadTeam(nextTeam: string) {
+    requestRef.current?.abort();
+    setTeam(nextTeam);
+    setRoster([]);
+    setQuery('');
+    setPosition('ALL');
+    setLastAdded('');
+    setError('');
+    if (!nextTeam) {
+      setBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    requestRef.current = controller;
+    setBusy(true);
     try {
-      const res = await fetch(`/api/draft/team-roster?team=${encodeURIComponent(t)}`);
-      const data = await res.json();
-      setRoster(data.players || []);
-    } catch { setRoster([]); } finally { setBusy(false); }
+      const response = await fetch(`/api/draft/team-roster?team=${encodeURIComponent(nextTeam)}`, { signal: controller.signal });
+      if (!response.ok) throw new Error('Roster unavailable. Try again.');
+      const data = await response.json();
+      if (!controller.signal.aborted) {
+        setRoster(Array.isArray(data.players) ? data.players : []);
+      }
+    } catch (cause) {
+      if (!controller.signal.aborted) {
+        setRoster([]);
+        setError(cause instanceof Error ? cause.message : 'Unable to load this roster.');
+      }
+    } finally {
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        setBusy(false);
+      }
+    }
   }
 
-  const matched = useMemo(() => roster.map((p) => ({ ...p, tv: valMap.get(p.id) })).filter((p) => p.tv && !excluded.has(p.id)), [roster, valMap, excluded]);
+  // Keep already-added players visible, but disabled, so repeated additions
+  // do not make the roster jump or hide players unexpectedly.
+  const matched = useMemo(() => roster
+    .map((player) => ({ ...player, tv: valMap.get(player.id) }))
+    .filter((player) => Boolean(player.tv)), [roster, valMap]);
 
-  const rosterList = (
-    <>
-      <TeamPickerList selected={team} onSelect={loadTeam} />
-      {busy && <div className="px-3 py-4 text-sm text-center" style={broadcastMutedTextStyle}>Loading roster…</div>}
-      {!busy && team && matched.length === 0 && (
-        <div className="px-3 py-4 text-sm text-center" style={broadcastMutedTextStyle}>No matched players found</div>
-      )}
-      {matched.map((p) => (
-        <AnalyzerDropdownItem key={p.id} onClick={() => { onAdd(assetFromValue(p.tv!, false)); setOpen(false); }}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-semibold truncate" style={broadcastBodyTextStyle}>{p.name}</div>
-              <div className="text-xs mt-0.5" style={{ color: PANEL.muted }}>{p.pos}</div>
-            </div>
-            <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(p.tv!.value)}</span>
-          </div>
-        </AnalyzerDropdownItem>
-      ))}
-    </>
-  );
+  const positions = useMemo(() => {
+    const present = new Set(matched.map((player) => player.pos || player.tv?.position || 'Other'));
+    const order = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
+    return ['ALL', ...order.filter((pos) => present.has(pos)), ...Array.from(present).filter((pos) => !order.includes(pos)).sort()];
+  }, [matched]);
+
+  const visiblePlayers = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return matched.filter((player) => {
+      const playerPos = player.pos || player.tv?.position || 'Other';
+      return (position === 'ALL' || playerPos === position)
+        && (!term || player.name.toLowerCase().includes(term)
+          || playerPos.toLowerCase().includes(term)
+          || (player.nfl || player.tv?.team || '').toLowerCase().includes(term));
+    });
+  }, [matched, query, position]);
+
+  const remaining = matched.filter((player) => !excluded.has(player.id)).length;
+
+  function handleDialogKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), select:not([disabled]), input:not([disabled])',
+    );
+    if (!focusable?.length) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 
   return (
-    <div ref={ref} className="relative z-20 min-w-0">
-      <AnalyzerMenuTrigger active={open} onClick={() => setOpen((v) => !v)}>
-        Load from roster…
-      </AnalyzerMenuTrigger>
-      <AnalyzerDropdownSurface open={open} onClose={close} title="Load from roster" isMobile={isMobile}>
-        {rosterList}
-      </AnalyzerDropdownSurface>
-    </div>
+    <>
+      <div ref={triggerRef} className="relative min-w-0">
+        <AnalyzerMenuTrigger active={open} onClick={() => setOpen(true)}>
+          Load from roster…
+        </AnalyzerMenuTrigger>
+      </div>
+      {open && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[300] flex items-end justify-center md:items-center md:p-5">
+          <button type="button" className="absolute inset-0 bg-black/75" aria-label="Close roster picker" onClick={close} />
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="roster-picker-title"
+            onKeyDown={handleDialogKeyDown}
+            className="relative flex h-[min(92dvh,46rem)] w-full min-w-0 flex-col overflow-hidden rounded-t-2xl border md:h-[min(84dvh,42rem)] md:max-w-2xl md:rounded-2xl"
+            style={ANALYZER_DROPDOWN_STYLE}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3 sm:px-5" style={{ borderColor: PANEL.hairline }}>
+              <div className="min-w-0">
+                <h2 id="roster-picker-title" className="text-base font-bold" style={broadcastBodyTextStyle}>Load from roster</h2>
+                <p className="mt-0.5 text-xs" style={broadcastFaintTextStyle}>Choose a team, then add players to this side of the trade.</p>
+              </div>
+              <button type="button" onClick={close} aria-label="Close roster picker" className="shrink-0 rounded-lg border px-3 py-2 text-sm font-semibold" style={{ borderColor: PANEL.hairline, color: PANEL.text }}>Close</button>
+            </div>
+
+            <div className="shrink-0 space-y-3 border-b px-4 py-3 sm:px-5" style={{ borderColor: PANEL.hairline }}>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide" style={broadcastFaintTextStyle}>League team</span>
+                <select
+                  ref={teamSelectRef}
+                  aria-label="Select league team"
+                  value={team}
+                  onChange={(event) => { void loadTeam(event.target.value); }}
+                  className="w-full min-h-11 rounded-lg border px-3 py-2.5 text-base sm:text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                  style={ANALYZER_FIELD_STYLE}
+                >
+                  <option value="">Choose a team…</option>
+                  {TEAM_NAMES.map((name) => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </label>
+              {team && (
+                <>
+                  <AnalyzerFieldInput
+                    type="search"
+                    aria-label="Search roster players"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search this roster by name, position, or NFL team…"
+                  />
+                  <div className="flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="Filter roster positions">
+                    {positions.map((pos) => (
+                      <button
+                        key={pos}
+                        type="button"
+                        aria-pressed={position === pos}
+                        onClick={() => setPosition(pos)}
+                        className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors"
+                        style={{
+                          borderColor: position === pos ? 'var(--accent)' : PANEL.hairline,
+                          background: position === pos ? PANEL.tintStronger : PANEL.tintSoft,
+                          color: PANEL.text,
+                        }}
+                      >{pos === 'ALL' ? 'All positions' : pos}</button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2 sm:px-4" aria-live="polite">
+              {!team ? (
+                <p className="px-3 py-8 text-center text-sm" style={broadcastMutedTextStyle}>Select a league team above to browse its roster.</p>
+              ) : busy ? (
+                <p className="px-3 py-8 text-center text-sm" style={broadcastMutedTextStyle}>Loading {team} roster…</p>
+              ) : error ? (
+                <div className="px-3 py-6 text-center">
+                  <p className="mb-3 text-sm" style={{ color: 'var(--danger)' }}>{error}</p>
+                  <button type="button" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: PANEL.hairline, color: PANEL.text }} onClick={() => { void loadTeam(team); }}>Retry</button>
+                </div>
+              ) : matched.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm" style={broadcastMutedTextStyle}>No roster players with trade values were found for {team}.</p>
+              ) : visiblePlayers.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm" style={broadcastMutedTextStyle}>No players match these filters.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {visiblePlayers.map((player) => {
+                    const picked = excluded.has(player.id);
+                    return (
+                      <li key={player.id}>
+                        <button
+                          type="button"
+                          disabled={picked}
+                          onClick={() => {
+                            if (!player.tv || picked) return;
+                            onAdd(assetFromValue(player.tv, false));
+                            setLastAdded(player.name);
+                          }}
+                          className="flex min-h-14 w-full items-center justify-between gap-4 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-[var(--panel-tint-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] disabled:opacity-50 disabled:cursor-default"
+                        >
+                          <div className="min-w-0">
+                            <span className="block truncate text-sm font-semibold" style={broadcastBodyTextStyle}>{player.name}</span>
+                            <span className="mt-0.5 block text-xs" style={broadcastFaintTextStyle}>
+                              {player.pos || player.tv?.position || 'Player'}{player.nfl || player.tv?.team ? ` · ${player.nfl || player.tv?.team}` : ''}
+                            </span>
+                          </div>
+                          <span className="shrink-0 text-right">
+                            <span className="block text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatValue(player.tv!.value)}</span>
+                            <span className="block text-xs" style={broadcastFaintTextStyle}>{picked ? 'Added' : '+ Add player'}</span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t px-4 py-3 sm:px-5" style={{ borderColor: PANEL.hairline }}>
+              <p className="min-w-0 truncate text-xs" style={broadcastMutedTextStyle}>
+                {lastAdded ? `Added ${lastAdded} · ` : ''}{team && !busy ? `${remaining} available of ${matched.length}` : 'Select a team to begin'}
+              </p>
+              <button type="button" className="shrink-0 rounded-lg border px-4 py-2 text-sm font-semibold" style={{ borderColor: PANEL.hairline, color: PANEL.text, background: PANEL.tintStrong }} onClick={close}>Done</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
