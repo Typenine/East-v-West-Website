@@ -45,7 +45,7 @@ const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 // --- Fetchers ---
 
 async function fetchFantasyCalc(): Promise<FantasyCalcPlayer[]> {
-  const url = 'https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=1';
+  const url = 'https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=0.5';
   const res = await fetch(url, {
     headers: { 'User-Agent': 'EastVWest/1.0' },
     signal: AbortSignal.timeout(10000),
@@ -206,14 +206,20 @@ async function fetchKTC(): Promise<KTCPlayer[]> {
  *  Strips punctuation and common generational suffixes (Jr/Sr/II–IV) so that
  *  e.g. "Travis Etienne Jr." (FC) matches "Travis Etienne" (KTC). */
 function normalizeName(name: string): string {
-  return name
+  // Raw rankings HTML can contain encoded apostrophes; stored browser
+  // snapshots can contain decoded or typographic versions of the same name.
+  const key = name
+    .replace(/&(?:apos|rsquo|lsquo|#0*39|#x0*27|#0*821[67]|#x0*201[89]);/gi, "'")
+    .normalize('NFKD')
     .toLowerCase()
-    .replace(/['.,-]/g, '')
     .replace(/\b(jr|sr|ii|iii|iv)\b/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+    .replace(/[^a-z0-9]/g, '');
 
+  // Explicit aliases for verified differences between FC and KTC labels.
+  if (key === 'chigokonkwo') return 'chigoziemokonkwo';
+  if (key === 'kennygainwell') return 'kennethgainwell';
+  return key;
+}
 // --- Standardized draft pick system ---
 
 const PICK_ROUNDS = [1, 2, 3, 4];
