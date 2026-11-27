@@ -873,7 +873,7 @@ function TradeSide({ label, color, assets, values, excluded, source, grade, effT
 }
 
 function FairnessMeter({ analysis, allAssets }: { analysis: AnalysisResult; allAssets: SelectedAsset[] }) {
-  if (analysis.verdict === 'Add assets to analyze')
+  if (analysis.verdict === 'No assets to analyze')
     return <div className="text-center py-4 text-sm" style={broadcastMutedTextStyle}>Add assets to both sides to see the analysis</div>;
 
   const { ratio, verdict, winner, diff, notes, counterHint, effA, effB } = analysis;
@@ -1463,7 +1463,7 @@ function TradeAnalyzerContent() {
 
   if (error) return (
     <div className="container mx-auto px-4 py-8">
-      <SectionHeader title="Trade Analyzer" subtitle="Dynasty · Superflex · 12-Team · PPR" />
+      <SectionHeader title="Trade Analyzer" subtitle="Dynasty · Superflex · 12-Team · Half PPR" />
       <BroadcastPanel title="Error" accent="var(--danger)">
         <div className="text-center py-8">
           <p style={{ color: 'var(--danger)' }}>{error}</p>
@@ -1482,7 +1482,7 @@ function TradeAnalyzerContent() {
     <div className={`container mx-auto px-4 py-8${showSuggestions ? ' pb-44 sm:pb-36' : ''}`}>
       <SectionHeader
         title="Trade Analyzer"
-        subtitle="Dynasty · Superflex · 12-Team · PPR"
+        subtitle="Dynasty · Superflex · 12-Team · Half PPR"
         actions={isAdmin ? (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {dataSources && (
@@ -1703,7 +1703,7 @@ export default function TradeAnalyzerPage() {
   return (
     <Suspense fallback={
       <div className="container mx-auto px-4 py-8">
-        <SectionHeader title="Trade Analyzer" subtitle="Dynasty · Superflex · 12-Team · PPR" />
+        <SectionHeader title="Trade Analyzer" subtitle="Dynasty · Superflex · 12-Team · Half PPR" />
         <BroadcastPanel title="Loading" accent="var(--accent)">
           <div className="flex items-center justify-center py-16">
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-[var(--accent)] border-t-transparent" />
