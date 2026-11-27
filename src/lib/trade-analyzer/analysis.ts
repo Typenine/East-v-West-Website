@@ -71,55 +71,67 @@ export function getAvgAge(assets: TradeAsset[]): number | null {
   return Math.round((ages.reduce((s, x) => s + x, 0) / ages.length) * 10) / 10;
 }
 
-// Stud premium: concentrated value is worth more than equivalent depth.
-function studMultiplier(value: number): number {
-  if (value >= 8500) return 1.13;
-  if (value >= 7000) return 1.09;
-  if (value >= 5500) return 1.06;
-  if (value >= 4000) return 1.03;
-  return 1.0;
-}
 
-// Depth discount: additional assets on the same side face clutter/throwaway penalties.
-function depthDiscount(idx: number, rawValue: number, sideBest: number): number {
-  const posDiscount = idx <= 1 ? 1.0 : idx === 2 ? 0.92 : idx === 3 ? 0.85 : 0.78;
-  const ratio = sideBest > 0 ? rawValue / sideBest : 1;
-  const valDiscount =
-    ratio >= 0.70 ? 1.0
-    : ratio >= 0.50 ? 0.94
-    : ratio >= 0.30 ? 0.86
-    : ratio >= 0.15 ? 0.74
-    : 0.62;
-  // Only apply the position-order penalty when the asset is meaningfully below the side's best.
-  // Near-equal-value pieces (ratio ≥ 0.85) should not be penalized for being "3rd in order".
-  const effectivePosPenalty = ratio >= 0.85 ? 1.0 : posDiscount;
-  return Math.min(effectivePosPenalty, valDiscount);
+/** Moderate consolidation: keep the strongest asset on each side at market value.
+ * Interpolate the value retained by additional assets relative to the best asset
+ * in the entire trade, with a modest further discount for deeper pieces.
+ */
+const RETENTION_CURVE = [[0, 0.25], [0.15, 0.35], [0.30, 0.50], [0.50, 0.70], [0.70, 0.85], [0.85, 0.95], [1, 1]];
+
+function retainedFraction(ratio: number, index: number): number {
+  const r = Math.max(0, Math.min(1, ratio));
+  const upper = RETENTION_CURVE.findIndex(([x]) => x >= r);
+  const [x1, y1] = RETENTION_CURVE[Math.max(0, upper)];
+  const [x0, y0] = RETENTION_CURVE[Math.max(0, upper - 1)];
+  const quality = x1 === x0 ? y1 : y0 + (y1 - y0) * (r - x0) / (x1 - x0);
+  const depth = Math.min(0.18, 0.04 * Math.max(0, index - 1)) * (1 - r);
+  return quality * (1 - depth);
 }
 
 export function effectiveTotal(
   assets: TradeAsset[],
   source: ValueSource,
-  studScale: number = 1,
+  opposingBest: number = 0,
 ): { total: number; perPlayer: Map<string, number> } {
   const perPlayer = new Map<string, number>();
   if (!assets.length) return { total: 0, perPlayer };
-  const sorted = [...assets].sort((a, b) => getDisplayValue(b, source) - getDisplayValue(a, source));
-  const sideBest = getDisplayValue(sorted[0], source);
-  let total = 0;
-  sorted.forEach((asset, idx) => {
-    const raw = getDisplayValue(asset, source);
-    const v = raw * studMultiplier(raw * studScale) * depthDiscount(idx, raw, sideBest);
-    perPlayer.set(asset.key, Math.round(v));
-    total += v;
+  const sorted = [...assets].sort((a, b) => getDisplayValue(b, source) - getDisplayValue(a, source) || a.key.localeCompare(b.key));
+  const raw = sorted.map((asset) => Math.max(0, getDisplayValue(asset, source)));
+  const reference = Math.max(raw[0], opposingBest, 1);
+  const adjusted = raw.map((v, i) => i === 0 ? v : v * retainedFraction(v / reference, i));
+  const rawTotal = raw.reduce((s, v) => s + v, 0);
+  const initialTotal = adjusted.reduce((s, v) => s + v, 0);
+
+  // Monotonic safeguard: adding a new highest-value asset must never lower the
+  // package total by changing the reference for all existing pieces. The best
+  // value of any suffix is a lower bound on the full package. Usually inactive.
+  let total = initialTotal;
+  for (let start = 1; start < raw.length; start++) {
+    const anchor = Math.max(raw[start], opposingBest, 1);
+    let candidate = raw[start];
+    for (let i = start + 1; i < raw.length; i++) {
+      candidate += raw[i] * retainedFraction(raw[i] / anchor, i - start);
+    }
+    total = Math.max(total, candidate);
+  }
+  const relief = rawTotal > initialTotal ? (total - initialTotal) / (rawTotal - initialTotal) : 0;
+  // Allocate any safeguard relief across discounted pieces, with cumulative
+  // rounding so item-level totals reconcile to the displayed package total.
+  let cumulative = 0;
+  let rounded = 0;
+  sorted.forEach((asset, i) => {
+    cumulative += adjusted[i] + (raw[i] - adjusted[i]) * relief;
+    const next = Math.round(cumulative);
+    perPlayer.set(asset.key, next - rounded);
+    rounded = next;
   });
-  return { total: Math.round(total), perPlayer };
+  return { total: rounded, perPlayer };
 }
 
 export function analyzeTrade(
   sideA: TradeAsset[],
   sideB: TradeAsset[],
   source: ValueSource = 'avg',
-  studScale: number = 1,
 ): AnalysisResult {
   const rawA = sideA.reduce((s, a) => s + getDisplayValue(a, source), 0);
   const rawB = sideB.reduce((s, a) => s + getDisplayValue(a, source), 0);
@@ -132,8 +144,10 @@ export function analyzeTrade(
     };
   }
 
-  const effA = effectiveTotal(sideA, source, studScale).total;
-  const effB = effectiveTotal(sideB, source, studScale).total;
+  const bestA = Math.max(0, ...sideA.map((asset) => getDisplayValue(asset, source)));
+  const bestB = Math.max(0, ...sideB.map((asset) => getDisplayValue(asset, source)));
+  const effA = effectiveTotal(sideA, source, bestB).total;
+  const effB = effectiveTotal(sideB, source, bestA).total;
   const notes: string[] = [];
   const ratio = Math.min(effA, effB) / Math.max(effA, effB, 1);
 
